@@ -96,8 +96,9 @@ def main():
         probe = PROBE.replace("@PATH@", f'"{path}"')
         probe = probe.replace("@OPEN@", source_line(lines, "bracket (openFd path ReadOnly"))
         probe = probe.replace("@READ@", source_line(lines, "if count == 0"))
-        # Expose the SDK; keep Cabal's exact dependency unit IDs unchanged.
-        command = ["cabal", "exec", "--offline", "--", "ghci", "-v0", "-ignore-dot-ghci", "-package", "droid-sdk"]
+        # Use the component's declared packages, not conflicting transitive modules.
+        command = ["cabal", "repl", "--offline", "lib:droid-sdk",
+                   "--repl-options=-v0", "--repl-options=-ignore-dot-ghci"]
         with subprocess.Popen(
             command, cwd=root, text=True, stdin=subprocess.PIPE,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True,
