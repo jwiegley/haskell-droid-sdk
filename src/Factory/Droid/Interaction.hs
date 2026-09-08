@@ -7,6 +7,7 @@ module Factory.Droid.Interaction
     defaultDroidHandlers,
     DroidInteraction (..),
     DroidInteractionFailure (..),
+    DroidMcpFailure (..),
     respondPermission,
     answerDroidQuestion,
     answerDroidQuestionMultiple,
@@ -26,25 +27,32 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Factory.Droid.Internal.Exception (trySync)
+import Factory.Droid.Internal.Stream (DroidEvent)
+import Factory.Droid.Protocol (RpcChannelError)
 import Factory.Droid.Protocol.Dispatch (RpcRequestHandler)
 import Factory.Droid.Schema.Interaction
 import Factory.Droid.Schema.Notifications (ToolConfirmationOutcome)
 import Factory.Droid.Schema.RPC (BaseRequest (..), JsonRpcBaseRequest, WithEnvelope (..))
 
--- | Callbacks may run concurrently on dispatcher-owned workers, including during
--- initialization/loading. Scope exit cancels and joins them. Ordinary failures
--- cancel the interaction; callbacks must cooperate with asynchronous cancellation.
+-- | Permission/question callbacks use concurrent dispatcher-owned workers.
+-- MCP observation instead runs serially on intake, before handle publication
+-- and through replacements. Keep that callback brief: no turns, replacement or
+-- waits for later events. Ordinary callback exceptions are isolated.
 data DroidHandlers = DroidHandlers
   { onDroidPermission :: Maybe (RequestPermissionParams -> IO RequestPermissionResult),
     onDroidQuestion :: Maybe (AskUserParams -> IO AskUserResult),
-    onDroidInteractionFailure :: Maybe (DroidInteractionFailure -> IO ())
+    onDroidInteractionFailure :: Maybe (DroidInteractionFailure -> IO ()),
+    onDroidMcpEvent :: Maybe (Maybe Text -> Either DroidMcpFailure DroidEvent -> IO ())
   }
 
 instance Show DroidHandlers where
   show _ = "DroidHandlers <redacted>"
 
 defaultDroidHandlers :: DroidHandlers
-defaultDroidHandlers = DroidHandlers Nothing Nothing Nothing
+defaultDroidHandlers = DroidHandlers Nothing Nothing Nothing Nothing
+
+data DroidMcpFailure = DroidMcpInvalidEvent | DroidMcpConnectionFailure !RpcChannelError
+  deriving stock (Eq, Show)
 
 data DroidInteraction = PermissionInteraction | QuestionInteraction
   deriving stock (Eq, Show)

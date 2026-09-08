@@ -6,6 +6,7 @@ module Factory.Droid.Protocol
     RpcChannelError (..),
     RpcResultError (..),
     withRpcChannel,
+    closeRpcChannel,
     requestReply,
     requestReplyObserved,
     requestResult,
@@ -100,6 +101,12 @@ withRpcChannel send receive action = do
   channel <- RpcChannel send <$> newMVar () <*> newTVarIO Map.empty <*> newTQueueIO <*> newEmptyTMVarIO
   withAsync (readMessages channel receive) $ \_ ->
     action channel `finally` atomically (stopChannel channel RpcChannelClosed)
+
+-- | Seal the channel without closing its caller-owned transport. Pending and
+-- future requests fail; queued events still drain. The scope retains reader
+-- ownership and joins it on exit. Repeated calls preserve the first failure.
+closeRpcChannel :: RpcChannel -> IO ()
+closeRpcChannel channel = atomically (stopChannel channel RpcChannelClosed)
 
 -- | Send a complete request and await its raw response, retaining remote errors
 -- as BaseFailure values. IDs must be connection-unique; concurrent duplicates

@@ -11,6 +11,7 @@ module Factory.Droid.Protocol.Dispatch
     onRpcNotification,
     onRpcError,
     registerRpcHandler,
+    dispatchRpcRequest,
   )
 where
 
@@ -155,6 +156,12 @@ runDispatcher dispatcher@(RpcDispatcher channel _ state) =
       uninterruptibleMask_ (mapConcurrently_ cancel owned)
       restore (forM_ callbacks (\callback -> void (trySync (callback err))))
 
+-- | Restore an already decoded server request from a session snapshot using
+-- the same owned workers and active-ID deduplication as live requests. Like
+-- intake dispatch, closed dispatchers and already active IDs admit no new work.
+dispatchRpcRequest :: RpcDispatcher -> JsonRpcBaseRequest -> IO ()
+dispatchRpcRequest = startWorker
+
 startWorker :: RpcDispatcher -> JsonRpcBaseRequest -> IO ()
 startWorker dispatcher@(RpcDispatcher _ _ state) request = mask_ $ do
   let identifier = baseRequestId (envelopeBody request)
@@ -178,6 +185,7 @@ startWorker dispatcher@(RpcDispatcher _ _ state) request = mask_ $ do
           current <- readTVar state
           case stopped current of
             Just _ -> pure False
+            Nothing | Map.member identifier (workers current) -> pure False
             Nothing -> do
               writeTVar state current {workers = Map.insert identifier (token, worker) (workers current)}
               pure True

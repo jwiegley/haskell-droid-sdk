@@ -3,7 +3,7 @@
 module DispatchSpec (dispatchTests) where
 
 import Control.Concurrent (newEmptyMVar, putMVar, readMVar, takeMVar, tryTakeMVar)
-import Control.Concurrent.Async (AsyncCancelled (..), cancel, wait, waitCatch, withAsync)
+import Control.Concurrent.Async (AsyncCancelled (..), cancel, wait, waitCatch, withAsync, withAsyncOn)
 import Control.Concurrent.STM (TQueue, atomically, newTQueueIO, readTQueue, tryReadTQueue, writeTQueue)
 import Control.Exception (bracket_, fromException, throwIO, try)
 import Control.Monad (forM_, replicateM, replicateM_, void)
@@ -121,6 +121,29 @@ dispatchTests =
           putMVar release ()
           readResult sent >>= (@?= Null)
           atomically (tryReadTQueue sent) >>= (@?= Nothing),
+      testCase "concurrent restored and live admission keeps exactly one cleanup owner" $ bounded $ replicateM_ 20 $ withMemory $ \channel incoming _ -> do
+        counts <- newIORef (0 :: Int, 0 :: Int)
+        entered <- newTQueueIO
+        release <- newEmptyMVar
+        bracket_ (pure ()) (putMVar release ()) $ do
+          withRpcDispatcher channel context $ \dispatcher -> do
+            let restored = context {envelopeBody = BaseRequest "same" "wait" Nothing mempty}
+                started = atomicModifyIORef' counts (\(n, done) -> ((n + 1, done), ())) >> atomically (writeTQueue entered ())
+                finished = atomicModifyIORef' counts (\(n, done) -> ((n, done + 1), ()))
+            void (registerRpcHandler dispatcher "wait" (\_ -> bracket_ started finished (readMVar release >> pure (Right Null))))
+            gate <- newEmptyMVar
+            ready <- newTQueueIO
+            let restore = atomically (writeTQueue ready ()) >> readMVar gate >> dispatchRpcRequest dispatcher restored
+            withAsyncOn 0 restore $ \first ->
+              withAsyncOn 1 restore $ \second -> do
+                replicateM_ 2 (atomically (readTQueue ready))
+                putMVar gate ()
+                wait first
+                wait second
+            feed incoming (toRpcObject (restored {envelopeBody = RequestBody (envelopeBody restored)}))
+            atomically (readTQueue entered)
+            synchronizeRpcEvents channel
+          readIORef counts >>= (@?= (1, 1)),
       testCase "notification callback can await a correlated request without blocking its reader" $ bounded $ withMemory $ \channel incoming sent ->
         withRpcDispatcher channel context $ \dispatcher -> do
           result <- newEmptyMVar

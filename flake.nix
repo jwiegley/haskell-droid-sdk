@@ -21,6 +21,9 @@
               pkgs.ormolu
               pkgs.hlint
               pkgs.python3
+              pkgs.pkg-config
+              pkgs.zlib
+              pkgs.openssl
             ];
           };
         });

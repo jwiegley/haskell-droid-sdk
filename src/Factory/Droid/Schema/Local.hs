@@ -4,7 +4,8 @@
 -- These aliases reuse existing parameter/result codecs. Field-level runtime
 -- semantics are documented by the corresponding body codec.
 module Factory.Droid.Schema.Local
-  ( AddUserMessageRequest,
+  ( AddMcpServerRequest,
+    AddUserMessageRequest,
     AppendMessagesRequest,
     AuthenticateMcpServerRequest,
     CancelMcpAuthRequest,
@@ -88,9 +89,12 @@ import Factory.Droid.Schema.MCP
     ToggleMcpServerParams,
     ToggleMcpToolParams,
   )
+import Factory.Droid.Schema.MCP.Config (AddMcpServerParams)
 import Factory.Droid.Schema.Models (ListModelsOptions, ListModelsResult)
 import Factory.Droid.Schema.RPC (EmptyObject, MethodRequest, RpcResponse, WithEnvelope)
 import Factory.Droid.Schema.Settings (ListToolsOptions, UpdateSessionSettingsParams)
+
+type AddMcpServerRequest = WithEnvelope (MethodRequest "droid.add_mcp_server" AddMcpServerParams)
 
 -- | Add a user message; the result envelope is the shared EmptyObjectResponse.
 type AddUserMessageRequest = WithEnvelope (MethodRequest "droid.add_user_message" AddUserMessageParams)

@@ -8,6 +8,7 @@ import ContentSpec (contentTests)
 import ContextSpec (contextTests)
 import Control.Monad (forM_)
 import ControlSpec (controlTests)
+import DaemonSpec (daemonTests)
 import DaemonWorkspaceSpec (workspaceTests)
 import Data.Aeson
   ( FromJSON,
@@ -36,6 +37,7 @@ import InputSpec (inputTests)
 import InteractionSpec (interactionTests)
 import LoopSpec (loopTests)
 import MCPSpec (mcpTests)
+import McpConfigSpec (mcpConfigTests)
 import MessagesSpec (messageTests)
 import MetadataSpec (metadataTests)
 import MissionSpec (missionTests)
@@ -59,6 +61,7 @@ import TimestampSpec (timestampTests)
 import ToolNotificationsSpec (toolNotificationTests)
 import ToolsSpec (toolTests)
 import UsageSpec (usageTests)
+import WebSocketSpec (webSocketTests)
 import WorktreeSpec (worktreeTests)
 
 main :: IO ()
@@ -117,6 +120,7 @@ suiteMain = do
         contextTests droidSchema,
         discoveryTests droidSchema,
         mcpTests droidSchema,
+        mcpConfigTests,
         missionTests droidSchema,
         automationTests droidSchema,
         workspaceTests droidSchema daemonSchema,
@@ -128,6 +132,8 @@ suiteMain = do
         dispatchTests,
         clientTests schema droidSchema,
         droidTests,
+        webSocketTests,
+        daemonTests,
         inputTests
       ]
 

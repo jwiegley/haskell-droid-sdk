@@ -1,8 +1,12 @@
--- | Typed low-level local Droid operations with available 1.205.0 contracts.
+-- | Typed low-level local and daemon MCP operations with explicit wire contracts.
 -- Calls use the existing channel and caller-supplied IDs, envelope context and
 -- deadlines. This is not a launcher, default identity policy or session owner.
 module Factory.Droid.Client
   ( CallOptions (..),
+    call,
+    addMcpServer,
+    getDaemonMcpConfig,
+    updateDaemonMcpConfig,
     addUserMessage,
     appendMessages,
     authenticateMcpServer,
@@ -39,6 +43,7 @@ module Factory.Droid.Client
   )
 where
 
+import Control.Exception (throwIO)
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Proxy (Proxy (..))
 import Data.Text (Text)
@@ -77,6 +82,7 @@ import Factory.Droid.Schema.MCP
     ToggleMcpServerParams,
     ToggleMcpToolParams,
   )
+import Factory.Droid.Schema.MCP.Config (AddMcpServerParams, GetMcpConfigResult, UpdateMcpConfigParams, UpdateMcpConfigResult, validateMcpConfiguration)
 import Factory.Droid.Schema.Models (ListModelsOptions, ListModelsResult)
 import Factory.Droid.Schema.RPC (EmptyObject, JsonRpcEnvelope, MethodRequest (..), SuccessResult, WithEnvelope (..), eraseMethodRequest)
 import Factory.Droid.Schema.Settings (ListToolsOptions, UpdateSessionSettingsParams)
@@ -95,6 +101,20 @@ data CallOptions = CallOptions
 
 instance Show CallOptions where
   show _ = "CallOptions <redacted>"
+
+addMcpServer :: RpcChannel -> CallOptions -> AddMcpServerParams -> IO SuccessResult
+addMcpServer channel options params = do
+  validated <- either throwIO pure (validateMcpConfiguration params)
+  call (Proxy @AddMcpServerRequest) channel options validated
+
+-- | Global daemon configuration: these operations carry no session routing.
+getDaemonMcpConfig :: RpcChannel -> CallOptions -> EmptyObject -> IO GetMcpConfigResult
+getDaemonMcpConfig = call (Proxy @(WithEnvelope (MethodRequest "daemon.get_mcp_config" EmptyObject)))
+
+updateDaemonMcpConfig :: RpcChannel -> CallOptions -> UpdateMcpConfigParams -> IO UpdateMcpConfigResult
+updateDaemonMcpConfig channel options params = do
+  validated <- either throwIO pure (validateMcpConfiguration params)
+  call (Proxy @(WithEnvelope (MethodRequest "daemon.update_mcp_config" UpdateMcpConfigParams))) channel options validated
 
 -- | Submit a message. The immediate object response is not turn completion.
 addUserMessage :: RpcChannel -> CallOptions -> AddUserMessageParams -> IO EmptyObject
@@ -228,6 +248,8 @@ updateSessionSettings = call (Proxy @UpdateSessionSettingsRequest)
 warmupCache :: RpcChannel -> CallOptions -> EmptyObject -> IO EmptyObject
 warmupCache = call (Proxy @WarmupCacheRequest)
 
+-- | Execute an explicitly method-indexed request through the same correlation
+-- and error path as the named operations. Useful for backend-specific bindings.
 call :: forall method params result. (KnownSymbol method, ToJSON params, FromJSON result) => Proxy (WithEnvelope (MethodRequest method params)) -> RpcChannel -> CallOptions -> params -> IO result
 call _ channel options params =
   let context = callEnvelope options

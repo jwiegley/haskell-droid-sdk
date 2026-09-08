@@ -1,14 +1,15 @@
 # Droid from Haskell
 
-A native SDK for the local Factory Droid CLI: prompts, typed streaming events, final results, follow-up turns and scoped cleanup.
+A native SDK for the local Factory Droid CLI and existing daemons: prompts, typed streaming events, final results, follow-up turns and scoped cleanup.
 
 **Live baseline:** the earlier local prompt path was verified against CLI 0.212.1: streamed `HELLO`, matching final text and child cleanup. Later API additions are covered by offline tests, not a new live run. See [verification evidence](docs/development.md#current-local-sdk-delivery).
 
 ## Requirements
 
 - GHC 9.10.3 and Cabal; an optional Nix development shell is provided.
-- A working, authenticated `droid` installation. The initial runtime target is CLI 0.212.1 / protocol 1.201.1.
-- Normal SDK use requires neither Python nor Node.js. The SDK reuses the CLI's existing authentication; credentials do not belong in command arguments or logs.
+- For local sessions, a working, authenticated `droid` installation. The initial runtime target is CLI 0.212.1 / protocol 1.201.1.
+- For daemon sessions, an existing endpoint and caller-supplied credentials; a local CLI installation is not required.
+- Normal SDK use requires neither Python nor Node.js. Local launch reuses the CLI login; daemon authentication is explicit. Credentials do not belong in command arguments or logs.
 
 ## One prompt
 
@@ -289,6 +290,106 @@ Replacement is rejected during an active turn. It drains existing ordinary reque
 
 Replacement, rollback and cancellation behavior is verified with native offline peers. No additional live replacement or model run is claimed.
 
+## Existing daemon sessions
+
+`Factory.Droid.Daemon` connects to a caller-selected daemon without launching or owning that daemon. It shares the local runtime's turn, stream, input, output and interaction machinery, but uses a distinct session handle. The following example makes one model request when called; compilation alone does not contact a daemon.
+
+```haskell
+{-# LANGUAGE OverloadedStrings #-}
+
+module DaemonExample (daemonExample) where
+
+import Data.Text.IO qualified as Text
+import Factory.Droid (DroidResult)
+import Factory.Droid.Daemon qualified as Daemon
+import Factory.Droid.Transport.WebSocket (WebSocketTarget)
+
+daemonExample :: WebSocketTarget -> Daemon.DaemonCredential -> IO DroidResult
+daemonExample target credential =
+  let options =
+        (Daemon.defaultDaemonOptions target credential "/daemon/workspace")
+          {Daemon.daemonTurnTimeoutMicros = Just 120000000}
+   in Daemon.withSession options $ \session ->
+        Daemon.sendPrompt session "Say HELLO and nothing else." Text.putStr
+```
+
+Construct a target with `WebSocketTarget "daemon.example.com" 443 "/"`; the path is used as supplied, without an appended suffix. TLS is enabled by default and verifies both the certificate chain and hostname. Private trust roots require explicit `Network.Connection.TLSSettings`. Set `webSocketTLS = Nothing` only when intentionally using a plaintext endpoint, such as a trusted loopback daemon; plaintext provides no credential confidentiality.
+
+Credentials are `DaemonApiKey key` or `DaemonToken token optionalActAsGrant`. They are sent in `daemon.authenticate` after the WebSocket handshake, not an inferred HTTP authorization header. The SDK does not read login files or environment variables. Configuration `Show` instances are redacted; explicit credential fields are not.
+
+Use `Daemon.withResumedSession options savedId` to load a saved session. Cwd and machine options refer to the daemon host and apply only to new sessions; a model override on resume is rejected rather than ignored. The default protocol version is `1.201.1`, selected from the CLI baseline. `daemonProtocolVersion` permits explicit selection, not automatic negotiation or a live compatibility guarantee.
+
+`Daemon.sendTurn` retains terminal outcomes; `sendEvents`, `sendInput*` and `sendOutput*` use the shared event/input/output types. `Daemon.interruptSession` waits for submission and fences the following turn. `Daemon.onSessionEvent` observes notifications outside turns on the dispatcher intake thread: callbacks must not start a turn, await later events or interrupt a turn whose submission is still pending.
+
+The handler scopes `withSessionHandlers` and `withResumedSessionHandlers` accept the same `DroidHandlers`. Defaults cancel; only a configured permission handler disables daemon auto-rejection. Pending interactions from a loaded session run through the existing owned workers. Permission callbacks admit the owned session or an explicitly associated execution session; question callbacks admit only the owned session. Unrelated requests cancel safely, and replies preserve their original execution session ID.
+
+Ordinary scope exit disconnects and joins owned workers; it does not terminate the external daemon, log out, close or delete the saved session. Incomplete turns retain the common invalidation and best-effort interruption policy. There is no automatic reconnect. Local replacement, settings and native-tool/skill control APIs are not exposed on the daemon handle; their daemon counterparts remain separate work. MCP management is described below.
+
+This path is verified against offline plain/TLS peers, not a live Factory daemon. See [daemon contracts and evidence](docs/development.md#existing-daemon-session-delivery).
+
+## External MCP management
+
+Existing local and daemon sessions expose MCP reports and management requests. These operations act on the peer's MCP configuration; they do not run an MCP server in the Haskell process.
+
+| Operation | Local session | Daemon session |
+| --- | --- | --- |
+| Reports | `listDroidMcpServers`, `listDroidMcpTools`, `listDroidMcpRegistry` | `Daemon.listMcpServers`, `Daemon.listMcpTools`, `Daemon.listMcpRegistry` |
+| Add server | `addDroidMcpServer` | `Daemon.addMcpServer` |
+| Remove or toggle | `removeDroidMcpServer`, `toggleDroidMcpServer`, `toggleDroidMcpTool` | `Daemon.removeMcpServer`, `Daemon.toggleMcpServer`, `Daemon.toggleMcpTool` |
+| Begin authentication | `authenticateDroidMcpServer` | `Daemon.authenticateMcpServer` |
+| Cancel authentication or clear stored auth | `cancelDroidMcpAuth`, `clearDroidMcpAuth` | `Daemon.cancelMcpAuth`, `Daemon.clearMcpAuth` |
+| Submit OAuth code or error | `submitDroidMcpAuthCode`, `submitDroidMcpAuthError` | `Daemon.submitMcpAuthCode`, `Daemon.submitMcpAuthError` |
+
+Report and callback parameter types are in `Factory.Droid.Schema.MCP`. Mutations return `SuccessResult` from `Schema.RPC`; preserve its `resultSuccess = False` rather than assuming the operation succeeded. Server removal/toggle uses user settings; tool toggle has no settings-level field. Daemon requests always use the handle's session ID, including when parameter extensions attempt to supply another.
+
+Authentication has a five-minute **RPC** budget; other management requests use thirty seconds. An acknowledgement does not establish authentication completion or connected status. `McpAuthRequiredEvent`, `McpAuthCompletedEvent` and `McpStatusEvent` are separate typed metadata events, available through `AllEvents` and session observers, not complete-message callbacks or the retained complete-event history. Completion reports identify a server but carry no request/state ID; do not assign one to a concurrent attempt merely because it arrived last.
+
+Explicit submit/cancel calls can proceed while authentication awaits its reply. The SDK opens no browser, follows no authentication URL and exchanges/stores no token itself. Timeout or caller cancellation does not automatically cancel server-side OAuth or clear credentials. As with other mutations, an uncertain RPC outcome invalidates the session handle before releasing its lease; leave the scope and reattach explicitly if needed. `Show` is redacted for auth payloads and mutation results; fields and JSON remain sensitive.
+
+### Configuration and early observation
+
+Configuration types live in `Factory.Droid.Schema.MCP.Config`. `McpStdioConfig` wraps the existing `StdioMcp`; `McpHttpConfig` and `McpSseConfig` wrap `McpRemoteConfig`. Startup HTTP/SSE headers are ordered arrays. `mcpServerParams` converts a startup value for add-server calls, whose headers are maps: the last exact-name value wins. Records are validated and OAuth scope/client-ID whitespace normalized before launch, connection or configuration mutation. Invalid configuration raises payload-free `InvalidMcpConfiguration`; secret whitespace is retained.
+
+```haskell
+{-# LANGUAGE OverloadedStrings #-}
+
+module McpExample (inspectExternalMcp, readGlobalMcp) where
+
+import Factory.Droid
+import Factory.Droid.Daemon qualified as Daemon
+import Factory.Droid.Schema.MCP (ListMcpServersResult)
+import Factory.Droid.Schema.MCP.Config
+
+inspectExternalMcp :: FilePath -> IO ListMcpServersResult
+inspectExternalMcp directory =
+  let server = McpHttpConfig (McpRemoteConfig "docs" "https://mcp.example.com/mcp" Nothing Nothing mempty)
+      policy = defaultMcpSessionOptions {sessionMcpServers = Just [server]}
+      options = (defaultDroidOptions directory) {droidMcpOptions = policy}
+      handlers = defaultDroidHandlers {onDroidMcpEvent = Just observe}
+   in withDroidSessionHandlers options handlers listDroidMcpServers
+  where
+    observe _ (Right (McpAuthRequiredEvent _)) = putStrLn "MCP authorization requested"
+    observe _ (Left _) = putStrLn "MCP observation failed"
+    observe _ _ = pure ()
+
+readGlobalMcp :: Daemon.DaemonOptions -> IO GetMcpConfigResult
+readGlobalMcp options = Daemon.withConnection options Daemon.getMcpConfig
+```
+
+Calling this example connects to the configured services; it is compiled, not executed, during offline verification. `daemonMcpOptions` supplies the same startup policy for daemon sessions. `Nothing` omits the server list; `Just []` transmits an empty list. Neither means “disable every MCP server.” Local replacement and rollback reuse the connection's normalized server/callback policy.
+
+`sessionBlockOnMcpLoad` is accepted only at initialization; explicitly supplying it for resume raises `McpInitOnlyOptionOnResume` before I/O. In the selected CLI it controls a **bounded pre-turn readiness gate**, not a guarantee that every server connected. The CLI can proceed after readiness failure/timeout and resets this override on load. `sessionMcpOAuthCallbackUri` is forwarded as peer configuration; the SDK does not create an OAuth callback listener for it.
+
+`onDroidMcpEvent` is an opt-in **connection-scoped** observer installed before init/load and retained through replacement/rollback. It receives an optional peer session ID and either a typed MCP event or `DroidMcpFailure`. Local observation follows the owned CLI connection across changing sessions; daemon observation filters the attached session. This differs from per-handle subscriptions, which still exclude replacement windows. The callback runs serially on dispatcher intake, must remain brief and must not start turns/replacements or await later events. A session handle is not yet available during startup. Ordinary callback exceptions are isolated; scope cleanup cancels and joins admitted callbacks.
+
+OAuth configuration distinguishes omission, `McpOAuthDisabled` and `McpOAuthEnabled options`. Client credentials require an issuer; client metadata URIs exclude configured credentials and require public token-endpoint authentication. URI-valued fields use RFC 3986 parsing through `network-uri`, with the selected metadata restrictions. Browser/WHATWG aliases, including unescaped spaces or Unicode spelling, are not normalized automatically; use properly encoded URIs. This is not complete JavaScript URL-validator equivalence. Names/commands/header strings follow the selected CLI wire contract rather than Python-only restrictions; passing header data to the peer is not local HTTP-header validation.
+
+Global daemon configuration uses `Daemon.withConnection`, which authenticates without creating/loading a session and uses only endpoint, transport, credential and protocol options. `Daemon.getMcpConfig` and `Daemon.updateMcpConfig` take that connection, not a session handle, and send no implicit session ID. `StoredMcpConfig McpOAuthConfig` represents read results; update parameters instead use `StoredMcpConfig McpOAuthOptions`, because the global update contract does not accept OAuth `false`. Session add-server does accept it. Global update results preserve their success flag, server reports and optional error independently.
+
+The selected local CLI merges a nonempty supplied list with its user MCP configurations; filesystem entries win same-name conflicts. An empty list skips that merge. The Haskell layer writes no MCP configuration files and makes no general persistence promise about the external CLI/daemon. Inspect returned reports after mutations.
+
+External MCP configuration/management and early-event delivery are verified against offline peers. SDK-hosted Haskell tools and live authentication verification remain separate work; see [current evidence](docs/development.md#external-mcp-configuration-delivery).
+
 ## Build and example
 
 ```sh
@@ -312,6 +413,6 @@ cabal test all --test-show-details=direct \
 
 ## Scope
 
-The current delivery implements local run/session capabilities, not complete Python/TypeScript functional parity. The broader target still includes daemon/WebSocket/REST support, advanced resources, input controls and their required verification. The [parity inventory](docs/parity.md) tracks that functional work. Exhaustive schema/codec coverage is a separate [opt-in backlog](docs/exhaustive-codec-backlog.md), not a completion gate.
+The current delivery implements local run/session capabilities, the existing-daemon connection/session/turn path and external MCP configuration/management, not complete Python/TypeScript functional parity. Remaining work includes SDK-hosted tools, REST/advanced resources, broader transports, daemon controls, saved-session discovery and broader configuration, attribution/observability, and platform/live verification. The [parity inventory](docs/parity.md) tracks that functional work. Exhaustive schema/codec coverage is a separate [opt-in backlog](docs/exhaustive-codec-backlog.md), not a completion gate.
 
 See [development notes](docs/development.md) for retained build evidence. Licenses and upstream notices are in [LICENSE](LICENSE) and [NOTICE](NOTICE).

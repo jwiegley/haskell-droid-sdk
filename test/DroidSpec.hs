@@ -2,10 +2,10 @@
 
 module DroidSpec (droidTests, runDroidPeer) where
 
-import Control.Concurrent (newEmptyMVar, putMVar, readMVar, takeMVar, threadDelay)
+import Control.Concurrent (newEmptyMVar, putMVar, readMVar, takeMVar, threadDelay, tryTakeMVar)
 import Control.Concurrent.Async (AsyncCancelled (..), asyncThreadId, cancel, wait, waitCatch, withAsync)
 import Control.Exception (Exception, IOException, bracket, bracket_, fromException, throwIO, throwTo, toException, try)
-import Control.Monad (forM_, replicateM_, unless, void, when)
+import Control.Monad (forM_, replicateM_, unless, void, when, (>=>))
 import Data.Aeson (FromJSON (parseJSON), Object, Value (..), eitherDecodeStrict', encode, object, toJSON, withObject, (.:), (.=))
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types (parseEither)
@@ -26,12 +26,16 @@ import Factory.Droid.Schema.Control (ChangeWorkingDirectoryResult (..), CompactS
 import Factory.Droid.Schema.Discovery
 import Factory.Droid.Schema.Enums (AutonomyLevel (..), DroidInteractionMode (DroidAuto, DroidSpec), ReasoningEffort (..))
 import Factory.Droid.Schema.Interaction
+import Factory.Droid.Schema.MCP
+import Factory.Droid.Schema.MCP.Config
 import Factory.Droid.Schema.Models (ListModelsOptions (..), ListModelsResult (..), ModelAvailability (..), ModelInfo (..), ModelMetadata (..))
 import Factory.Droid.Schema.Notifications (AgentTurnCompleted (..), AgentTurnCompletionReason (..), ErrorNotification (..), ToolConfirmationOutcome (..))
 import Factory.Droid.Schema.RPC (JsonRpcError (..), JsonRpcErrorCode (..), SuccessResult (..))
 import Factory.Droid.Schema.Settings
 import Factory.Droid.Schema.Usage (TokenUsage (..))
 import Factory.Droid.Transport.Process (JsonLinesError (InvalidFrameLimit))
+import McpConfigSpec (fixtureMcpOptions, fixtureMcpWire)
+import McpPeer (earlyMcpEvents, handleMcpRequest)
 import ProcessSpec (bounded)
 import System.Directory (doesFileExist, removePathForcibly)
 import System.Environment (getExecutablePath)
@@ -50,7 +54,9 @@ droidTests :: TestTree
 droidTests =
   testGroup
     "High-level local Droid path"
-    [ testCase "one-shot prompt returns text and reaps its CLI" $ bounded $ do
+    [ testGroup "External MCP management" mcpSessionTests,
+      testGroup "MCP configuration lifecycle" mcpConfigurationSessionTests,
+      testCase "one-shot prompt returns text and reaps its CLI" $ bounded $ do
         options <- fixtureOptions
         result <- runDroid options "hello"
         resultText result @?= "Hello سلام\n😀"
@@ -1766,6 +1772,216 @@ attachmentDocuments =
     PDFDocument (Base64PDFSource "JVBERi0=" (Just "parsed") (Just "file.pdf") (Just "/metadata/not-opened.pdf") (KeyMap.singleton "extra" Null))
   ]
 
+mcpConfigurationSessionTests :: [TestTree]
+mcpConfigurationSessionTests =
+  [ testCase "connection MCP observer receives startup, replacement and rollback prefixes" $ bounded $ do
+      options <- fixtureOptions
+      seen <- newIORef []
+      let handlers = defaultDroidHandlers {onDroidMcpEvent = Just (\source event -> case event of Left (DroidMcpConnectionFailure _) -> pure (); _ -> modifyIORef' seen (<> [(source, fmap eventTag event)]))}
+      withDroidSessionHandlers (options {droidMcpOptions = fixtureMcpOptions}) handlers $ \session -> do
+        readIORef seen >>= (@?= [(Nothing, Right "mcp_auth_required"), (Nothing, Right "mcp_status"), (Nothing, Right "mcp_auth_completed")])
+        branch <- forkDroidSession session defaultFork
+        result <- try @DroidReplacementError (forkDroidSession branch (defaultFork {forkSessionAdditionalFields = KeyMap.singleton "fixtureLoadFailure" (Bool True)}))
+        case result of
+          Left _ -> pure ()
+          Right _ -> assertFailure "Expected rollback"
+        events <- readIORef seen
+        length events @?= 12
+        map snd events @?= concat (replicate 4 [Right "mcp_auth_required", Right "mcp_status", Right "mcp_auth_completed"])
+        map fst (take 3 (drop 3 events)) @?= replicate 3 (Just (droidSessionId branch))
+        map fst (drop 9 events) @?= replicate 3 (Just (droidSessionId branch)),
+    testCase "startup MCP observer reports malformed events and isolates ordinary callback errors" $ bounded $ do
+      options <- fixtureOptions
+      malformed <- newIORef []
+      let handlers = defaultDroidHandlers {onDroidMcpEvent = Just (\_ event -> case event of Left (DroidMcpConnectionFailure _) -> pure (); _ -> modifyIORef' malformed (<> [fmap eventTag event]))}
+          badPolicy = fixtureMcpOptions {sessionMcpOAuthCallbackUri = Just "fixture:malformed"}
+      withDroidSessionHandlers (options {droidMcpOptions = badPolicy}) handlers $ \_ -> readIORef malformed >>= (@?= [Left DroidMcpInvalidEvent])
+      seen <- newIORef []
+      let throwing = defaultDroidHandlers {onDroidMcpEvent = Just (\_ event -> case event of Right (McpAuthRequiredEvent _) -> ioError (userError "fixture observer failure"); Right value -> modifyIORef' seen (<> [eventTag value]); Left _ -> pure ())}
+      withDroidSessionHandlers (options {droidMcpOptions = fixtureMcpOptions}) throwing $ \_ -> readIORef seen >>= (@?= ["mcp_status", "mcp_auth_completed"]),
+    testCase "cancelling startup joins an admitted MCP observer before scope exit" $ bounded $ do
+      options <- fixtureOptions
+      ready <- newEmptyMVar
+      hold <- newEmptyMVar
+      finished <- newEmptyMVar
+      let handlers = defaultDroidHandlers {onDroidMcpEvent = Just (\_ event -> case event of Right (McpAuthRequiredEvent _) -> bracket_ (putMVar ready ()) (putMVar finished ()) (takeMVar hold); _ -> pure ())}
+      withAsync (withDroidSessionHandlers (options {droidMcpOptions = fixtureMcpOptions}) handlers (\_ -> pure ())) $ \opening -> do
+        takeMVar ready
+        cancel opening
+        waitCatch opening >>= \case
+          Left err -> fromException err @?= Just AsyncCancelled
+          Right _ -> assertFailure "Cancelled startup completed"
+      takeMVar finished,
+    testCase "new/resumed startup preserves omitted, empty and normalized configurations" $ bounded $ do
+      options <- fixtureOptions
+      forM_ [defaultMcpSessionOptions, defaultMcpSessionOptions {sessionMcpServers = Just []}, fixtureMcpOptions] $ \policy -> do
+        let expected
+              | policy == fixtureMcpOptions = expectedMcpInitialization
+              | sessionMcpServers policy == Just [] = KeyMap.singleton "mcpServers" (toJSON ([] :: [Value]))
+              | otherwise = mempty
+        withDroidSession (options {droidMcpOptions = policy}) (mcpHistory >=> (@?= [expected]))
+        withResumedDroidSession (options {droidMcpOptions = policy {sessionBlockOnMcpLoad = Nothing}}) "saved" (mcpHistory >=> (@?= [KeyMap.delete "blockOnMcpLoad" expected])),
+    testCase "fork, compaction, rewind and rollback replay immutable MCP load policy" $ bounded $ do
+      options <- fixtureOptions
+      identifier <- withDroidSession (options {droidMcpOptions = fixtureMcpOptions}) $ \session -> do
+        branch <- forkDroidSession session defaultFork
+        (compacted, _) <- compactDroidSession branch (CompactSessionParams (Just "retain decisions") mempty)
+        (rewound, _) <- rewindDroidSession compacted (DroidRewindOptions "message-target" [RewindFileSnapshot "restore-me" "hash" 12 mempty] [RewindFileCreation "delete-me" mempty] "rewound")
+        result <- try @DroidReplacementError (forkDroidSession rewound (defaultFork {forkSessionAdditionalFields = KeyMap.singleton "fixtureLoadFailure" (Bool True)}))
+        case result of
+          Left _ -> pure ()
+          Right _ -> assertFailure "Expected failed attachment and rollback"
+        droidSessionStatus rewound >>= (@?= SessionReady)
+        mcpHistory rewound >>= (@?= (expectedMcpInitialization : replicate 5 (KeyMap.delete "blockOnMcpLoad" expectedMcpInitialization)))
+        expectDroidError (DroidSessionReplaced (droidSessionId branch)) (addDroidMcpServer session (AddMcpServerParams "old" McpHttp Nothing Nothing Nothing Nothing Nothing Nothing mempty))
+        pure (droidSessionId session)
+      assertReaped identifier,
+    testCase "add server normalizes OAuth and rejects invalid configuration without retiring session" $ bounded $ do
+      options <- fixtureOptions
+      withDroidSession options $ \session -> do
+        forM_ (fromMaybe [] (sessionMcpServers fixtureMcpOptions)) $ \config -> do
+          result <- addDroidMcpServer session (mcpServerParams config)
+          resultSuccess result @?= False
+          observed <- either (const (assertFailure "Missing add observation")) pure (parseEither (.: "observedParams") (resultAdditionalFields result))
+          case config of
+            McpStdioConfig _ -> KeyMap.lookup "type" observed @?= Just (String "stdio")
+            McpHttpConfig _ -> do
+              KeyMap.lookup "headers" observed @?= Just (object ["X-Fixture" .= String "last"])
+              case KeyMap.lookup "oauth" observed of
+                Just (Object oauth) -> KeyMap.lookup "clientId" oauth @?= Just (String "fixture-client")
+                _ -> assertFailure "Missing OAuth options"
+            McpSseConfig _ -> KeyMap.lookup "oauth" observed @?= Just (Bool False)
+        let bad = AddMcpServerParams "invalid" McpHttp Nothing Nothing Nothing Nothing Nothing (Just (McpOAuthEnabled (emptyMcpOAuthOptions {mcpOAuthClientId = Just "secret"}))) mempty
+        result <- try @McpConfigurationError (addDroidMcpServer session bad)
+        result @?= Left InvalidMcpConfiguration
+        droidSessionStatus session >>= (@?= SessionReady),
+    testCase "invalid startup and init-only resume options fail before process launch" $ do
+      let invalid = fixtureMcpOptions {sessionMcpServers = Just [McpHttpConfig (McpRemoteConfig "remote" "not-a-uri" Nothing Nothing mempty)]}
+          options = (defaultDroidOptions ".") {droidExecutable = "/missing-mcp-fixture", droidMcpOptions = invalid}
+      result <- try @McpConfigurationError (withDroidSession options (\_ -> pure ()))
+      result @?= Left InvalidMcpConfiguration
+      resumed <- try @McpConfigurationError (withResumedDroidSession (options {droidMcpOptions = fixtureMcpOptions}) "saved" (\_ -> pure ()))
+      resumed @?= Left McpInitOnlyOptionOnResume
+  ]
+
+expectedMcpInitialization :: Object
+expectedMcpInitialization = KeyMap.fromList ["mcpServers" .= fixtureMcpWire, "mcpOAuthCallbackUri" .= String "fixture:callback", "blockOnMcpLoad" .= True]
+
+mcpHistory :: DroidSession -> IO [Object]
+mcpHistory session = do
+  registry <- listDroidMcpRegistry session
+  either (const (assertFailure "Missing MCP load history")) pure (parseEither (.: "mcpHistory") (mcpRegistryAdditionalFields registry))
+
+mcpSessionTests :: [TestTree]
+mcpSessionTests =
+  [ testCase "queries preserve server/tool/registry reports and scoped status events" $ bounded $ do
+      options <- fixtureOptions
+      identifier <- withDroidSession options $ \session -> do
+        observed <- newEmptyMVar
+        _ <- onDroidSessionEvent session $ \case
+          Left err -> putMVar observed (Left err)
+          Right (McpStatusEvent value) -> putMVar observed (Right (changedMcpStatus value))
+          _ -> pure ()
+        servers <- listDroidMcpServers session
+        map mcpStatusName (listedMcpServers servers) @?= ["fixture"]
+        map mcpStatusHasAuthTokens (listedMcpServers servers) @?= [Just False]
+        takeMVar observed >>= (@?= Right servers)
+        tools <- listDroidMcpTools session
+        map mcpToolEnabled (listedMcpTools tools) @?= [False]
+        registry <- listDroidMcpRegistry session
+        map registryServerName (mcpRegistryServers registry) @?= ["fixture"]
+        pure (droidSessionId session)
+      assertReaped identifier,
+    testCase "mutations preserve false acknowledgements and wire parameters" $ bounded $ do
+      options <- fixtureOptions
+      withDroidSession options $ \session -> do
+        let code = SubmitMcpAuthCodeParams "fixture" "fixture-code" "fixture-state" mempty
+            err = SubmitMcpAuthErrorParams "fixture" "denied" "fixture-state" (Just "description") mempty
+            calls =
+              [ (removeDroidMcpServer session "fixture", toJSON (RemoveMcpServerParams "fixture" mempty)),
+                (toggleDroidMcpServer session "fixture" False, toJSON (ToggleMcpServerParams "fixture" False mempty)),
+                (toggleDroidMcpServer session "fixture" True, toJSON (ToggleMcpServerParams "fixture" True mempty)),
+                (toggleDroidMcpTool session "fixture" "lookup" False, toJSON (ToggleMcpToolParams "fixture" "lookup" False mempty)),
+                (authenticateDroidMcpServer session "fixture", toJSON (McpServerNameParams "fixture" mempty)),
+                (cancelDroidMcpAuth session "fixture", toJSON (McpServerNameParams "fixture" mempty)),
+                (clearDroidMcpAuth session "fixture", toJSON (McpServerNameParams "fixture" mempty)),
+                (submitDroidMcpAuthCode session code, toJSON code),
+                (submitDroidMcpAuthError session err, toJSON err)
+              ]
+        forM_ calls $ \(action, expected) -> do
+          result <- action
+          resultSuccess result @?= False
+          KeyMap.lookup "observedParams" (resultAdditionalFields result) @?= Just expected
+        droidSessionStatus session >>= (@?= SessionReady),
+    testCase "auth acknowledgement, callback submission and terminal outcome are separate" $ bounded $ do
+      options <- fixtureOptions
+      withDroidSession options $ \session -> do
+        required <- newEmptyMVar
+        completed <- newEmptyMVar
+        _ <- onDroidSessionEvent session $ \case
+          Right (McpAuthRequiredEvent value) -> putMVar required value
+          Right (McpAuthCompletedEvent value) -> putMVar completed value
+          _ -> pure ()
+        authenticateDroidMcpServer session "oauth" >>= (@?= True) . resultSuccess
+        offered <- takeMVar required
+        mcpAuthState offered @?= "fixture-state"
+        tryTakeMVar completed >>= (@?= Nothing)
+        submitDroidMcpAuthCode session (SubmitMcpAuthCodeParams "oauth" "fixture-code" (mcpAuthState offered) mempty) >>= (@?= False) . resultSuccess
+        takeMVar completed >>= (@?= McpAuthFailed) . mcpAuthOutcome
+        submitDroidMcpAuthError session (SubmitMcpAuthErrorParams "oauth" "denied" "fixture-state" Nothing mempty) >>= (@?= False) . resultSuccess
+        takeMVar completed >>= (@?= McpAuthCancelled) . mcpAuthOutcome
+        droidSessionStatus session >>= (@?= SessionReady),
+    testCase "pending authentication permits concurrent explicit cancellation" $ bounded $ do
+      options <- fixtureOptions
+      withDroidSession options $ \session -> do
+        ready <- newEmptyMVar
+        _ <- onDroidSessionEvent session $ \case
+          Right (McpAuthRequiredEvent _) -> putMVar ready ()
+          _ -> pure ()
+        withAsync (authenticateDroidMcpServer session "held") $ \pending -> do
+          takeMVar ready
+          cancelDroidMcpAuth session "held" >>= (@?= True) . resultSuccess
+          wait pending >>= (@?= False) . resultSuccess
+        droidSessionStatus session >>= (@?= SessionReady),
+    testCase "malformed adapted MCP notifications reach observers as errors" $ bounded $ do
+      options <- fixtureOptions
+      withDroidSession options $ \session -> do
+        observed <- newEmptyMVar
+        _ <- onDroidSessionEvent session (putMVar observed)
+        authenticateDroidMcpServer session "invalid-event" >>= (@?= False) . resultSuccess
+        takeMVar observed >>= (@?= Left DroidInvalidEvent)
+        droidSessionStatus session >>= (@?= SessionReady),
+    testCase "remote rejection preserves reuse and escaped handles reject queries" $ bounded $ do
+      options <- fixtureOptions
+      escaped <- withDroidSession options $ \session -> do
+        result <- try @RpcResultError (authenticateDroidMcpServer session "rpc-error")
+        case result of
+          Left (RpcRemoteFailure err) -> rpcErrorCode err @?= RpcInvalidParams
+          _ -> assertFailure "Missing MCP remote rejection"
+        droidSessionStatus session >>= (@?= SessionReady)
+        pure session
+      expectDroidError DroidSessionUnusable (listDroidMcpServers escaped)
+      assertReaped (droidSessionId escaped),
+    testCase "cancelled authentication preserves exception identity and invalidates its lease" $ bounded $ do
+      options <- fixtureOptions
+      identifier <- withDroidSession options $ \session -> do
+        ready <- newEmptyMVar
+        _ <- onDroidSessionEvent session $ \case
+          Right (McpAuthRequiredEvent _) -> putMVar ready ()
+          _ -> pure ()
+        withAsync (authenticateDroidMcpServer session "held") $ \pending -> do
+          takeMVar ready
+          cancel pending
+          waitCatch pending >>= \case
+            Left err -> fromException err @?= Just AsyncCancelled
+            Right _ -> assertFailure "Cancelled authentication returned"
+        droidSessionStatus session >>= (@?= SessionUnavailable)
+        pure (droidSessionId session)
+      assertReaped identifier,
+    testCase "mutation result display hides server extensions" $
+      show (SuccessResult False (KeyMap.singleton "private" (String "fixture-code-and-state"))) @?= "SuccessResult <redacted>"
+  ]
+
 newtype OutputAnswer = OutputAnswer Int deriving stock (Eq, Show)
 
 instance FromJSON OutputAnswer where
@@ -1805,6 +2021,9 @@ eventTag = \case
   TitleEvent _ -> "title"
   WorkingDirectoryEvent _ -> "directory"
   SettingsUpdatedEvent _ -> "settings"
+  McpStatusEvent _ -> "mcp_status"
+  McpAuthRequiredEvent _ -> "mcp_auth_required"
+  McpAuthCompletedEvent _ -> "mcp_auth_completed"
   PermissionEvent _ -> "permission"
   HookStartedEvent _ -> "hook_started"
   HookCompletedEvent _ -> "hook_completed"
@@ -1933,7 +2152,8 @@ data PeerState = PeerState
     peerInterruptCount :: Int,
     peerSystemPrompt :: Maybe Value,
     peerRejectPermissions :: Bool,
-    peerLatePermission :: Bool
+    peerLatePermission :: Bool,
+    peerMcpHistory :: [Object]
   }
 
 data CallbackAbort = CallbackAbort deriving stock (Eq, Show)
@@ -1943,7 +2163,7 @@ instance Exception CallbackAbort
 -- Test executable accepts the real CLI argv and speaks the selected runtime's
 -- minimal protocol. No Factory executable, credentials or service is involved.
 runDroidPeer :: IO ()
-runDroidPeer = newIORef (PeerState [] [] [] [] [] Nothing Nothing "" 0 Nothing True False) >>= runDroidPeerWithState
+runDroidPeer = newIORef (PeerState [] [] [] [] [] Nothing Nothing "" 0 Nothing True False []) >>= runDroidPeerWithState
 
 runDroidPeerWithState :: IORef PeerState -> IO ()
 runDroidPeerWithState state = do
@@ -1958,6 +2178,7 @@ runDroidPeerWithState state = do
       let customPermissions = any (\key -> case KeyMap.lookup key params of Just (String value) -> "handlers-" `Text.isPrefixOf` value; _ -> False) ["modelId", "sessionId"]
       expect "autoRejectPermissionRequests" (Bool (not customPermissions)) params
       modifyIORef' state (\current -> current {peerRejectPermissions = not customPermissions})
+      recordMcpPolicy params
       when (KeyMap.member "_meta" startup || KeyMap.member "tags" params) (throwIO CallbackAbort)
       case KeyMap.lookup "method" startup of
         Just (String "droid.initialize_session") -> do
@@ -1981,7 +2202,7 @@ runDroidPeerWithState state = do
           case KeyMap.lookup "sessionId" params of
             Just (String identifier) -> modifyIORef' state (\current -> current {peerLoadHistory = peerLoadHistory current <> [identifier]})
             _ -> throwIO CallbackAbort
-          expectKeys ["autoRejectPermissionRequests", "sessionId"] params
+          expectMcpLoadKeys params
           when (KeyMap.lookup "sessionId" params == Just (String "handlers-saved")) (ask "load-permission" "droid.request_permission" (fixturePermission "handlers-saved" [ConfirmProceedOnce, ConfirmCancel]) permissionAccepted)
           identifier <- case KeyMap.lookup "sessionId" params of
             Just (String value) -> pure value
@@ -2042,7 +2263,8 @@ runDroidPeerWithState state = do
           loop session turn model
         Just (String "droid.load_session") -> do
           params <- requestParams request
-          expectKeys ["autoRejectPermissionRequests", "sessionId"] params
+          expectMcpLoadKeys params
+          recordMcpPolicy params
           rejectedByDefault <- peerRejectPermissions <$> readIORef state
           expect "autoRejectPermissionRequests" (Bool rejectedByDefault) params
           target <- case KeyMap.lookup "sessionId" params of
@@ -2372,7 +2594,19 @@ runDroidPeerWithState state = do
           expect "result" permissionAccepted request
           modifyIORef' state (\current -> current {peerLatePermission = True})
           loop session turn model
-        _ -> throwIO CallbackAbort
+        _ -> do
+          handled <- handleMcpRequest "droid." session request respondMcp emit readFrame
+          if handled then loop session turn model else throwIO CallbackAbort
+    recordMcpPolicy params = do
+      modifyIORef' state (\current -> current {peerMcpHistory = peerMcpHistory current <> [KeyMap.filterWithKey (\key _ -> key `elem` ["mcpServers", "mcpOAuthCallbackUri", "blockOnMcpLoad"]) params]})
+      let source = case KeyMap.lookup "sessionId" params of Just (String value) -> Just value; _ -> Nothing
+      forM_ (earlyMcpEvents params) (emitRawFor source)
+    expectMcpLoadKeys params = expectKeys (["autoRejectPermissionRequests", "sessionId"] <> filter (`KeyMap.member` params) ["mcpServers", "mcpOAuthCallbackUri"]) params
+    respondMcp original fields = do
+      history <- peerMcpHistory <$> readIORef state
+      let decorate (key, Object value) | key == "result", KeyMap.lookup "method" original == Just (String "droid.list_mcp_registry") = (key, Object (KeyMap.insert "mcpHistory" (toJSON history) value))
+          decorate pair = pair
+      writeFrame (response original (map decorate fields))
     richEvents session = do
       active <- peerActiveTurn <$> readIORef state
       identifier <- maybe (throwIO CallbackAbort) pure active

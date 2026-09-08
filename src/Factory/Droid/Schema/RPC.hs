@@ -323,7 +323,10 @@ data SuccessResult = SuccessResult
   { resultSuccess :: !Bool,
     resultAdditionalFields :: !Object
   }
-  deriving stock (Eq, Show)
+  deriving stock (Eq)
+
+instance Show SuccessResult where
+  show _ = "SuccessResult <redacted>"
 
 instance FromJSON SuccessResult where
   parseJSON = withObject "SuccessResult" $ \fields ->

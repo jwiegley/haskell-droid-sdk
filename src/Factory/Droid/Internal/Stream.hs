@@ -8,6 +8,7 @@ module Factory.Droid.Internal.Stream
     initialStreamState,
     decodeNotification,
     decodeSessionNotification,
+    decodeDaemonNotification,
     completeEvent,
     stepStream,
     finishStream,
@@ -22,6 +23,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Factory.Droid.Schema.Content (ContentBlock (..), TextBlock (..), ToolUseBlock)
 import Factory.Droid.Schema.Enums (MessageRole (RoleAssistant))
+import Factory.Droid.Schema.MCP (McpAuthCompleted, McpAuthRequired, McpStatusChanged)
 import Factory.Droid.Schema.Messages (Message (..))
 import Factory.Droid.Schema.Notifications
 import Factory.Droid.Schema.RPC (BaseNotification (..), JsonRpcBaseNotification, WithEnvelope (..))
@@ -51,6 +53,9 @@ data DroidEvent
   | TitleEvent !SessionTitleUpdated
   | WorkingDirectoryEvent !SessionWorkingDirectoryChanged
   | SettingsUpdatedEvent !SettingsUpdated
+  | McpStatusEvent !McpStatusChanged
+  | McpAuthRequiredEvent !McpAuthRequired
+  | McpAuthCompletedEvent !McpAuthCompleted
   | PermissionEvent !PermissionResolved
   | HookStartedEvent !HookExecutionStarted
   | HookCompletedEvent !HookExecutionCompleted
@@ -168,14 +173,20 @@ decodeSessionNotification :: Text -> JsonRpcBaseNotification -> Either String [D
 decodeSessionNotification identifier = decodeNotificationWithTurn identifier Nothing
 
 decodeNotificationWithTurn :: Text -> Maybe Text -> JsonRpcBaseNotification -> Either String [DroidEvent]
-decodeNotificationWithTurn identifier expectedTurn notification
-  | baseNotificationMethod (envelopeBody notification) /= "droid.session_notification" = Right []
+decodeNotificationWithTurn = decodeScopedNotification "droid.session_notification" (.:! "sessionId")
+
+decodeDaemonNotification :: Text -> Maybe Text -> JsonRpcBaseNotification -> Either String [DroidEvent]
+decodeDaemonNotification = decodeScopedNotification "daemon.session_notification" (\fields -> Just <$> fields .: "sessionId")
+
+decodeScopedNotification :: Text -> (Object -> Parser (Maybe Text)) -> Text -> Maybe Text -> JsonRpcBaseNotification -> Either String [DroidEvent]
+decodeScopedNotification method identify identifier expectedTurn notification
+  | baseNotificationMethod (envelopeBody notification) /= method = Right []
   | otherwise = case baseNotificationParams (envelopeBody notification) of
       Nothing -> Left "Missing notification parameters"
       Just value -> parseEither (withObject "session notification" parse) value
   where
     parse fields = do
-      session <- fields .:! "sessionId"
+      session <- identify fields
       if maybe False (/= identifier) session then pure [] else fields .: "notification" >>= withObject "turn event" event
     one :: (FromJSON a) => (a -> DroidEvent) -> Object -> Parser [DroidEvent]
     one constructor fields = (: []) . constructor <$> parseJSON (Object fields)
@@ -201,6 +212,9 @@ decodeNotificationWithTurn identifier expectedTurn notification
         "session_title_updated" -> one TitleEvent fields
         "session_working_directory_changed" -> one WorkingDirectoryEvent fields
         "settings_updated" -> one SettingsUpdatedEvent fields
+        "mcp_status_changed" -> one McpStatusEvent fields
+        "mcp_auth_required" -> one McpAuthRequiredEvent fields
+        "mcp_auth_completed" -> one McpAuthCompletedEvent fields
         "permission_resolved" -> one PermissionEvent fields
         "hook_execution_started" -> one HookStartedEvent fields
         "hook_execution_completed" -> one HookCompletedEvent fields
