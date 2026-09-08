@@ -2,9 +2,11 @@
 
 Cabal is the canonical package description. Nix supplies a reproducible development environment; it does not replace the Cabal build or impose a Nix dependency on SDK users.
 
+The goal is paused. [The handoff](HANDOFF.md) records current status and recovery; [preserved evidence](evidence/2026-09-08/README.md) records stopping-point checks. Checkpoint narratives below retain their original scope and counts rather than claiming current overall completion.
+
 ## Functional delivery order and verification cadence
 
-The user-directed daemon vertical slice is now implemented and verified offline: connect to an existing daemon, attach or create a session, exchange requests/events and release owned resources. External MCP integration, SDK-hosted Haskell tools and REST/advanced resources are the next substantial deliveries. Missing live-call authorization does not block their offline implementation.
+The daemon vertical slice and external MCP integration are implemented and verified offline. SDK-hosted Haskell tools have a working native core, but required schema conformance and dependency provenance remain unresolved. After explicit resumption, complete or concretely escalate those requirements, then continue REST/advanced resources and the remaining functional roadmap. Missing live-call authorization does not block independent offline implementation.
 
 The local session/stream lifecycle and implemented input/control capabilities have existing evidence. Do not extend or reharden them except for a demonstrated bug or a named remaining requirement. Saved-session discovery and broader configuration remain required, but are not the next delivery. Required codecs and operation contracts are implemented within capability slices, not as a preceding exhaustive inventory phase. Obsolete tracker dependencies between reference inventory, codecs, transports, local sessions and controls have been removed; final conformance still requires all functional work.
 

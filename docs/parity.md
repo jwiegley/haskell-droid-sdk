@@ -1,6 +1,8 @@
 # SDK parity and reference baseline
 
-This document records existing implementation and the functional SDK parity backlog. The resumed goal covers the combined Python/TypeScript SDK capabilities, including daemon/REST functionality. Exhaustive schema-definition and codec coverage are no longer independent completion requirements; types and validation needed by required operations remain in scope.
+This document records existing implementation and the functional SDK parity backlog. The paused goal covers the combined Python/TypeScript SDK capabilities, including daemon/REST functionality. Exhaustive schema-definition and codec coverage are not independent completion requirements; types and validation needed by required operations remain in scope.
+
+Codec-section counts and delivery narratives are historical checkpoints. The functional matrix and [current handoff](HANDOFF.md) govern present status; a proposed module destination does not establish an implemented capability.
 
 The 1.205.0 schemas and baselined SDK implementations remain contract references. Their inventories do not require implementing unused definitions merely to reach a coverage total. Existing codecs and tests are retained.
 
@@ -953,7 +955,7 @@ Python `transport.py:82,325–365` supplies the lifecycle reference: configurabl
 | Native tool controls, skills, commands and hook events | `listDroidTools`, `listDroidCommands`, `listDroidSkills` and `setDroidSkillDisabled` provide scoped operations; tool policies use settings patches. Typed tool/hook events are exposed | Codec and operation fixtures; native hypothetical-query, independent allow flags, metadata-only delivery, callback/retired-handle and false-success checks |
 | External MCP configuration, registry discovery, management and OAuth | Local/daemon report, add/remove/toggle and auth operations; typed startup/OAuth/stored/update configuration in `Schema.MCP.Config`; immutable load/rollback policy; sessionless global daemon connection/get/update; opt-in connection-scoped MCP observation before init/load and through replacement | Native JSONL/WS tests cover forwarding/normalization, omitted/empty/false, header arrays/maps, config errors, global no-session routing, ACK versus completion, early/foreign/malformed events, callback isolation and cancellation/join cleanup. Observer-registration and display regressions are sensitive to their fixes. Offline delivery only; URI policy and remaining live/platform conformance remain explicit |
 | Haskell-defined MCP tools and session-owned HTTP servers | `MCP.Tool` and `MCP.Server` implement argument-only raw/typed/structured handlers and authenticated loopback hosting; local/daemon startup options acquire shared leases, retaining caller-started ownership and replacement endpoints | Native HTTP invocation during CLI/daemon init/load, structured/rich output, request bounds, early cleanup, concurrent lease/close/restart and argument-isolation tests pass. Validator profile restrictions remain under `hsdk-zpf`; hosted parity is not complete, and no live interoperability is claimed |
-| Attribution, safe logs, metrics and trace propagation | `Factory.Droid.Observability` | Privacy and metadata tests |
+| Attribution, safe logs, metrics and trace propagation | Pending beyond existing redacted display and attribution boundaries; proposed `Factory.Droid.Observability` | Privacy and metadata tests remain required |
 | Daemon session collections, search, archival and queued messages | Pending beyond `Factory.Droid.Daemon` session core | Daemon resource tests remain required |
 | Daemon workspace trust, files, terminals and default settings | Required codecs exist in part; operational resource APIs remain pending | Daemon resource tests remain required |
 | Workspace-targeted file transfers and proxy-token resources | Pending | Scope, authentication and transfer fixtures remain required |
@@ -961,9 +963,9 @@ Python `transport.py:82,325–365` supplies the lifecycle reference: configurabl
 | Plugins, marketplaces and automations | Pending | Daemon resource tests remain required |
 | Git, worktrees, semantic diffs and feedback | Required codecs exist in part; operational resource APIs remain pending | Daemon resource tests remain required |
 | Experimental crons, missions and Software Factory resources | Pending | Advanced-resource fixtures remain required |
-| Session/mission state stores, subscriptions and low-level controllers | `Factory.Droid.State` | State-transition and subscription tests |
-| Optimistic submission, message-chain repair, queue review, terminal restoration and progressive message selection | `Factory.Droid.State` | State and reconstruction fixtures |
-| Factory REST compute, template and session APIs | `Factory.Droid.REST` | HTTP request/response/error tests |
+| Session/mission state stores, subscriptions and low-level controllers | Pending; proposed `Factory.Droid.State` | State-transition and subscription tests remain required |
+| Optimistic submission, message-chain repair, queue review, terminal restoration and progressive message selection | Pending; proposed state helpers | State and reconstruction fixtures remain required |
+| Factory REST compute, template and session APIs | Pending; proposed `Factory.Droid.REST` | HTTP request/response/error tests remain required |
 | Legacy query/stream capabilities, notification conversion, stream feeding and public compatibility exports | Native equivalents in the modules above | Explicit compatibility mapping and fixtures |
 | Documentation, compiled examples and distribution | Cabal package and Haddock | Package/source-distribution checks |
 
@@ -1038,11 +1040,11 @@ The Python receive path admits JSON arrays before object dispatch, and one null-
 
 ## Evidence to date
 
-- Both SDK checkout revisions and the published npm archive identity were verified.
-- All four schema fingerprints and their byte-for-byte correspondence to the supplied files were verified.
-- The reference audit and its five regression checks pass.
-- The GHC 9.10.3 library and tests build with `-Werror`; all 2,680 Haskell checks pass. All 185 lifecycle/operation checks passed twenty repeated parallel runs.
-- Ormolu, HLint and actionlint checks pass. Haddock covers the current public modules, with missing-link warnings; `cabal check` reports the absent source-repository metadata.
-- The source distribution rebuilds independently and passes the Haskell and reference-audit tests. README expressions were checked in GHCi.
-- macOS/Linux CI is configured for GHC 9.10.3, 9.12.4 and 9.14.1, but only local Apple Silicon macOS/GHC 9.10.3 execution has been verified. No live CLI/daemon test or completed SDK parity claim is present.
-- The installed Obr exporter reintroduces a trailing blank line in `PLAN.org`, causing `git diff --check` to fail after export. The tooling issue is tracked as `hsdk-org-export-whitespace-x4c`; it is not suppressed by a whitespace-check exception.
+- Both SDK checkout revisions, the published npm archive and all four schema fingerprints were verified; the reference audit and five regression checks pass.
+- The current GHC 9.10.3 library/examples/tests build with `-Werror`; all 3,110 tests pass. Local and daemon/external-MCP commit snapshots were separately rebuilt and passed their respective 3,005/3,092-test suites.
+- Ormolu, HLint and actionlint pass. Current Haddock completes with link warnings; `cabal check` retains `[no-repository]`. Dependency licensing and the unsupported proposed GHC 9.14 line remain explicit sign-off issues.
+- The unpacked hosted source distribution builds and passes 3,110 tests. The attachment GHCi probe initially failed because two packages export `Data.ByteString.Base64`; using the library component's Cabal REPL fixes package visibility, and the root probes pass all six markers. See the evidence ledger for the final distribution recheck.
+- A historical authorized local run streamed `HELLO`, matched the final result and reaped its child. Later capabilities have offline evidence only; no current live daemon, multi-turn or OAuth compatibility claim is made.
+- Only Apple Silicon macOS/GHC 9.10.3 execution is established. Configured Linux/GHC 9.12.4/9.14.1 jobs are not execution evidence. Full functional parity remains incomplete.
+- The Obr exporter reintroduces an EOF blank line in `PLAN.org`; `hsdk-org-export-whitespace-x4c` remains open. Whitespace checks are not disabled.
+- [The handoff](HANDOFF.md) and [preserved evidence](evidence/2026-09-08/README.md) supersede older temporary-path status summaries for recovery.

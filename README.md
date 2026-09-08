@@ -4,6 +4,8 @@ A native SDK for the local Factory Droid CLI and existing daemons: prompts, type
 
 **Live baseline:** the earlier local prompt path was verified against CLI 0.212.1: streamed `HELLO`, matching final text and child cleanup. Later API additions are covered by offline tests, not a new live run. See [verification evidence](docs/development.md#current-local-sdk-delivery).
 
+**Delivery is paused; full parity is unfinished.** See [the recovery handoff](docs/HANDOFF.md) for completed scopes, remaining work, current verification and exact resume instructions.
+
 ## Requirements
 
 - GHC 9.10.3 and Cabal; an optional Nix development shell is provided.

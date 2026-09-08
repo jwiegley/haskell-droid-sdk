@@ -1,0 +1,1564 @@
+#+TITLE: Obr Issues
+#+SEQ_TODO: TODO DOING DRAFT WAIT DEFER NOTE | DONE CANCELED
+#+ISSUE_PREFIX: hsdk
+
+* DONE [#C] Implement scoped plain WebSocket object transport
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-1f6
+:LABELS:   []
+:ISSUE_TYPE: task
+:CREATED:  [2026-09-06 Sun 13:02]
+:MODIFIED: [2026-09-08 Tue 01:24]
+:CREATED_BY: johnw
+:FINISHED: [2026-09-08 Tue 01:24]
+:CLOSE_REASON: Native scoped plain/TLS WebSocket transport verified offline as part of the daemon slice; see /tmp/droid-daemon-milestone.nd8zgR.
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Implement the baseline daemon text-object framing over a native, owned plain WebSocket connection. Use websockets protocol machinery and bracket socket lifetime so failed/cancelled connect/handshake and bounded close cannot leak resources. Cover text/UTF-8/binary rejection, sizes, close/EOF, handshake failure/deadline, cancellation and RPC integration with local peers. TLS, daemon/relay authentication, reconnect/retries and binary tunnels remain explicit later layers. No Factory calls, tokens or live mutations.
+
+** Notes
+
+The prior local-MVP deferral is superseded by the user-directed daemon delivery. Factory.Droid.Transport.WebSocket is packaged and verified with offline peers: owned socket lifetime across setup/cleanup, explicit plain or verified TLS, trusted/private-CA and hostname behavior, bounded header/frame/message/connect/close paths, JSON/UTF-8/binary validation, cancellation identity and scoped RPC integration. TLS and daemon authentication were delivered together under hsdk-transports-client-4yp rather than left as insecure follow-ups. The archived prototype remains separate historical material. Evidence: /tmp/droid-daemon-milestone.nd8zgR. Relay/reconnect/binary tunnels remain separate functional work; no live call was made.
+
+Earlier checkpoints (historical):
+User explicitly narrowed delivery to the local prompt/stream/result/session path. Stop WebSocket work; unfinished source/test preserved in /tmp/droid-websocket-deferred.nr56Lv and removed from the package build. Dependency framing/deadline findings remain backlog, not MVP blockers.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-1f6",
+    "depends_on_id": "hsdk-transports-client-4yp",
+    "type": "discovered-from",
+    "created_at": "2026-09-06T20:02:10.490153Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
+* DONE [#D] Document deferred exhaustive codec backlog
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-1wk
+:LABELS:   []
+:ISSUE_TYPE: docs
+:CREATED:  [2026-09-06 Sun 23:12]
+:MODIFIED: [2026-09-06 Sun 23:16]
+:CREATED_BY: johnw
+:FINISHED: [2026-09-06 Sun 23:16]
+:CLOSE_REASON: Wrote docs/exhaustive-codec-backlog.md with all 422 exact missing names, partial-contract accounting, all 84 runtime annotation paths, 78-definition dependency closure, source/version gaps, restart phases and reproducible refresh instructions. Checked appendix membership/uniqueness/order, every annotation path, source digest, links, script execution and five audit tests. No codecs implemented or deleted.
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Write a Markdown handoff for optional later exhaustive protocol-1.205.0 codec work. Enumerate missing named representations, distinguish aliases and partial contracts, inventory runtime semantics and source gaps, give a restart/update plan, and validate counts against the immutable corpus without implementing unused codecs.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-1wk",
+    "depends_on_id": "hsdk-types-codecs-2rb",
+    "type": "discovered-from",
+    "created_at": "2026-09-07T06:12:43.796721Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
+* DONE [#C] Validate and submit native image and document attachments
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-2zm
+:LABELS:   []
+:ISSUE_TYPE: feature
+:CREATED:  [2026-09-07 Mon 06:44]
+:MODIFIED: [2026-09-07 Mon 08:43]
+:CREATED_BY: johnw
+:FINISHED: [2026-09-07 Mon 08:43]
+:CLOSE_REASON: Validated attachments, shared submission, configurable frame bounds, native/controlled IO regressions, documentation and focused review completed.
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Implement validated image and text/PDF attachment values and high-level submission through the existing AddUserMessageParams turn path. Follow Python _high_level/attachments.py: 5 MiB images/text, 3 MiB PDF, strict base64 and signatures, UTF-8 byte limits, metadata preservation, bounded regular-file reads and change detection. Use asynchronous-exception-safe FD/handle ownership and prevent FIFO replacement from hanging an open. Reconcile aggregate attachments with the existing 10 MiB high-level JSONL frame ceiling without silent truncation or unsafe constructors. Test all required source forms, invalid inputs, file/race boundaries, exact wire payloads and resource cleanup offline. No live calls or unused codec expansion.
+
+** Notes
+
+Implemented Factory.Droid.Input with private validated image/text/PDF values, source/byte/file constructors, metadata preservation, redacted errors and bounded regular-file IO. Added four sendDroidInput variants through existing AddUserMessageParams/Client/turn ownership. Frame limits remain 10 MiB by default but are configurable; native tests prove 2x5 MiB images are rejected at default and accepted at 20 MiB without truncation. Canonical Base64 pad-bit rejection is intentionally stricter than Python aliases and documented. Review found no implementation defect; its FD/race coverage gap was addressed by a tracked GHCi actual-source breakpoint probe and CI wiring. Probes cover FIFO/inode replacement, observed mutation, ThreadKilled plus closed FD, forced short-read continuation and exact read budget. Snapshot-check mutant failed then guard restored. Final review found no issues; reviewer inspected source/logs only. Verified 2841 Haskell tests (123 high-level, 34 input), five audit tests, 20x203 parallel checks, -Werror build, HLint/Ormolu/actionlint, compiled attachment example and Haddock after fetching Base64 source for docs. Existing link/no-repository warnings remain. Package file list includes new code/tests/probe and optional backlog document. Evidence: /tmp/droid-attachments.5GtLNM. No new live Factory/model call, full sdist rebuild or new platform execution.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-2zm",
+    "depends_on_id": "hsdk-inputs-controls-2fw",
+    "type": "discovered-from",
+    "created_at": "2026-09-07T13:44:44.394212Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
+* TODO [#B] Clarify jsonschema dependency license declarations
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-4po
+:LABELS:   []
+:ISSUE_TYPE: task
+:CREATED:  [2026-09-08 Tue 11:24]
+:MODIFIED: [2026-09-08 Tue 11:24]
+:CREATED_BY: johnw
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+jsonschema-0.3.0.1 package metadata and LICENSE declare MPL-2.0, but inspected JSONSchema.Validation and JSONSchema.URIFragment module headers declare LicenseRef-AllRightsReserved. The library is a separate Cabal dependency, not vendored. Obtain authoritative clarification or choose an appropriately licensed validator before distribution sign-off; preserve provenance and do not silently interpret away the discrepancy. No upstream posting or contact is authorized by this issue. Evidence: docs/evidence/2026-09-08/dependency-provenance.md and NOTICE.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-4po",
+    "depends_on_id": "hsdk-mcp-y1i",
+    "type": "discovered-from",
+    "created_at": "2026-09-08T18:24:10.536692Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
+* DONE [#C] Expose scoped settings and native tool/skill controls
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-5tc
+:LABELS:   []
+:ISSUE_TYPE: feature
+:CREATED:  [2026-09-07 Mon 09:08]
+:MODIFIED: [2026-09-07 Mon 10:37]
+:CREATED_BY: johnw
+:FINISHED: [2026-09-07 Mon 10:37]
+:CLOSE_REASON: Scoped settings/spec/tool policy and discovery controls implemented through shared request effects; codec, binding, native failure/lifecycle and documentation checks passed.
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Implement required settings-update and list-tools request types/bindings, using the selected CLI 1.201.1 fallback semantics and supplied wire shapes. Preserve absent/null spec resets, exact compaction numbers, mission/tag/tool-policy fields and extensions. Expose settings updates, hypothetical tool discovery, command/skill listing and skill disable controls through existing masked scoped request effects. Preserve peer acknowledgements and avoid an optimistic settings cache. Verify codecs and native wire/error/callback/replacement/cancellation behavior offline. No live calls, unused codec expansion, system-prompt or cached-settings completion claim.
+
+** Notes
+
+Implemented full required settings-update and hypothetical list-tools bodies, legacy mode and shared tool policy, preserving nullable spec resets, exact compaction numbers, natural depth, mission/tag validation and owned extensions. Invalid mode/autonomy fields follow the selected CLI 1.201.1 fallback-to-absence contract; other fields remain strict. Added Client.updateSessionSettings/listTools, bringing bindings to 33. Scoped updateDroidSettings/listDroidTools/listDroidCommands/listDroidSkills/setDroidSkillDisabled reuse read-only/mutating leases; resumed model overrides reuse the typed binding. No optimistic settings cache, locally inferred policy success or system-prompt/snapshot completion claim. Verified 2879 tests (130 high-level, 138 client binding, 23 new settings codec), 20x199 parallel checks, -Werror build, HLint/Ormolu/actionlint, compiled README example, Haddock and FD/race probes. Probe dependency flags were corrected after duplicate Base64 unit exposure; post-Haddock probe passes. Existing link/no-repository advisories remain. Evidence: /tmp/droid-settings.4BGpSJ. No new dependency, live call, commit or full source-distribution cycle.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-5tc",
+    "depends_on_id": "hsdk-inputs-controls-2fw",
+    "type": "discovered-from",
+    "created_at": "2026-09-07T16:08:07.096194Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
+* DONE [#C] Implement local successor-session ownership and rollback
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-9k1
+:LABELS:   []
+:ISSUE_TYPE: feature
+:CREATED:  [2026-09-07 Mon 01:09]
+:MODIFIED: [2026-09-07 Mon 02:59]
+:CREATED_BY: johnw
+:FINISHED: [2026-09-07 Mon 02:59]
+:CLOSE_REASON: Local successor ownership, rollback, cancellation admission and notification boundaries implemented and reviewed; 2732 tests plus 50 concurrent stress runs pass.
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Implement fork, compaction and rewind through one local replacement path: reject active turns, drain existing ordinary requests, load successor on the same connection, retire the old handle only after success, restore the original on failed load, and fail closed when rollback/outcome is uncertain. Preserve cancellation identity, scope ownership, permission policy and returned metadata. Add deterministic native lifecycle/concurrency tests; no live/cost-bearing calls without fresh authorization.
+
+** Notes
+
+Implemented forkDroidSession, compactDroidSession and rewindDroidSession via one replacement path. Shared SessionConnection owns RPC/channel/dispatcher/IDs/turn lock/availability; per-handle STM phase and leases prevent new source calls and drain existing calls before switching. Successors share the original scope, source retirement is atomic, load failure attempts original reload, rollback failure and uncertain operation outcomes invalidate. Added DroidSessionStatus, DroidReplacementError and scoped rewind options. Cancellation after the retirement commit can obscure result delivery but not scope ownership; target ID remains recorded. A reviewer withdrew an initial stronger handoff objection after agreeing this explicit IO linearization contract.
+
+Review exposed and native traces reproduced a real cancelled-mutation crossing bug. Read-only/mutating effects are now explicit, mutation outcome classification/invalidation is masked before lease release, and replacement drain/cleanup cannot erase invalidation. A repeated-cancellation regression covers the narrowed critical window. Removing the drain guard made its regression fail; it was restored. Gated peers observe requests independently of session usability, prove writer release before healthy load cancellation, and verify actual rollback attempts. Rollback-cancellation, post-commit cancellation and independent-connection tests are included.
+
+Added synchronizeRpcEvents as an internal queued-prefix boundary over the existing channel intake: no wire frame and no second reader. Startup/load includes event-prefix dispatch in its 60-second budget so prior history cannot enter the next turn. Four dispatcher regressions cover response/notification overtaking, empty-prefix completion, cancellation and terminal wakeup; native load replay covers both successor and original rollback loads.
+
+Verification: all 48 high-level cases, 20 dispatcher cases and all 2732 tests pass; -Werror build, HLint/Ormolu pass; 50 parallel repetitions of the 94 channel/dispatcher/high-level cases pass. README replacement example compiles with -fno-code. Haddock completes with retained existing warnings. Independent final recheck found no issues in the fixes; reviewer executed no tests and inspected parent evidence. Artifacts: /tmp/droid-replacement-check.R1qMK9 (verified-checks.log, verified-stress-*.log, mutation-before.log, drain-mutant.log, working-diff.patch, ReplacementExample.hs, haddock.log). Test-only directory dependency added for private gate cleanup. No new wire codecs, live/cost-bearing calls, commits or pushes; full distribution verification remains for the functional goal's final pass.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-9k1",
+    "depends_on_id": "hsdk-sessions-streams-d0f",
+    "type": "discovered-from",
+    "created_at": "2026-09-07T08:09:57.704507Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
+* DONE [#C] Bound local JSONL subprocess shutdown
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-amj
+:LABELS:   []
+:ISSUE_TYPE: task
+:CREATED:  [2026-09-06 Sun 07:29]
+:MODIFIED: [2026-09-06 Sun 08:14]
+:CREATED_BY: johnw
+:FINISHED: [2026-09-06 Sun 08:14]
+:CLOSE_REASON: Shutdown increment verified: TERM/grace/KILL/reaping, buffered-write cancellation regression, 2384 tests, 30 stress runs and independent source distribution.
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Completed the approved shutdown increment in src/Factory/Droid/Transport/Process.hs and test/ProcessSpec.hs. withJsonLinesProcess now takes frame-byte limit, Int grace in microseconds, process configuration and callback. Nonpositive grace skips the wait. It sends SIGTERM, uses interruptible nonblocking exit polling during grace, then SIGKILLs only the still-owned child and reaps it with asynchronous exceptions deferred. No competing/cancelled waitForProcess waiter is introduced. Pipes close after termination/reaping; process's existing ignoreSigPipe helper ignores only EPIPE from closing terminated stdin.
+
+Two failures were reproduced: SIGTERM-resistant cleanup waited for the 5-second fixture watchdog (5.02s); repeated small-frame writes left a buffered stdin flush, causing pre-termination hClose to wait for that watchdog and replace AsyncCancelled. NoBuffering alone did not fix the latter. Terminating before closing pipes fixed it. The native peer's watchdog prevents test process leaks but cannot satisfy the separate 2-second cleanup assertion.
+
+The 13 process tests cover request/acknowledgement/deltas/completion, malformed frames, limits, EOF/truncation, cooperative exit, ignored SIGTERM, nonpositive grace/natural-exit races, callback failure, cancellation during receive, small/large full-pipe writes and cancellation during grace. Every peer PID is checked reaped. All 2384 Haskell tests pass with -Werror; the final 13-test group passed 30 consecutive parallel runs (4 test workers, 2 GHC capabilities). Ormolu, HLint, actionlint and 5 audit regressions pass. Haddock covers the module; existing dependency/Generic-link warnings and cabal's no-repository advisory remain. README's new echo example returns True in isolated GHCi.
+
+Independent source distribution: /tmp/droid-shutdown-final.tlkaHJ/droid-sdk-0.1.0.0. The combined verification command hit its 600-second tool timeout during the fresh source build, without a compiler error; completing that build in a separate command passed all 2384 tests and the 5 audit tests. Logs: build.log, build-resume.log, haddock.log and repl.log in the parent artifact directory. Read-only reviewer found no issues in the initial escalation design; the stronger buffered-write regression and fix were found and verified by the coordinator afterward.
+
+Limits remain explicit: no absolute kernel-exit deadline, descendant management, Droid launcher, request dispatcher or live interoperability claim. No new schema family, live Factory call, commit or push. Broader transport/client milestone remains open.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-amj",
+    "depends_on_id": "hsdk-transports-client-4yp",
+    "type": "discovered-from",
+    "created_at": "2026-09-06T14:29:22.706772Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
+* TODO [#C] Prove cross-SDK conformance and real interoperability
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-conformance-integration-m3p
+:LABELS:   []
+:ISSUE_TYPE: task
+:CREATED:  [2026-09-04 Fri 20:09]
+:MODIFIED: [2026-09-04 Fri 20:09]
+:CREATED_BY: johnw
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Pass offline reference-derived/differential regression suite across supported platforms; authorized bounded live CLI/daemon smoke tests. No live calls or costs without approval.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-conformance-integration-m3p",
+    "depends_on_id": "hsdk-daemon-resources-observability-mxt",
+    "type": "blocks",
+    "created_at": "2026-09-05T03:09:55.343028Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  },
+  {
+    "issue_id": "hsdk-conformance-integration-m3p",
+    "depends_on_id": "hsdk-inputs-controls-2fw",
+    "type": "blocks",
+    "created_at": "2026-09-05T03:09:55.343028Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  },
+  {
+    "issue_id": "hsdk-conformance-integration-m3p",
+    "depends_on_id": "hsdk-mcp-y1i",
+    "type": "blocks",
+    "created_at": "2026-09-05T03:09:55.343028Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
+* DONE [#C] Resume saved local Droid sessions through the scoped API
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-d2m
+:LABELS:   []
+:ISSUE_TYPE: feature
+:CREATED:  [2026-09-06 Sun 23:25]
+:MODIFIED: [2026-09-06 Sun 23:52]
+:CREATED_BY: johnw
+:FINISHED: [2026-09-06 Sun 23:52]
+:CLOSE_REASON: Saved local-session loading and follow-up API implemented with focused native verification; 2699 tests/build/lint pass. Live resume not yet exercised.
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Extend the usable local session path with explicit saved-session loading and follow-up prompts, reusing one process/RPC/dispatcher lifetime. Preserve saved state, safe permission defaults, model-option semantics, useful failures and cleanup. Verify against the selected runtime contract and native offline peers; do not add unused exhaustive codecs or make live model calls without fresh authorization.
+
+** Notes
+
+Implemented withResumedDroidSession using the same private withLocalSession lifetime as withDroidSession. Sends load_session first (sessionId + autoRejectPermissionRequests), validates required result containers without porting unused fields, retains requested ID and stored model, and applies explicit model overrides through update_session_settings before exposing the handle. Working-directory restoration remains CLI-owned. Missing sessions and model rejections preserve structured RPC errors; no fallback initialization. Eight new native cases cover follow-ups/history isolation, model behavior, missing/rejected startup, three malformed result shapes and resumed cancellation; safe permission/question defaults are exercised after load. All 19 high-level tests and all 2699 tests pass with -Werror; HLint/Ormolu pass; README resume expression compiles with -fno-code. Evidence: /tmp/droid-resume-check.zV8gwl. No live requests, new dependencies, exhaustive codecs, commits or pushes. Broader session operations/ownership and full low-level bindings remain separate functional work.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-d2m",
+    "depends_on_id": "hsdk-sessions-streams-d0f",
+    "type": "discovered-from",
+    "created_at": "2026-09-07T06:25:09.018967Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
+* TODO [#C] Complete REST/daemon resources, advanced transports and observability
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-daemon-resources-observability-mxt
+:LABELS:   []
+:ISSUE_TYPE: task
+:CREATED:  [2026-09-04 Fri 20:09]
+:MODIFIED: [2026-09-07 Mon 21:21]
+:CREATED_BY: johnw
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Implement required REST and advanced daemon resource operations, workspace/terminal/worktree/mission and exported manager capabilities, relay/binary/host transport facilities, attribution and privacy-safe observability. Reuse completed daemon/channel infrastructure where applicable, but independently testable REST/MCP work need not await global schema or local-session completion. Reconcile each required capability with the final functional inventory.
+
+** Notes
+
+Historical description (superseded by functional-delivery reconciliation):
+Full advanced TypeScript-only resources, native daemon/REST behavior, SDK attribution, notifications and privacy-safe telemetry with tests.
+
+User-directed execution correction:
+Keep missing major capabilities visibly open. Daemon connection/session/request/events/cleanup is the next coherent delivery; REST/resources and hosted MCP cannot be displaced by optional local refinements. Report capability outcomes, not codec or test-count growth.
+
+* TODO [#C] Reconcile diagnostic text limits between JSON Schema and Zod
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-diagnostic-text-limits-81n
+:LABELS:   []
+:ISSUE_TYPE: bug
+:CREATED:  [2026-09-05 Sat 10:40]
+:MODIFIED: [2026-09-05 Sat 10:40]
+:CREATED_BY: johnw
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+BugReportSourceSchema limits version/cliVersion/osVersion to 100 characters and platform/arch to 32. JSON Schema string lengths count Unicode code points; the published TypeScript/Zod string.max validators count UTF-16 code units, which differs for non-BMP characters. Source evidence: JSON Schema Draft-07 validation section 6.3.1; colinhacks/zod issue 3355; published SDK chunk-5UXINOXG.mjs BugReportSourceSchema.
+
+The native canonical wire codec uses the supplied JSON Schema domain and BoundedText with code-point limits. Tests include exact-bound ASCII and emoji, empty strings, and over-limit rejection. Older-SDK interoperability is not established for the larger non-BMP inputs. Reconcile this in explicit protocol/compatibility handling before final parity sign-off; do not silently truncate values or claim the two contracts are identical.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-diagnostic-text-limits-81n",
+    "depends_on_id": "hsdk-types-codecs-2rb",
+    "type": "discovered-from",
+    "created_at": "2026-09-05T17:40:07.904711Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
+* TODO [#C] Finish docs/examples, distribution validation and parity sign-off
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-docs-package-signoff-ip3
+:LABELS:   []
+:ISSUE_TYPE: task
+:CREATED:  [2026-09-04 Fri 20:09]
+:MODIFIED: [2026-09-04 Fri 20:09]
+:CREATED_BY: johnw
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Complete matrix and documentation, compiled examples, clean source-distribution build, tests, lint/format/Haddock/package checks and fresh platform/live evidence. Review diff; no commits or publication without permission.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-docs-package-signoff-ip3",
+    "depends_on_id": "hsdk-conformance-integration-m3p",
+    "type": "blocks",
+    "created_at": "2026-09-05T03:09:56.496885Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
+* TODO [#D] Resolve documentation link warnings and repository metadata before distribution sign-off
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-documentation-diagnostics-jvc
+:LABELS:   []
+:ISSUE_TYPE: docs
+:CREATED:  [2026-09-04 Fri 20:57]
+:MODIFIED: [2026-09-04 Fri 20:57]
+:CREATED_BY: johnw
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Current Cabal/Haddock checks exit successfully, but Haddock reports missing vector documentation and generated Generic representation link targets. Cabal check encourages source-repository metadata; this repo has no remote, so no URL was invented. Investigate during final docs/package sign-off; never suppress checks or publish a fabricated URL. Compiler -Werror build and 60 enum checks pass.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-documentation-diagnostics-jvc",
+    "depends_on_id": "hsdk-haskell-foundation-aae",
+    "type": "discovered-from",
+    "created_at": "2026-09-05T03:57:54.919143Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
+* DONE [#C] Expose ordinary scoped session controls and rewind information
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-ert
+:LABELS:   []
+:ISSUE_TYPE: feature
+:CREATED:  [2026-09-07 Mon 00:41]
+:MODIFIED: [2026-09-07 Mon 00:58]
+:CREATED_BY: johnw
+:FINISHED: [2026-09-07 Mon 00:58]
+:CLOSE_REASON: Ordinary scoped controls and rewind metadata implemented; 2709 tests/build/lint pass with native behavioral coverage.
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Add high-level rename, CLI working-directory change and rewind-info access using existing typed Client bindings. Preserve real success flags and server-resolved paths, inject the owned session ID, permit ordinary calls from callbacks where supported, reject unusable handles and avoid SDK-side filesystem mutations. Keep successor-producing fork/compact/rewind ownership separate until implemented and tested.
+
+** Notes
+
+Implemented renameDroidSession, changeDroidWorkingDirectory and getDroidRewindInfo in Factory.Droid, reusing typed Client operations. Generalized the existing private sessionQuery helper to sessionRequest for ordinary non-replacing calls; no turn-lock acquisition, matching the reference client guards. Rename preserves true/false result data and input spelling, directory control returns the server path without changing the caller cwd, and rewind-info supplies the owned session ID without opening/restoring/deleting files. Five new native cases cover these outcomes, callback use, ordinary errors and invalidated handles. Callback tests assert invocation, not merely final text. All 29 high-level cases and 2709 tests pass with -Werror; HLint/Ormolu pass. Evidence: /tmp/droid-session-controls.u7j0Kk. CLI declarations inspected statically; no new codecs/dependencies/live calls or full distribution repeat. Successor-producing controls still require explicit replacement/rollback ownership work.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-ert",
+    "depends_on_id": "hsdk-sessions-streams-d0f",
+    "type": "discovered-from",
+    "created_at": "2026-09-07T07:41:05.398720Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
+* TODO [#C] Expose local saved-session discovery
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-f20
+:LABELS:   []
+:ISSUE_TYPE: task
+:CREATED:  [2026-09-07 Mon 21:01]
+:MODIFIED: [2026-09-07 Mon 21:21]
+:CREATED_BY: johnw
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Implement native listDroidSessions without launching Droid or reading authentication. Cover caller/default session roots, project and legacy layouts, workspace filters, deterministic newest-ID deduplication/sorting/limits, favorites/archive handling, summary times/counts and TypeScript mission metadata. Baseline Python _high_level/discovery.py and published TypeScript node.mjs:3936-4153; reconcile their observable differences explicitly. Reuse existing filesystem facilities, bound streaming reads to observed file sizes, preserve cancellation/descriptor ownership, and use offline filesystem/reference fixtures. No unused codec sweep or live/model calls.
+
+** Notes
+
+Investigation only; no discovery implementation or native binding was written. User redirected next substantial delivery to daemon connection/session/request/events/cleanup. Discovery remains required but is parked behind that delivery. Python/TypeScript discovery contracts and installed file API probes are retained at /tmp/droid-discovery.T3DGAT. Do not resume this local extension before the daemon slice.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-f20",
+    "depends_on_id": "hsdk-sessions-streams-d0f",
+    "type": "discovered-from",
+    "created_at": "2026-09-08T04:01:26.219881Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
+* TODO [#B] Resolve SDK attribution language incompatibility for Haskell
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-haskell-attribution-80m
+:LABELS:   []
+:ISSUE_TYPE: bug
+:CREATED:  [2026-09-04 Fri 20:15]
+:MODIFIED: [2026-09-06 Sun 14:27]
+:CREATED_BY: johnw
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Supplied protocol 1.205.0 shared.schema.json SdkClientMetadataSchema.language permits only typescript/python; Python SdkClientMetadata matches. Native Haskell identity cannot validate against this enum. Check published TypeScript/core handling; obtain user decision before any intentional schema extension or attribution omission. Never impersonate another SDK. No live requests authorized.
+
+** Notes
+
+Narrowed local MVP leaves optional SDK-language attribution unset and removes inherited upstream SDK labels instead of impersonating a supported language. Full branded Haskell attribution remains backlog, not a basic-use blocker.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-haskell-attribution-80m",
+    "depends_on_id": "hsdk-reference-baseline-h1v",
+    "type": "discovered-from",
+    "created_at": "2026-09-05T03:15:21.301233Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
+* DONE [#C] Establish idiomatic Haskell package and supported build matrix
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-haskell-foundation-aae
+:LABELS:   []
+:ISSUE_TYPE: task
+:CREATED:  [2026-09-04 Fri 20:09]
+:MODIFIED: [2026-09-04 Fri 20:57]
+:CREATED_BY: johnw
+:FINISHED: [2026-09-04 Fri 20:57]
+:CLOSE_REASON: Cabal/GHC2024 package and pinned Nix dev shell established; source license retained. GHC9.10.3 -Werror build,60 Haskell checks,5 audit checks,Ormolu/HLint/actionlint pass. Clean sdist rebuild/test and README GHCi examples pass. macOS/Linux9.10.3/9.12.4/9.14.1 CI configured, not remotely executed; documentation advisory warnings recorded separately.
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Select current established Haskell tooling/dependencies and conventions from authoritative sources. Native macOS/Linux Cabal library; verify warning-free build, formatting/lint and CI configuration.
+
+* DONE [#C] Deliver local validated inputs, output, settings and interaction controls
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-inputs-controls-2fw
+:LABELS:   []
+:ISSUE_TYPE: task
+:CREATED:  [2026-09-04 Fri 20:09]
+:MODIFIED: [2026-09-07 Mon 21:25]
+:CREATED_BY: johnw
+:FINISHED: [2026-09-07 Mon 21:25]
+:CLOSE_REASON: Reconciled local-core milestone implemented: validated attachments/output, safe configurable interactions, settings/prompts/context/tool/skill controls and hook events. Source matches verified artifact /tmp/droid-observed-settings.pfpTXj. Broader configuration, daemon equivalents, MCP and final interoperability remain explicitly open.
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Implemented local image/text/PDF validation and submission, raw/typed structured output, connection-scoped permission/question handlers, settings patches and observed snapshots, initialization-only system prompts, context/tool/skill/command controls and typed hook events. Remaining initialization/configuration options, additional hook/tool execution facilities and daemon equivalents remain functional backlog; external and hosted MCP remain hsdk-mcp-y1i.
+
+** Notes
+
+Implemented core structured output, attachments, settings/tool/skill controls, new-session system prompts, typed settings events, configurable validated permission/question handlers, outside-turn per-handle events (hsdk-lhp) and ordered typed settings snapshots (hsdk-w39). Broader initialization/configuration and remaining full-SDK capabilities remain. Latest local verification: 3005 tests, 173 high-level cases, 30x227 settings/observer/lifecycle checks, FD/race probes and independent source-distribution verification with 95 matching packaged-file hashes at /tmp/droid-observed-settings.pfpTXj. Handler, observer and settings-view lifetimes remain distinct and documented. Acknowledgements are not settings snapshots; no latest-peer-state guarantee is invented. No new live Factory call or approval is authorized.
+
+Historical description (superseded by functional-delivery reconciliation):
+Full attachment validation, raw/typed structured output, permission/question handlers, tool policies, settings, prompts, spec/context/skills/hooks with behavioral checks.
+
+User-directed execution correction:
+Reconciled local capability boundary, not a claim that all configuration or MCP functionality is complete. Existing implementation/evidence is retained. Stop local hardening churn; prioritize the daemon vertical slice.
+
+* DONE [#C] Bind statically defined local Droid operations
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-jkg
+:LABELS:   []
+:ISSUE_TYPE: task
+:CREATED:  [2026-09-06 Sun 11:56]
+:MODIFIED: [2026-09-06 Sun 12:43]
+:CREATED_BY: johnw
+:FINISHED: [2026-09-06 Sun 12:43]
+:CLOSE_REASON: 31 typed operations and 45 named envelopes verified: 2680 tests, twenty 185-test stress runs, nominal-role probes, clean review, examples and independent source build.
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Implemented 31 typed low-level local Droid operations in Factory.Droid.Client, 31 complete named request aliases and 14 local response aliases in Schema.Local, and the reusable required-parameter MethodRequest codec in Schema.RPC. Wire coverage increases by 45 local owned definitions to 93 shared / 177 local / 47 daemon definitions plus inline types. All added definitions and their transitive references have no runtime-only annotations.
+
+MethodRequest fixes the method literal at the type level, preserves required parameters and root extensions, and uses nominal method/parameter roles. eraseMethodRequest reuses the established base serializer without JSON reparsing. Client operations select their method through the named request alias and reuse requestResult. CallOptions keeps ID, envelope context/extensions and microsecond timeout explicit and redacts Show. No automatic ID, attribution/omission policy or default timeout is inferred. False success flags and open empty-object acknowledgements remain data rather than implied success/completion; replacement handle ownership stays with callers.
+
+ClientSpec adds 130 schema-linked codec, operation, error and native-peer checks. Every method/parameter/result association, required field, response link, extension preservation, reserved-key collision, and error/invalid-result path is exercised. Native peer verifies list_models and change_working_directory requests without actual model or filesystem effects. All 2680 Haskell tests pass -Werror. All 185 lifecycle/operation tests passed twenty repeated runs with four test workers/two GHC capabilities. Compiler probes /tmp/droid-method-roles.jLHLsn accept same-type coercion and reject both method substitution and coercible parameter-wrapper substitution. Read-only review d4701825-055e-48d6-9e10-a4c39bb74fec found no issues.
+
+Ormolu, HLint, actionlint, schema audit and its five regression tests pass. Haddock fully documents Client/Schema.Local/Schema.RPC; existing dependency/Generic-link and no-repository advisories remain. All README expressions, including the named request example, pass isolated GHCi. Independent source distribution /tmp/droid-client-final.k4OLcf/droid-sdk-0.1.0.0 builds warning-free and passes all 2680 Haskell tests plus the audit suite. build.log, haddock.log and repl.log reside in its parent artifact directory.
+
+Not included: initialize_session, load_session, update_session_settings, list_tools and add_mcp_server depend on unresolved runtime refinements; ask_user/request_permission are server-to-client interaction bindings. No launcher, implicit identity, model calls, credential helper, live mutation, commit or push. Broader goal remains running; continue independent work without a checkpoint-review pause.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-jkg",
+    "depends_on_id": "hsdk-transports-client-4yp",
+    "type": "discovered-from",
+    "created_at": "2026-09-06T18:56:55.107872Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
+* DONE [#C] Request and adapt structured local turn output
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-jxj
+:LABELS:   []
+:ISSUE_TYPE: feature
+:CREATED:  [2026-09-07 Mon 06:13]
+:MODIFIED: [2026-09-07 Mon 06:44]
+:CREATED_BY: johnw
+:FINISHED: [2026-09-07 Mon 06:44]
+:CLOSE_REASON: Schema-bearing raw/typed output requests and local adaptation implemented through the shared native engine; behavior, lifecycle, privacy and documentation checks passed.
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Add raw-object and Aeson-typed structured-output specifications and turn results through the existing correlated text/event engine. Reuse OutputFormat/AddUserMessageParams, validate top-level object schemas before submission, preserve raw terminal outcomes and local validation errors, support the reference plain-JSON text fallback, and test wire parameters, failure/reuse/privacy/callback behavior with native peers. No unused schema expansion, new live Factory calls or full-schema validation claim.
+
+** Notes
+
+Implemented rawDroidOutput/jsonDroidOutput, sendDroidOutput/sendDroidOutputEvents and independent wire/local output results. Shared turn submission now uses AddUserMessageParams and Client.addUserMessage; default text/event requests omit outputFormat. Object-root preparation, captured-object precedence, strict plain-JSON object fallback, custom FromJSON validation and redacted diagnostics are tested. Local adaptation follows the settled turn outside its deadline and does not rewrite the peer completion reason or invalidate on missing/invalid output. No automatic schema derivation, full JSON Schema keyword validation, new dependency or live interoperability is claimed. Verified 2795 tests, 111 high-level cases, 20 x 157 parallel lifecycle/channel/dispatcher runs, -Werror build, HLint, Ormolu, compiled typed README example and Haddock. Existing link warnings/no-repository advisory remain. Evidence: /tmp/droid-structured-output.yazP1L.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-jxj",
+    "depends_on_id": "hsdk-inputs-controls-2fw",
+    "type": "discovered-from",
+    "created_at": "2026-09-07T13:13:31.190889Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
+* DONE [#C] Expose complete and partial session stream events
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-l66
+:LABELS:   []
+:ISSUE_TYPE: feature
+:CREATED:  [2026-09-07 Mon 04:43]
+:MODIFIED: [2026-09-07 Mon 05:56]
+:CREATED_BY: johnw
+:FINISHED: [2026-09-07 Mon 05:56]
+:CLOSE_REASON: Complete/partial local event streaming implemented, native regressions and lifecycle checks passed, documentation and focused review reconciled.
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Extend the existing correlated turn engine with typed complete/partial event callbacks for messages, text/thinking, tools, hooks, errors, usage and terminal completion. Reuse existing payload codecs and preserve other notifications explicitly rather than dropping them. Keep one reducer/transport path, retain complete-event results, honor message snapshots/retractions and structured-output data, and verify callback failure/lifecycle behavior with native peers. No unused codec expansion or unauthorized live calls.
+
+** Notes
+
+Implemented sendDroidEvents with CompleteMessages/AllEvents on the existing UUID-correlated turn engine; text helpers share one reducer. Typed complete/partial message/tool/hook/status/usage events, raw unadapted notifications, complete-event result history and capture-only structured output are retained. Strict known-payload validation, snapshot/retraction behavior and callback failure/interruption are covered. Review defects (stale final snapshot and replayed delivered prefixes) were reproduced in twelve regressions and fixed; final read-only recheck found no issues. Verified 2771 tests, 87 high-level cases, 20 x 133 parallel lifecycle/channel/dispatcher runs, -Werror build, HLint, Ormolu, compiled README event example and Haddock. Link warnings/no-repository advisory remain. Evidence: /tmp/droid-event-stream.DNWgK9. No new dependency, unused codec, live Factory call or full distribution cycle.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-l66",
+    "depends_on_id": "hsdk-sessions-streams-d0f",
+    "type": "discovered-from",
+    "created_at": "2026-09-07T11:43:13.269862Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
+* DONE [#C] Expose outside-turn per-handle event subscriptions
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-lhp
+:LABELS:   []
+:ISSUE_TYPE: feature
+:CREATED:  [2026-09-07 Mon 14:29]
+:MODIFIED: [2026-09-07 Mon 15:27]
+:CREATED_BY: johnw
+:FINISHED: [2026-09-07 Mon 15:27]
+:CLOSE_REASON: Per-handle outside-turn event subscriptions implemented and verified with existing dispatcher/lifecycle semantics.
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Expose typed per-handle session event subscriptions through the existing single dispatcher intake, including outside active turns. Preserve strict correlated completion rules for sendDroidTurn while allowing session observers to receive wire-valid completion metadata. Route optional session IDs, report malformed adapted payloads safely, stop admitting notifications for replacing/retired/unavailable handles, and preserve dispatcher callback/unsubscribe semantics. Verify registration, failure isolation, ordinary callback queries, cleanup, replacement filtering and unchanged streams with offline peers. No new reader, settings cache, live calls or false snapshot guarantee.
+
+** Notes
+
+Implemented onDroidSessionEvent with typed events/error values through the existing dispatcher intake. It receives notifications outside turns without consuming turn streams or adding readers/workers/cache. Shared decoding separates uncorrelated wire observation from mandatory UUID correlation in turn APIs. Admission checks handle lifecycle and optional session IDs; retired handles do not follow successors. Ordinary callback failures are isolated; callback intake restrictions and non-joining idempotent unsubscribe semantics are documented. Nine native cases cover outside-turn delivery/query reentrancy, stream coexistence, uncorrelated completion, foreign/untagged routing, malformed and callback failures, unsubscribe/admitted work, retired filtering and channel failure. Verified 2980 tests, 161 high-level cases, 30x207 parallel checks, -Werror build, HLint/Ormolu, FD/race probes, five audits, compiled example and Haddock. Existing link/no-repository warnings remain. Evidence: /tmp/droid-observers.pg0vql. No new dependency, codec, live call or full sdist rebuild. Ordered settings snapshots remain hsdk-w39.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-lhp",
+    "depends_on_id": "hsdk-sessions-streams-d0f",
+    "type": "discovered-from",
+    "created_at": "2026-09-07T21:29:15.241321Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
+* DOING [#C] Implement external MCP integration and SDK-hosted Haskell tools
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-mcp-y1i
+:LABELS:   []
+:ISSUE_TYPE: task
+:CREATED:  [2026-09-04 Fri 20:09]
+:MODIFIED: [2026-09-08 Tue 12:00]
+:CREATED_BY: johnw
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Implement supported external MCP configuration, management, registry and authentication flows, plus actual Haskell-defined tools exposed through session-owned authenticated servers. Both halves require offline interoperability and failure/cleanup tests. They are required functional deliveries, not type declarations or placeholder registries.
+
+** Notes
+
+2026-09-08 stopping-point update: goal mtnsrj8c-uuc099 is PAUSED with automatic continuation off, five of twelve milestones complete. Do not resume feature work without explicit user instruction. External MCP is complete offline; hosted core is implemented but mcp-hosted remains unfinished.
+
+Raw/typed/structured Haskell tools, validated rich results, authenticated bounded loopback HTTP, concurrent start/close/manual/shared leases, token rotation, local init/load/fork/rollback and daemon init/resume invocation are implemented. Final focused review found no issues in the corrected pointer/envelope paths; exact pre-fix regressions are preserved. Unsupported schema families remain under hsdk-zpf. Dependency package/license headers conflict under hsdk-4po; no license or parity waiver.
+
+Fresh warning-free build and all 3110 tests pass. Ormolu, HLint, actionlint, reference audits and compiled hosted example pass. Haddock completes with link warnings; Cabal check retains no-repository advisory. An independently unpacked source distribution builds, passes 3110 tests and audits, and passes all six actual-source attachment FD/race markers after correcting GHCi package visibility through cabal repl lib:droid-sdk. Earlier failed Haddock and probe attempts are retained, not concealed. Only macOS ARM64/GHC9.10.3 execution is established; no new Factory/model/OAuth/live call.
+
+Selected receipts and the archived goal are committed under docs/evidence/2026-09-08. docs/HANDOFF.md gives exact recovery, invariants and remaining phases; the standalone requirements report is ~/dl/droid-sdk-haskell-remaining-scope-2026-09-08.md. Downstream must run fess at the end of every subtask before completion. Implementation commits are on main; push requires a confirmed destination because no remote is configured. Commit/push authorization is scoped to this stopping request, not future publication or live testing.
+
+NEXT after explicit resume: complete hosted validation/provenance or surface the precise external decision; then independent native REST/advanced-resource, transport, discovery/configuration and attribution/observability work. Do not displace those missing capabilities with optional local polishing or exhaustive unused-schema work.
+
+Earlier checkpoints (historical; superseded where noted):
+Hosted MCP is IN PROGRESS, not complete. New Factory.Droid.MCP.Tool/Server and Internal.McpSchema provide argument-only raw/typed/structured tools, explicit schema profile, rich result envelopes, authenticated loopback WAI/Warp hosting, constant-time bearer check, Host/Origin/body/response checks, stateless JSON MCP requests and scoped/manual runtime ownership. droidHostedMcpServers and daemonHostedMcpServers feed existing MCP config/session paths; remote non-loopback daemon hosting rejected before network. Native offline CLI peer now calls the advertised HTTP endpoint during init/load: startup, fork and rollback execute real Haskell handler code. Existing caller-started server is borrowed rather than stolen.
+
+Ten focused tests pass after review corrections; library builds with -Werror. Evidence: /tmp/droid-hosted-mcp.w7Hdht (integration-tests.log, review-fixes-build.log, review-fixes-driver.log, review-fixes-tests.log). Read-only review found manual-start publication cancellation gap, nested batch call-bound bypass, refs into unchecked annotation data, oversized-ID fallback leak of response bound, malformed notification/response acceptance. Source corrections: modifyMVarMasked publication; flat batches only; schema refs restricted to traversed schema positions; minimum response budget and bounded null-ID fallback/pre-dispatch ID rejection; validated envelope shapes. Native regressions added for bounds/envelopes/schema refs/media quality. Pre-fix regression driver link attempts timed out and are not failing-reproducer evidence. No follow-up review approval yet.
+
+NEXT: expand concurrent start/close/cancel and true daemon-hosted invocation coverage, finish rich result/output validation tests, address remaining protocol details, run follow-up review and coherent validation. Current HLint has 12 hints (some source shifts after fixes); Ormolu reports 479 lines of diff in /tmp/droid-hosted-mcp.w7Hdht/format.diff. These checks are not clean and broad suite has not been run against new hosting code. Schema profile limitations tracked hsdk-zpf: jsonschema0.3.0.1 core validator, ref-sibling normalization, unsupported patterns/unevaluated/dynamic/external refs rejected; do not claim unrestricted schema parity. Documentation/NOTICE/dependency/platform implications still need updating. Manual close shares a Closing completion and joins Warp workers outside state lock; verify this carefully. Startup timeout5s; tool timeout30s default; request4MiB/response10MiB; JSON only replies, no cross-POST cancellation promise.
+
+Reference artifacts: verified MCP SDK1.29.0 source /tmp/droid-mcp-sdk-1.29.0.g_xdzsrs/package/dist/esm, package integrity verified without execution. First contract-review workflow detached and settled without persisted continuation; findings arrived but that child is not resumable. Implementation review child9bae3e68-2564-46c5-a6a4-37e4b5890401 completed and may be resumable via workflow94b3a201-b5b3-42c8-b2f5-d73b0e556543 receipt. No agent currently running. No live Factory/model/auth requests, commits, pushes or publication. Normal SDK remains native Haskell; dependency downloads were public development-only.
+
+Earlier checkpoints (historical):
+External-MCP offline delivery complete; SDK-hosted tools remain in progress under this issue. Startup HTTP/SSE/stdio and OAuth configuration, add/remove/toggle/list/registry/auth operations, immutable local load/replacement/rollback policy and sessionless global daemon get/update are implemented. Explicit empty/omitted and OAuth false/options remain distinct; startup headers are arrays, add/global headers maps. Config is normalized before I/O; global update does not accept OAuth false. URI validation follows RFC3986 plus selected metadata refinements, not complete WHATWG alias equivalence.
+
+An opt-in DroidHandlers.onDroidMcpEvent observer is installed before init/load and remains through replacement/rollback, reusing dispatcher/backend decoding. Local scope is connection-wide with optional peer source ID; daemon scope filters attached ID. No new reader/worker/cache. Malformed/channel errors are typed; ordinary callback failures isolated; cancellation joins admitted callbacks. Disabling registration made the native prefix regression fail; fixed source/library restored and independently reviewed.
+
+Evidence /tmp/droid-mcp-config.b7UVda: warning-free library/test/example build; all3092 tests; 41 focused MCP checks; mutation sensitivity; Ormolu and HLint; matching README example compiled without execution; reference audits/actionlint; Cabal check with existing no-repository advisory. Read-only review found no remaining issue. Some linter/linker attempts timed out, retained in logs; no guard/security policy disabled. Only macOS ARM64/GHC9.10.3 offline execution established; no live auth/model/Factory request or release-package cycle.
+
+Selected CLI source: nonempty inline lists merge with user/filesystem configs, which win same-name conflicts; empty lists skip merge. Watchers stop after installing merged configs. Readiness override is initialization-only, resets on load and gates turns with a bounded wait that can proceed on failure/timeout. Haskell does not write MCP config files or promise remote persistence.
+
+NEXT: actual Haskell-defined MCP tools and session-owned authenticated servers; no metadata-only registry/stub. Keep shared ownership/runtime; verify native HTTP invocation/results, authentication, validation, concurrency and cleanup offline. Final live/platform/distribution and protocol/attribution conformance remain open. No commits, publication or further live calls authorized.
+
+Earlier checkpoints (historical):
+First external-MCP increment implemented; milestone remains in progress. Eleven local and daemon leased report/remove/toggle/authentication operations use existing codecs/bindings and 30s/default or 300s/auth RPC budgets. Three typed MCP metadata events use existing stream/session routing. ACK is not auth completion; completion notifications have no request/state correlation. Explicit cancel/submit can run while authentication waits. No new auth lock/cache/worker/browser/token handling; uncertainty/invalidation policy retained and daemon IDs override caller extensions.
+
+A privacy regression proved SuccessResult Show exposed arbitrary extensions; redacted Show fixes display while preserving fields/JSON. Fifteen new native JSONL/WS cases and all208 local/daemon session cases pass using ordinary static Haskell linking. Library/focused tests compile with -Werror; HLint/Ormolu pass. Read-only review found no issues. Evidence: /tmp/droid-external-mcp.PxXH8D (before.log, static-tests.log, session-regressions.log, management-review.md). Dynamic starts stalled in macOS dyld, sampled before Haskell entry; a separate in-test timeout is retained rather than attributed away. No limits or security checks were weakened.
+
+NEXT: validated startup/OAuth configuration and add-server, immutable config replay through initial load/replacement/rollback, and global daemon MCP get/update without sessionId. These are NOT complete. Selected CLI OAuth refinements at Bet204379037/M2R204380536 are retained in oauth-runtime-excerpt.txt and agree with TS0.7 cross-field constraints. Header arrays/maps, omitted/explicit empty, oauth:false/options, global-update false rejection, and Python-versus-CLI URL/header/name validation remain distinct. Startup precedence/save/disable-all behavior is not inferred from arrays. No live auth/model calls, commits or publication authorized. Full external-MCP validation follows configuration delivery, not another per-wrapper release cycle.
+
+Earlier checkpoints (historical):
+Historical description (superseded by functional-delivery reconciliation):
+All supported MCP configurations/management/auth and typed tools. Authenticated loopback server lifecycle, security and real offline integration tests.
+
+User-directed execution correction:
+Independent MCP implementation is not blocked by completion of every local input/control or schema issue. The daemon vertical slice is next; external MCP and hosted tools follow as substantial deliveries. No live authentication or approvals are authorized.
+
+* TODO [#D] Prevent Org export from reintroducing a trailing blank line
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-org-export-whitespace-x4c
+:LABELS:   []
+:ISSUE_TYPE: bug
+:CREATED:  [2026-09-05 Sat 05:59]
+:MODIFIED: [2026-09-05 Sat 05:59]
+:CREATED_BY: johnw
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+The installed obr exporter appends a blank line after the final #+end_src in PLAN.org. After issue updates, /usr/bin/git diff --check reports a new blank line at EOF (line 419 in the current export). This recurs after manual normalization; a prior trim/import also left sync reporting database-newer despite no dirty issues.
+
+Preserve all issue data and guards. Obtain an exporter correction or a supported lossless synchronization procedure that retains a single terminating newline without reintroducing the whitespace failure. Do not weaken git whitespace checks or edit obr/cache internals to manufacture an in-sync result. This is a tooling diagnostic, not a Haskell code failure.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-org-export-whitespace-x4c",
+    "depends_on_id": "hsdk-types-codecs-2rb",
+    "type": "discovered-from",
+    "created_at": "2026-09-05T12:59:19.830782Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
+* DONE [#C] Add typed RPC results and scoped callback dispatch
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-pc1
+:LABELS:   []
+:ISSUE_TYPE: task
+:CREATED:  [2026-09-06 Sun 10:49]
+:MODIFIED: [2026-09-06 Sun 11:38]
+:CREATED_BY: johnw
+:FINISHED: [2026-09-06 Sun 11:38]
+:CLOSE_REASON: Typed results and owned callback dispatch verified: 2550 tests, thirty 55-test stress runs, clean review, documentation/examples and independent source build.
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Implemented typed RPC result extraction and generic scoped callback dispatch without changing wire schemas or choosing Haskell SDK attribution. Protocol.hs adds requestResult, decodeRpcResult and redacted RpcResultError: remote errors take precedence, missing/null/invalid results differ, and FromJSON decoding failure does not poison the channel. The exchange deadline does not claim to bound arbitrary pure decoder CPU time.
+
+Factory.Droid.Protocol.Dispatch consumes the existing receiveRpcEvent intake, not a parallel transport reader. It provides onRpcEvent, onRpcNotification, onRpcError with terminal replay, and method-handler registration returning idempotent unsubscribe actions. Tokens prevent old unsubscribe/finalizer actions from deleting successors. Handlers retain in-flight snapshots and run in owned async workers; gated masked publication, active-ID deduplication and single-owner sealing cover lifetime races. Cleanup concurrently cancels and joins the loop/workers, including finalizers that wait for sibling cancellation. Response identity and caller-supplied envelope context are preserved; no incoming attribution is copied. Unregistered methods receive method-not-found; ordinary raw-handler exceptions produce a content-free internal error. These generic rules are not completed Droid permission defaults.
+
+Verification: 2550 Haskell tests pass with -Werror (26 ProtocolSpec, 16 DispatchSpec and prior groups). All 55 process/protocol/dispatcher tests passed thirty consecutive runs with four test workers/two GHC capabilities. The native rpc peer exercises subscriptions, handler responses and correlated typed calls. In-memory peers verify replacement/unsubscribe, callback isolation, duplicate IDs, snapshots, reentrant requests, terminal replay, scope failure and handler resource cleanup. Read-only implementation review 522d82bc-927c-4cbd-ade0-7dd67935e56f found no issues; no code changes followed except formatting/test lint cleanup.
+
+Ormolu, HLint, actionlint, schema audit and its 5 tests pass. Haddock documents Protocol and Dispatch at 100%, retaining existing dependency/Generic-link advisories. cabal check succeeds with the existing no-repository warning. README expressions run in isolated GHCi. Independent source distribution /tmp/droid-dispatch-final.CT42uQ/droid-sdk-0.1.0.0 builds warning-free and passes all Haskell/audit tests; build.log, haddock.log and repl.log are in its parent artifact directory.
+
+Remaining: automatic request IDs, Droid-specific method bindings/default handlers and error policy, launcher, authentication/attribution, sessions/streams, daemon/REST and other goal capabilities. Generic dispatcher borrows its channel; cancelling a response write may poison that channel. Callbacks must support asynchronous cancellation and notification callbacks should remain brief. No live Factory call, credential helper, staging, commit, push or upstream-checkout edit occurred. Goal remains running; no checkpoint-review pause.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-pc1",
+    "depends_on_id": "hsdk-transports-client-4yp",
+    "type": "discovered-from",
+    "created_at": "2026-09-06T17:49:59.432401Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
+* DONE [#C] Implement typed RPC envelopes and local request routing
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-pip
+:LABELS:   []
+:ISSUE_TYPE: task
+:CREATED:  [2026-09-06 Sun 09:13]
+:MODIFIED: [2026-09-06 Sun 10:30]
+:CREATED_BY: johnw
+:FINISHED: [2026-09-06 Sun 10:30]
+:CLOSE_REASON: Typed RPC envelopes and scoped correlation verified: 2529 tests, 30 final lifecycle stress runs, reviewed race fixes, README examples and independent source distribution.
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Implemented the scoped native RPC foundation after the user resumed the broader goal through completion, without another checkpoint-review gate. src/Factory/Droid/Schema/Metadata.hs adds the three declared attribution/trace schemas; Schema/RPC.hs adds eleven complete envelope/message/response schemas via WithEnvelope, total RpcObject serialization and existing bare codecs. Optional/null distinctions, branch-specific extensions, generic nullable-ID responses and overlapping response alternatives remain schema-accurate. Metadata is data only: no Haskell-language extension, impersonation or automatic attribution-omission policy was selected.
+
+src/Factory/Droid/Protocol.hs supplies withRpcChannel, requestReply, sendRpcMessage and receiveRpcEvent over caller-owned object transport actions. Atomic pending registration rejects active duplicate IDs; connection-unique IDs remain caller-supplied. Deadlines in microseconds cover writer acquisition, send and reply wait. Pending/late/duplicate replies, remote errors, malformed replies/envelopes, EOF, cancellation and scope cleanup are exercised. Interrupted writes poison the channel; response-wait cancellation removes only the request. Raw events have one consumer; the queue is unbounded. No automatic permission handler, callback registry, launcher, method-specific SDK exceptions or complete client API is claimed.
+
+Tests added: 43 metadata, 81 envelope and 21 protocol checks. Existing process fixtures now validate complete envelopes; a native rpc peer interleaves notifications/server requests and reverses responses. All 2529 Haskell tests pass with -Werror. All 34 process/protocol tests passed thirty final consecutive runs with four workers and two GHC capabilities. Both review findings were reproduced before fixing: post-poison frames entered the event queue, and startup read failure was mislabeled as write failure. Dispatch now checks open state atomically; sender error sanitization preserves the recorded terminal cause through a nonblocking lookup. Final read-only review: no issues, OK (57a2b778-e236-4140-9aef-f9fb589922d1).
+
+Ormolu, HLint, actionlint, the reference audit and its 5 regression tests pass. Haddock covers Metadata/RPC/Protocol at 100%; existing dependency/Generic-link and no-repository advisories remain. The offline Haddock dependency plan initially refused async-2.2.6 despite its cached source; normal cabal haddock all rebuilt that dependency successfully. Builds and conformance tests remained offline. All README expressions were checked in isolated GHCi. Independent source distribution /tmp/droid-rpc-final.ojcVZx/droid-sdk-0.1.0.0 builds warning-free and passes all 2529 Haskell tests plus the audit tests. Logs: build.log, haddock.log and repl.log in the parent artifact directory.
+
+Broader goal remains running and incomplete. Continue with client-layer behavior and other unblocked work, without pausing for checkpoint review. Haskell attribution and version-matched runtime refinements still require authoritative input before dependent behavior can be completed. No live Factory calls, staging, commits, pushes or upstream-checkout edits occurred.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-pip",
+    "depends_on_id": "hsdk-transports-client-4yp",
+    "type": "discovered-from",
+    "created_at": "2026-09-06T16:13:22.683959Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
+* TODO [#B] Reconcile three Factory protocol baselines without losing capabilities
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-protocol-baselines-wvf
+:LABELS:   []
+:ISSUE_TYPE: task
+:CREATED:  [2026-09-04 Fri 20:24]
+:MODIFIED: [2026-09-06 Sun 11:39]
+:CREATED_BY: johnw
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Verified TypeScript SDK 0.7.0 advertises Factory protocol 1.151.0, Python0.4.0 advertises1.192.0, supplied Draft-07 schema1.205.0. Preserve full union of public capabilities and record newer method/field/enum differences. No inferred version negotiation or unverified compatibility claim; exact runtime/codec policy and conformance evidence required.
+
+Installed CLI baseline now has static protocol evidence: version 0.212.1 embeds 1.201.1 in the immutable executable and outgoing request/response builders. docs/parity.md records exact path, SHA256 and byte offsets. This adds an inspected CLI runtime baseline, not a live compatibility result and not an authoritative 1.205.0 refinement source. Python 1.192.0, published TypeScript 1.151.0 and supplied schemas 1.205.0 remain distinct.
+
+** Notes
+
+Interaction/input differences recorded in docs/parity.md: Python schemas/cli.py:995-999 exposes exit_spec_mode.optionNames, absent from the supplied declared branch fields; it currently survives only as an extension and still requires an explicit typed compatibility mapping. Python uses integer indices/counts and permits optional nulls; answer/result objects forbid extras, unlike the supplied open shapes. TypeScript 0.7.0 lacks the newer typed patch-confirmation files and ordered user-message content. Preserve capabilities and resolve versioned input/validation behavior before sign-off; current canonical wire codecs do not establish this interoperability.
+
+MCP configuration/input differences: TypeScript materializes stdio args/env defaults; Python additionally trims/rejects blank server names/commands and forbids extras (client.py:484-508). Python header validation rejects blank/whitespace names and CR/LF values (client.py:510-533), whereas the supplied JSON wire shape declares only strings. Passive Haskell codecs preserve the canonical data; operational configuration/header validation and legacy input normalization still require explicit implementation and conformance evidence. No HTTP header or server process is emitted by these codecs. The newer blockedByPolicy status field is retained; count/nullable differences are documented in docs/parity.md.
+
+Mission differences: Python MissionFeature requires verificationSteps (schemas/mission.py:54-105), absent from the supplied declared fields and the older TypeScript feature shape. Canonical Haskell features preserve it only as an extension pending typed legacy compatibility mapping. Worker IDs retain missing/null/present states explicitly; integer-versus-number and optional-null differences remain documented. These feature/handoff codecs do not establish full mission-runtime or SDK interoperability.
+
+Automation target follow-up: TypeScript 0.7.0 AutomationIdSchema trims before min-length validation (dist/chunk-5UXINOXG.mjs:5127,5199-5215), while the supplied read/delete wire schemas state only minLength 1. Canonical target codecs preserve padded/whitespace-only nonempty IDs; older input normalization remains separate compatibility work. WorktreeGitRef follows the supplied Unicode-mode regex and code-point length constraints, not stronger git check-ref-format rules; this does not establish live CLI interoperability.
+
+Daemon workspace follow-up: the supplied snapshot adds list path/depth/directory/truncation metadata and file-content fingerprints beyond TypeScript 0.7.0 (dist/chunk-5UXINOXG.mjs:7101-7131,7668-7700). That package materializes list/search defaults; canonical wire bodies retain omission. File-list counts and write/transfer lengths are nonnegative integers, unlike search counts/limits and file-read byte lengths. Trust flags remain independent reports; no containment, fingerprint, transfer or trust operation is performed. Workspace codecs do not establish live-daemon or older-client interoperability.
+
+Terminal date follow-up: TypeScript 0.7.0 TerminalInfo and screen timestamps use z.coerce.date() (dist/chunk-5UXINOXG.mjs:4706-4720), accepting/coercing inputs beyond the supplied string/date-time wire format. The Haskell Rfc3339Timestamp retains original spelling, offsets and arbitrary fractional precision with syntax/calendar/UTC leap-position checks rather than reproducing date coercion. Actual IERS occurrence checks remain hsdk-w8y; current terminal data codecs do not establish complete date-time assertion or older-input interoperability.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-protocol-baselines-wvf",
+    "depends_on_id": "hsdk-reference-baseline-h1v",
+    "type": "discovered-from",
+    "created_at": "2026-09-05T03:24:27.797634Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
+* TODO [#C] Complete functional capability inventory and baseline reconciliation
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-reference-baseline-h1v
+:LABELS:   []
+:ISSUE_TYPE: task
+:CREATED:  [2026-09-04 Fri 20:09]
+:MODIFIED: [2026-09-07 Mon 21:25]
+:CREATED_BY: johnw
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Maintain capability/operation-to-implementation/test/documentation mappings for the combined SDKs. Source pins and immutable schema provenance are established; remaining operation coverage and material contract conflicts stay open. This is an ongoing functional audit, not an exhaustive declaration/schema gate and not a prerequisite to independent daemon, REST or MCP implementation.
+
+** Notes
+
+Static export inventories completed by read-only helpers in workflow 9325d133-0368-40b4-97f6-42c65f90cd4f. Reports: /Users/johnw/.pi/agent-deck/10a07ddd-1788549079/subagent-artifacts/outputs/9325d133-0368-40b4-97f6-42c65f90cd4f/python-public-inventory.md and typescript-public-inventory.md. Parent independently verified Python root/schema/low-level counts 157/359/371 and TypeScript Node/root counts 936/868, 68 Node-only names, 282 Schema-suffix names, and all lexical export alias resolutions. Reports identify reachable stores, binary relay tunnels, ACP process mode, workspace transfers/proxy resources, local bug reports, worker termination, detailed context, queue review and stream feeding/conversion. docs/parity.md now records counts and expanded capability destinations. Counts are not behavioral conformance; complete field/operation-to-implementation/test reconciliation remains open.
+
+Historical description (superseded by functional-delivery reconciliation):
+Corrected schema path verified: /Users/johnw/Desktop/droid-json-schema. Immutable snapshots and SHA-256 manifest in schema/; scripts/reference_schemas.py verifies739 definitions,2209 refs,183 distinct methods and84 runtime-only annotations; five regression checks pass. docs/parity.md records baseline sources/capability map and attribution/version conflicts. Published npm0.7.0 integrity independently verified. Detailed public declaration/field mapping remains open; metadata language decision required before attribution implementation.
+
+User-directed execution correction:
+Remove obsolete exhaustive-inventory sequencing. Resolve concrete contracts with each capability; audit the complete functional matrix before final sign-off.
+
+* DONE [#C] Configure new-session system prompts and type settings events
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-rg6
+:LABELS:   []
+:ISSUE_TYPE: feature
+:CREATED:  [2026-09-07 Mon 10:43]
+:MODIFIED: [2026-09-07 Mon 11:32]
+:CREATED_BY: johnw
+:FINISHED: [2026-09-07 Mon 11:32]
+:CLOSE_REASON: Validated initialization-only system prompts and typed partial settings stream events implemented; native/codec/lifecycle documentation checks passed.
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Implement validated custom/default-plus-append system prompts using the selected CLI 1.201.1 non-whitespace and preset-normalization contract. Supply them only to initialization; reject unsupported explicit resume overrides before launch rather than silently ignoring them. Add typed settings_updated stream events with the actual partial payload, available-autonomy fallback and strict non-null spec fields. Reuse existing settings payload helpers and lifecycle/stream machinery. Verify shapes, Unicode whitespace distinctions, wire initialization/load boundaries, metadata and malformed-event behavior offline. Full observed settings snapshots and custom interaction handlers remain separate; no live requests or unused codec expansion.
+
+** Notes
+
+Implemented private SystemPromptConfig with custom/appended smart constructors, exact text preservation, ECMAScript whitespace and selected CLI preset normalization. New-session droidSystemPrompt uses canonical systemPrompt only. Explicit resume overrides fail before launch; successor/rollback load payloads remain unchanged. SettingsUpdatedEvent now carries the actual partial SettingsUpdated/SettingsChange contract in AllEvents, including request metadata and offered-autonomy fallback; spec fields remain non-null in notifications, and no cache is populated. Verified 2924 Haskell tests (139 high-level, 32 prompt tests, 27 settings codec cases), 20x244 parallel checks, -Werror builds, HLint/Ormolu, typed example compilation, Haddock and attachment FD/race probes. Five audit tests also pass. Existing link/no-repository advisories remain. Static CLI evidence and development-only ECMAScript regex probe retained at /tmp/droid-system-prompts.umQ4a1. No new dependency, live Factory/model call, full sdist rebuild or new platform execution. Full observed settings snapshots and customizable interactions remain separate.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-rg6",
+    "depends_on_id": "hsdk-inputs-controls-2fw",
+    "type": "discovered-from",
+    "created_at": "2026-09-07T17:43:56.482761Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
+* DONE [#C] Expose model and context discovery through scoped sessions
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-rr3
+:LABELS:   []
+:ISSUE_TYPE: feature
+:CREATED:  [2026-09-07 Mon 00:02]
+:MODIFIED: [2026-09-07 Mon 00:27]
+:CREATED_BY: johnw
+:FINISHED: [2026-09-07 Mon 00:27]
+:CLOSE_REASON: Scoped typed model/context discovery implemented and verified with native peers; all 2704 tests/build/lint pass.
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Add high-level model-list and aggregate/detailed context queries that reuse existing typed Client bindings, own request IDs/deadlines, permit queries from text callbacks, preserve structured failures and share session lifecycle checks. Verify with native offline peers; no new exhaustive codecs or unauthorized live calls.
+
+** Notes
+
+Added listDroidModels, getDroidContextStats and getDroidContextBreakdown in Factory.Droid. They reuse typed Client bindings and existing model/context records, with one shared atomic request-ID allocator across startup, turns and queries. Scoped queries use a 30-second exchange deadline, do not take the prompt lock, and reject invalidated sessions. Ordinary handled query/result errors preserve session usability; callback escape and terminal transport rules remain unchanged. Five native cases cover model flags/extensions/availability, typed resumed context snapshots, callback reentrancy, nonterminal errors and invalidated-handle rejection. All 24 high-level cases and 2704 tests pass; -Werror build, HLint, Ormolu and README query-expression compilation pass. Evidence: /tmp/droid-session-queries.LPH5aG. Selected CLI shapes inspected statically; no new codecs, dependencies, live calls or repeated package-wide distribution pass.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-rr3",
+    "depends_on_id": "hsdk-sessions-streams-d0f",
+    "type": "discovered-from",
+    "created_at": "2026-09-07T07:02:58.183497Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
+* TODO [#B] Obtain version-matched runtime refinements for configuration schemas
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-runtime-refinements-tfo
+:LABELS:   []
+:ISSUE_TYPE: task
+:CREATED:  [2026-09-05 Sat 11:14]
+:MODIFIED: [2026-09-06 Sun 11:39]
+:CREATED_BY: johnw
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+The supplied 1.205.0 schemas mark ManagedCustomModelSchema/baseModelId and multiple configuration paths as x-factory-runtime-only. The baselined TypeScript 0.7.0 implementation (protocol constant 1.151.0) exposes useful older refinements in dist/chunk-5UXINOXG.mjs:2657-2789, but its managed-model schema lacks the newer authMode field. Its BuiltInModelIDSchema predicate depends on that package's ModelID registry, not an enumerated constraint in the supplied baseModelId node. SystemPromptConfigSchema also marks preset preprocessing that is absent from the older TypeScript schema surface.
+
+Before declaring these codecs/refinements complete, obtain the version-matched droid-sdk-core source or authoritative refinement/normalization contract for 1.205.0. Do not silently label older predicates as current, accept baseModelId as unconstrained Value, execute apiKeyHelper commands, or bypass trust filtering. Independent schema work can continue. Full configuration parity remains unverified without this reference evidence.
+
+New offline evidence: static inspection of installed CLI 0.212.1 resolved /nix/store/w4v4bvjjh3h0bwln5wrbss0p7d6pyhqr-droid-0.212.1/bin/.droid-wrapped, 266959280 bytes, SHA256 885c25635fc61f475a046ef26bd583b996524cfe091dcd598dbb2fa8e94a5d25. Bundled JS at zero-based byte 204365608 defines R0="1.201.1"; request/response builders use factoryProtocolVersion:R0 near 204487570/204489130. This is not protocol 1.205.0. The permission-result refinement near 204394450-204395450 again requires string editedSpecContent for proceed_edit, but remains historical evidence only. No CLI execution, Factory/network call, credentials helper or user auth/config access occurred. Supplied schema directory has only four JSON files; neighboring droid-sdk-api-proxy has no implementation/package source. Version-matched droid-sdk-core source (preferred) or authoritative 1.205.0 runtime contracts were explicitly requested from the user; none received yet. Continue independent work without relabeling historical predicates as current.
+
+** Notes
+
+Interaction follow-up: RequestPermissionResultSchema is marked x-factory-runtime-only. TypeScript dist/chunk-5UXINOXG.mjs:3273-3285 and Python schemas/cli.py:1177-1199 require editedSpecContent for proceed_edit and permit an empty string. This is evidence for their older versions, not proof of the complete 1.205.0 refinement; its codec remains paused pending version-matched source. LoopToolInput refinements likewise remain unimplemented. Independent permission-request/question codecs are implemented without treating decoding as a grant.
+
+Mission progress follow-up: WorkerCompletedEntrySchema.commitId and repoPath carry normalization markers. The older TypeScript OptionalNonBlankStringSchema maps strings whose JavaScript trim result is empty to absence, preserving other strings (dist/chunk-5UXINOXG.mjs:2392-2395,2505-2515). Obtain the 1.205.0 contract before porting that normalization; do not assume Haskell whitespace predicates have identical semantics. Worker completion progress, the complete ProgressLogEntry union, mission progress notifications and MissionState snapshot remain unimplemented. Independent feature/handoff/worker-report codecs and simpler completion notifications are implemented.
+
+Session/automation follow-up: ListToolsRequestParamsSchema and UpdateSessionSettingsRequestParamsSchema mark autonomyLevel and interactionMode with invalid-value fallbacks. AutomationCreateToolInputSchema and AutomationEditToolInputSchema carry custom cross-field refinement markers. These containing codecs remain unimplemented pending authoritative 1.205.0 contracts; no fallback choice, policy resolution or refinement has been invented. The plain ToolOverrideParams and automation list/read/delete bodies are independently implemented.
+
+Worktree profile follow-up: DaemonSaveWorktreeSetupProfileRequestParamsSchema has an additional runtime-only cross-field refinement. Its input codec remains unimplemented; the closed on-disk contents and independent profile/managed-worktree reports are represented separately. Further investigation is deferred under the user-requested current-protocol, small-slice checkpoint.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-runtime-refinements-tfo",
+    "depends_on_id": "hsdk-types-codecs-2rb",
+    "type": "discovered-from",
+    "created_at": "2026-09-05T18:14:22.554706Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
+* DONE [#C] Deliver local session lifecycle, replacement and complete/partial streaming
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-sessions-streams-d0f
+:LABELS:   []
+:ISSUE_TYPE: task
+:CREATED:  [2026-09-04 Fri 20:09]
+:MODIFIED: [2026-09-07 Mon 21:24]
+:CREATED_BY: johnw
+:FINISHED: [2026-09-07 Mon 21:24]
+:CLOSE_REASON: Reconciled local-core milestone is implemented: scoped sessions, turns/streams, outcomes, interruption, replacement/rollback and observers/settings. Source matches verified artifact /tmp/droid-observed-settings.pfpTXj. Discovery, remaining configuration, daemon execution and final platform/live sign-off remain explicitly separate and open.
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Local new/resumed scopes, one-shot/follow-up turns, complete/partial events, typed outcomes, interruption, model/context queries, ordinary session controls, fork/compact/rewind ownership, rollback, subscriptions and ordered observed settings. This reconciled milestone covers the implemented local runtime core only. Saved-session discovery stays hsdk-f20; remaining configuration/operations stay in the functional backlog; daemon execution is hsdk-transports-client-4yp. Platform/live sign-off remains separate.
+
+** Notes
+
+Local new/resumed scopes, metadata queries, ordinary controls, replacement ownership, typed correlated terminal outcomes, interruption, rich events, validated inputs/output, per-handle outside-turn subscriptions and ordered observed settings are implemented. Historical observer checkpoint hsdk-lhp: 2980 tests at /tmp/droid-observers.pg0vql. Latest settings checkpoint hsdk-w39: 3005 tests, 173 high-level cases, 30x227 parallel checks, FD/race probes and an independent source-distribution build/test with 95 matching packaged-file hashes at /tmp/droid-observed-settings.pfpTXj. Callback/intake, last-observed freshness, reset and unsubscribe semantics are explicit; acknowledgements do not synthesize settings. Saved-session discovery, broader configuration/runtime/platform verification and daemon ownership remain unfinished. Umbrella stays open/blocked by hsdk-transports-client-4yp; dependencies were not bypassed. Prior live authorization is exhausted.
+
+Historical description (superseded by functional-delivery reconciliation):
+Verify full session operations and replacement ownership, complete/partial streams and terminal results, startup/close races, early exit, cancellation and independent-session concurrency.
+
+User-directed execution correction:
+Core local capabilities are implemented and have existing native/offline evidence. Reconcile their goal completion against /tmp/droid-observed-settings.pfpTXj/source-final-sha256.txt and strict-final.log; do not extend this path except for a demonstrated bug or a named remaining requirement. Do not claim full SDK, daemon, saved-session discovery or broad configuration parity.
+
+* DONE [#C] Add typed terminal outcomes and explicit safe interruption
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-t2o
+:LABELS:   []
+:ISSUE_TYPE: feature
+:CREATED:  [2026-09-07 Mon 03:16]
+:MODIFIED: [2026-09-07 Mon 04:32]
+:CREATED_BY: johnw
+:FINISHED: [2026-09-07 Mon 04:32]
+:CLOSE_REASON: Typed correlated outcomes and explicit interruption/reuse implemented and reviewed; 2746 tests and guarded-order mutation checks pass.
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Extend the shared turn path with typed completion/usage/error results and explicit interruption that preserves settled session usability. Keep a success-checking convenience helper; separate true terminal failures from incomplete/protocol/callback failures. Correlate turn IDs where supplied, order interruption after submission, and prevent delayed interrupts from reaching a following turn. Use reference semantics and deterministic native tests, with no unauthorized live calls or unused codecs.
+
+** Notes
+
+Implemented sendDroidTurn returning every explicit terminal outcome with typed AgentTurnCompleted, reported usage/duration, ordered ErrorNotification data and partial text. sendPrompt/runDroid/streamDroid remain success-checking wrappers: completed/spec-handoff return, other settled reasons throw DroidTurnFailed carrying AgentTurnCompletionReason after restoring readiness. Incomplete/protocol/callback failures remain unavailable; tests for invalidated handles now trigger actual malformed events instead of a settled model error.
+
+Fresh UUIDv4 message IDs from uuid-1.3.16.1 prevent reuse across resumed processes. Completion must carry the expected turnId, matching Python's correlated-turn contract; foreign completions are ignored and missing IDs fail. Reused existing completion/error codecs; no exhaustive-codec work added.
+
+interruptDroidSession is idle no-op, registers a lifecycle lease for an active turn, waits for submission acknowledgement, and fences the next prompt until stop acknowledgement. Unknown sent outcomes use the established masked mutation invalidation; cancellation before sending releases the fence without invalidating. Deliberately removing either the submission or next-turn guard caused its native regression to fail; both guards restored.
+
+All 62 high-level cases and 2746 tests pass; -Werror build/HLint/Ormolu pass; 30 parallel repetitions of 108 lifecycle/channel/dispatcher cases pass. Independent review found no issues. README terminal example compiles without execution. Haddock required dependency-doc downloads/builds and an intermediate timed-out pass; final offline retry completed with known link warnings. cabal check retains the existing repository advisory. Evidence: /tmp/droid-turn-outcomes.6buQQQ (verified-checks.log, stress-*.log, next-turn-mutant.log, submission-mutant.log, TerminalExample.hs, haddock-retry.log and exit file). No Factory/model call, commit or push. Rich message/event streaming and structured output remain separate functional work.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-t2o",
+    "depends_on_id": "hsdk-sessions-streams-d0f",
+    "type": "discovered-from",
+    "created_at": "2026-09-07T10:16:55.711658Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
+* DONE [#C] Deliver daemon connection, session, requests/events and cleanup
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-transports-client-4yp
+:LABELS:   []
+:ISSUE_TYPE: task
+:CREATED:  [2026-09-04 Fri 20:09]
+:MODIFIED: [2026-09-08 Tue 01:24]
+:CREATED_BY: johnw
+:FINISHED: [2026-09-08 Tue 01:24]
+:CLOSE_REASON: Offline daemon auth -> new/load session -> requests/events/turns -> interruption/disconnect/owned cleanup delivered; shared local regressions and documentation verified. Evidence: /tmp/droid-daemon-milestone.nd8zgR.
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Next substantial delivery: native connection to a caller-selected existing daemon; caller-provided authentication; initialize/create or load a session; send a request/turn and receive correlated replies and observable events/results; deterministic interruption/disconnect/cancellation and scoped cleanup. Reuse the established channel, dispatcher and session/stream abstractions. Verify the complete path against an offline daemon peer, including secure-transport behavior where required. Do not spawn a real daemon, use credentials or make live Factory/model calls. Advanced transports, remaining operation families and REST resources remain separately required, not implicitly completed by this slice.
+
+** Notes
+
+Daemon vertical slice delivered and verified offline. Factory.Droid.Daemon supports explicit API-key/token authentication, new/resumed scopes, typed turns/events, validated input/output, interruption, subscriptions and restored pending interactions over native plain/TLS WebSockets. Default TLS validates roots and hostname; connection/message/cleanup limits are explicit. Ordinary exit disconnects and joins owned workers without terminating the external daemon or closing/deleting the saved session. Local runtime moved to private Internal.Session with unchanged public facade exports; both backends reuse channel/dispatcher/turn/stream ownership.
+
+Review findings fixed: duplicate-ID admission is rechecked atomically at insertion; daemon permissions are owned/associated and questions owned-only, with safe unrelated cancellation and original execution ID in replies. The isolation regression failed before the fix; concurrent admission coverage did not deterministically reproduce the old race. Follow-up read-only review found no remaining issues.
+
+Milestone evidence: /tmp/droid-daemon-milestone.nd8zgR. Library/example/tests build with -Werror; full 3051-test suite passes including existing local regressions; HLint/Ormolu, reference audits and actionlint pass. The README daemon example matches its compiled source and passes -fno-code without execution. Cabal check exits zero with the existing no-repository advisory. Native zlib search path resolves the TLS linker failure without relaxing security. README and docs/parity.md/development.md record operation, ownership, compatibility and pending-capability contracts.
+
+Only Apple Silicon macOS/GHC9.10.3 offline execution is established. No new Factory/daemon/model call, live approval, commit, push, stress batch or Haddock/source-distribution cycle. Updated Nix-shell execution remains unverified. Remaining daemon controls/settings views, REST/resources, external/hosted MCP, advanced transports, discovery/configuration, attribution/observability and final live/platform/distribution checks are not completed by this slice.
+
+Earlier checkpoints (historical):
+Current local status: scoped CLI launch, automatic UUID/RPC IDs, dispatcher ownership, safe default interactions, resume/replacement, streams, interruption, typed output, validated attachments and scoped settings/tool/skill controls are implemented. Local unsupported attribution remains omitted. There are now 33 typed low-level client bindings, including updateSessionSettings and listTools; latest 2879-test evidence is /tmp/droid-settings.4BGpSJ. Daemon/REST transports, complete operation/configuration coverage, custom interactions and broader live/platform verification remain unfinished. Description checkpoints are historical evidence, not the current list of missing local features.
+
+Historical description (superseded by functional-delivery reconciliation):
+The user explicitly resumed work through completion; the earlier checkpoint-review stopping instruction is superseded. Continue independent implementation without another review pause. The complete transport/client milestone remains open, with dependent configuration/runtime contracts unresolved.
+
+Completed native foundations: hsdk-amj owns SIGTERM grace, SIGKILL escalation/reaping and buffered-write cancellation fixes; hsdk-pip owns complete generic envelopes, metadata codecs and scoped request correlation. src/Factory/Droid/Transport/Process.hs remains the caller-configured JSONL child channel. Factory.Droid.Protocol adds atomic pending-ID registration, out-of-order replies, whole-request deadlines, raw notifications/server requests, sticky failures and scoped reader cleanup. Underlying transports remain caller-owned at this layer. Automatic SDK identity, request IDs, callbacks, permission defaults, CLI launcher, daemon transport, method-specific errors and operation bindings remain pending.
+
+Wire coverage is now 93 shared / 132 local / 47 daemon definitions plus inline types. Final evidence: 2529 Haskell tests with -Werror; 34 process/protocol checks passing thirty repeated runs; formatting, lint, actionlint, 5 audit tests, Haddock/package checks with existing advisories, and all README expressions in isolated GHCi. /tmp/droid-rpc-final.ojcVZx independently builds and passes Haskell/audit suites. Two independently reviewed terminal-state defects were reproduced and fixed; the final review found no issues.
+
+Remaining API work must preserve caller/owned transport distinctions, server-request safe defaults and handler cleanup, cancellation, subscriptions, SDK exception contracts, observability and all inventoried low-level operations. No native Haskell attribution has been invented against the supplied python/typescript enum. The source-required 1.205.0 refinements are still not available. No live Factory call, commit or push is authorized by implementation progress.
+
+Completed hsdk-pc1: typed requestResult/decodeRpcResult errors and Factory.Droid.Protocol.Dispatch generic subscriptions/owned server workers now extend the channel. 2550 tests; 55 lifecycle checks pass thirty repeated runs; clean read-only review and independently tested source distribution /tmp/droid-dispatch-final.CT42uQ. Response context remains caller-provided; no implicit Haskell identity or unchecked permission default. Next client-layer work must still resolve automatic identity/request construction, method bindings and Droid-specific interaction policy before claiming complete client parity.
+
+Completed hsdk-jkg: Factory.Droid.Client now binds 31 local operations for discovery, control and MCP management, with caller-supplied CallOptions (connection-unique ID, envelope context/extensions and timeout). Named request aliases determine wire methods; typed results and existing error-first behavior are reused. 2680 tests, twenty repeated 185-test runs, clean review and independent source distribution /tmp/droid-client-final.k4OLcf pass. No automatic attribution, ID, timeout, launcher or replacement ownership was introduced. Initialization/loading/settings/list-tools/add-MCP remain refinement-dependent; interaction request bindings and complete daemon/client/session behavior remain pending. Goal continues without a review pause.
+
+User-directed execution correction:
+This is the active implementation priority. Existing local transport/client/session capabilities are preserved. Deferred WebSocket files are unverified starting material, not delivered functionality. Focused checks during implementation; one broad validation pass at this coherent milestone, not per wrapper. No fixed batches of repeated stress/Haddock/sdist checks without a demonstrated need.
+
+* TODO [#C] Complete required operation bindings, types, codecs and validation
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-types-codecs-2rb
+:LABELS:   []
+:ISSUE_TYPE: task
+:CREATED:  [2026-09-04 Fri 20:09]
+:MODIFIED: [2026-09-07 Mon 21:21]
+:CREATED_BY: johnw
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Supply remaining low-level operation bindings and the types, codecs and validation those operations actually need. Implement them within functional vertical slices. Preserve existing codecs/tests; unused definitions are optional backlog and never block transports, sessions or MCP. Full required-operation coverage remains open until the capability matrix is reconciled.
+
+** Notes
+
+Scope clarification: signatures are opaque provider protocol data. No new cryptographic signature-verification feature is implied. The later high-level input layer must preserve the actual upstream attachment validation contract.
+
+User amendment: exhaustive codec/schema-definition coverage is not an active functional SDK completion gate. Required-operation types and validation remain in scope; existing codecs/tests are retained. docs/exhaustive-codec-backlog.md records the optional later campaign: 317 mapped named representations, 422 missing names (5 shared, 46 local, 371 daemon), and 84 runtime-only occurrences in 25 definitions with a 78-definition dependency closure. Treat old exhaustive queue language above as historical, not permission to restart unused codec expansion.
+
+Historical description (superseded by functional-delivery reconciliation):
+User scope checkpoint: focus immediate work on the supplied current schema/protocol 1.205.0 and a small, high-impact end-to-end slice that can be tested before expanding further. Stop broad codec/resource accumulation for now. Legacy compatibility, additional resource families and low-impact edge-case expansion are deferred, not requirements for the next checkpoint. The full inventory remains reference material rather than the immediate implementation queue.
+
+Existing wire coverage is 79 shared, 132 local and 47 daemon definitions, plus inline types. The last completed increment added 18 worktree/profile definitions: closed management/file-content records, bounded names/scripts, UUID/timestamp reuse, managed-worktree and cleanup/archive reports. Common record-shape tests now support both open and closed objects without removing earlier checks. These codecs perform no Git, filesystem, profile or session mutations; the runtime-refined profile-save request remains unimplemented.
+
+Verified checkpoint: all 2371 Haskell checks pass on Apple Silicon macOS/GHC 9.10.3 with -Werror. WorktreeSpec contributes 145 checks. Ormolu, HLint, actionlint and five reference-audit checks pass. /tmp/droid-worktree-sdist.0IRliJ independently builds and passes both suites; API checks ran in /tmp/droid-worktree-repl.M2BAqh. Haddock and cabal check retain documented link/metadata advisories. No commit, push or live Factory operation was performed.
+
+Proposed next implementation boundary, subject to choosing the next slice: one native local request/event round-trip and cleanup path using current-protocol codecs, with a deterministic offline peer test. Do not resume the broad inventory automatically. Live model/daemon smoke tests still require explicit authorization. Full SDK parity is not claimed.
+
+RPC foundation update: hsdk-pip adds 14 shared definitions (3 trace/attribution and 11 envelope/message/response schemas), bringing coverage to 93 shared / 132 local / 47 daemon definitions plus inline types. MetadataSpec adds 43 checks and EnvelopeSpec adds 81; ProtocolSpec adds 21 runtime-channel checks. All 2529 tests pass with -Werror, as do 30 final lifecycle stress runs and independent source-distribution checks at /tmp/droid-rpc-final.ojcVZx. docs/parity.md maps the new definitions and operational distinctions. The user resumed the broader goal until completion: the earlier checkpoint-review pause is superseded. Current language constraints remain exact; attribution policy and version-matched refinements remain open. Five shared owned definitions remain: ManagedCustomModelSchema, CustomModelsSchema, McpOAuthConfigSchema, McpOAuthOptionsSchema and SystemPromptConfigSchema.
+
+Completed hsdk-jkg: Schema.Local adds 31 method-indexed request aliases and 14 local response aliases, reusing MethodRequest, WithEnvelope and existing parameter/result codecs. Coverage is now 93 shared / 177 local / 47 daemon definitions plus inline types. All 45 new definitions and transitive references have no runtime-only markers. ClientSpec adds 130 schema-linked/codec/operation checks; all 2680 tests pass -Werror, including independent source distribution /tmp/droid-client-final.k4OLcf. Both nominal method and parameter roles were compiler-probed at /tmp/droid-method-roles.jLHLsn. Complete schema coverage, refinements, compatibility and other milestones remain open.
+
+User-directed execution correction:
+No separate codec accumulation phase. This issue tracks residual operation coverage; it is not a gate ahead of runtime implementation.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-types-codecs-2rb",
+    "depends_on_id": "hsdk-haskell-foundation-aae",
+    "type": "blocks",
+    "created_at": "2026-09-05T03:09:48.413977Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
+* DEFER [#D] Track upstream WebSocket client helper caveats
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-vtk
+:LABELS:   []
+:ISSUE_TYPE: task
+:CREATED:  [2026-09-06 Sun 13:17]
+:MODIFIED: [2026-09-08 Tue 01:24]
+:CREATED_BY: johnw
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Inspected websockets 0.13.0.0: runClientWith allocates Socket and sets NoDelay outside its cleanup bracket; connect is the bracket acquisition, so exception/cancellation can bypass close. This SDK uses its own bracketOnError socket ownership and newClientConnection instead. connectionStrictUnicode is referenced only on server accept path; client JSON decoder must validate UTF-8. Record fixes/upstream issue consideration separately; do not post or patch external sources without authorization. No SDK correctness waiver: local wrapper/test protections required.
+
+** Notes
+
+SDK protections are now implemented and verified: the native transport owns sockets before NoDelay/connect, uses newClientConnection inside that scope, and validates incoming JSON/UTF-8 explicitly. Evidence: /tmp/droid-daemon-milestone.nd8zgR. The completed wrapper uses bracket ownership, superseding the earlier prototype's bracketOnError detail. No upstream source was modified and no issue was posted. Optional upstream report consideration remains deferred; it is not an outstanding SDK correctness waiver.
+
+Earlier checkpoints (historical):
+Deferred with WebSocket support by explicit user scope reduction; not a completion requirement for the local CLI SDK.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-vtk",
+    "depends_on_id": "hsdk-1f6",
+    "type": "discovered-from",
+    "created_at": "2026-09-06T20:17:04.357156Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
+* DONE [#C] Define ordered observed settings snapshots across replies and notifications
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-w39
+:LABELS:   []
+:ISSUE_TYPE: task
+:CREATED:  [2026-09-07 Mon 14:29]
+:MODIFIED: [2026-09-07 Mon 20:51]
+:CREATED_BY: johnw
+:FINISHED: [2026-09-07 Mon 20:51]
+:CLOSE_REASON: Ordered observed settings implemented with native lifecycle/ordering regressions, mutation checks, review and independent source-distribution verification; peer freshness limits documented.
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Implement the remaining typed session-settings snapshot capability without an optimistic cache. Read full settings from initialize/load replies and account for before/after reply notification ordering, explicit spec resets, replacement/rollback epochs and absent fields in partial settings_updated payloads. Current request replies bypass dispatcher intake, so a prefix drain alone does not establish snapshot-versus-update order. Resolve this at the existing protocol/observer seam before promising a current view; do not silently synthesize peer state from acknowledgements or drop raced updates. Baseline Python _convert.py:364-437 and session.py metadata binding, and selected CLI O8H/wet contracts. Unused codec coverage is not a prerequisite.
+
+** Notes
+
+Implemented getDroidSettings and full SessionSettings decoding on the existing connection. requestReplyObserved preserves immediate RPC correlation while atomically queuing only the first accepted reply observation at its receive position; dequeue and STM observation commit together. One connection reducer consumes notifications before user observers. No new reader, worker, dependency or epoch framework. Getter checks lifecycle and stored session ID atomically, never sends or waits, and exposes only last dispatcher-observed state. Source/replacement/rollback ownership is unchanged. The final fold is strict to avoid accumulating deferred update chains.
+
+Selected CLI O8H at byte 204404190 and emitter at 218901203 establish the full snapshot and mixed patch/snapshot contract. Omitted spec model, spec reasoning and mission settings clear current observations; other omitted fields retain prior reports. Mission objects replace wholly. Empty lists, empty spec text and False are preserved; malformed observations make the view invalid until a valid full load, without invalidating an otherwise idle handle. Invalid enum fallback supplies no new observation. The selected notifier does not emit tags. Untagged and same-ID cross-epoch events remain inherently ambiguous; no latest-peer-state or ACK-derived truth is promised. README and parity/development notes document these limits and the older Python null-clearing difference.
+
+Verification: all 3005 Haskell tests, 173 high-level cases, 30x227 parallel channel/dispatcher/high-level checks, warning-free builds, HLint, Ormolu, five Python audits, attachment FD/race probes, actionlint, compiled getter/subscription example and Haddock. Removing spec/mission clearing and first-response admission independently failed their regressions; both mutations were restored. Independent read-only review found no issues and judged architecture aligned. Accepted-reply cancellation followed by rollback has component/source evidence rather than a dedicated end-to-end settings assertion.
+
+Source distribution was independently built and tested in a separate unpacked tree; the final strictness change was reapplied there and recompiled. Final archive, unpacked source and worktree match all 95 packaged-file hashes. Independent 3005 tests, schema/audit tests, FD/race probes and example compilation passed. Two compound verification invocations exhausted 300-second tool deadlines while builds were in progress; no compiler errors or surviving build processes were observed, and unchanged checks completed on continuation. Existing Haddock dependency/Generic link warnings and cabal no-repository advisory remain. Evidence: /tmp/droid-observed-settings.pfpTXj, especially strict-final.log, strict-stress-*.log, distribution-strict-resumed.log, verified-package-files-final.json, source-final-sha256.txt, haddock-final.log and mutation logs. No new live Factory/model call, broader platform execution, commit or publication.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-w39",
+    "depends_on_id": "hsdk-sessions-streams-d0f",
+    "type": "discovered-from",
+    "created_at": "2026-09-07T21:29:24.304845Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
+* TODO [#C] Verify leap-second occurrence semantics before date-time format sign-off
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-w8y
+:LABELS:   []
+:ISSUE_TYPE: task
+:CREATED:  [2026-09-05 Sat 17:22]
+:MODIFIED: [2026-09-05 Sat 17:22]
+:CREATED_BY: johnw
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Rfc3339Timestamp validates RFC 3339 lexical syntax, Gregorian dates, numeric offsets, arbitrary fractional precision and the UTC month-end position of a positive leap second. It does not consult IERS announcements, validate actual leap-second occurrence dates or account for any future negative leap-second announcement. RFC 3339 section 5.7 distinguishes these occurrence rules from grammar. Before claiming complete date-time format conformance or final SDK parity, establish and test the required occurrence-validation policy against authoritative evidence without normalizing wire spelling or inventing future leap events. Current terminal wire types and tests cover the explicitly documented grammar/calendar boundary only.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-w8y",
+    "depends_on_id": "hsdk-types-codecs-2rb",
+    "type": "discovered-from",
+    "created_at": "2026-09-06T00:22:37.927142Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
+* DONE [#C] Add validated configurable permission and question handlers
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-xmb
+:LABELS:   []
+:ISSUE_TYPE: feature
+:CREATED:  [2026-09-07 Mon 11:50]
+:MODIFIED: [2026-09-07 Mon 14:05]
+:CREATED_BY: johnw
+:FINISHED: [2026-09-07 Mon 14:05]
+:CLOSE_REASON: Validated configurable interactions implemented through existing dispatcher ownership; safe-fallback, concurrency, lifetime, privacy and cleanup checks passed.
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Add connection-scoped configurable permission/question callbacks through existing dispatcher-owned workers. Preserve default cancellation and autoRejectPermissionRequests unless a permission handler is explicitly supplied. Implement required refined permission-result codec, offered-option checks, question identity/uniqueness and cancelled-answer checks, safe ordinary-failure fallback/diagnostics and async exception preservation. Reuse existing typed action/question payloads and request IDs; apply handler configuration to new/resumed/replacement scopes without new transport or callback frameworks. Verify native round trips, invalid replies, failure/privacy, concurrent callbacks, initialization/load flags and cancellation/worker cleanup offline. No live approvals or Factory calls.
+
+** Notes
+
+Implemented connection-scoped DroidHandlers and explicit new/resumed handler entry points. Defaults cancel quietly and keep CLI auto-rejection enabled; only a supplied permission callback disables it, including successor loads. Private RequestPermissionResult enforces proceed_edit content (empty allowed); adapters enforce offered choices, question index/text identity, unique answers and cancelled-answer consistency. Ordinary malformed/invalid/exception cases cancel safely with payload-free failure reporting, including observer isolation and deeply forced response JSON via boot-library deepseq. Async cancellation classification is shared unchanged with the dispatcher; workers remain dispatcher-owned. Native tests assert startup callbacks, resume/replacement policy, concurrent/nested-query callbacks, worker survival through turn cancellation/handle retirement, original late RPC response and both finalizers before reaping. Final read-only review found no issues. Verified 2971 Haskell tests (152 high-level, 34 handler), 30x232 parallel checks, -Werror build, HLint/Ormolu, example and Haddock. Five audits/links/whitespace pass. FD/race probes passed with system Python after intermittent startup timeouts; deadline and SDK code unchanged. Existing link/no-repository advisories remain. Evidence: /tmp/droid-handlers.CHrudH. No new Factory/model calls, live approvals, commits or full sdist rebuild.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-xmb",
+    "depends_on_id": "hsdk-inputs-controls-2fw",
+    "type": "discovered-from",
+    "created_at": "2026-09-07T18:50:06.071564Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
+* TODO [#C] Reconcile hosted-tool JSON Schema validator conformance limits
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-zpf
+:LABELS:   []
+:ISSUE_TYPE: task
+:CREATED:  [2026-09-08 Tue 06:44]
+:MODIFIED: [2026-09-08 Tue 12:00]
+:CREATED_BY: johnw
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Hosted input/output needs real runtime validation. jsonschema-0.3.0.1 is native Haskell and supports 2020-12 core vocabulary, but source short-circuits ref siblings (wrong for2020-12), uses POSIX TDFA patterns rather than ECMA262, approximates unevaluated keywords and only resolves local refs. Native hosted definition preflight must reject unsupported constructs; do not claim unrestricted raw-schema parity. Assess/fix dependency or broaden supported validation before final conformance. No external issue posting or upstream modifications authorized.
+
+** Notes
+
+2026-09-08: pointer-target and result-envelope regressions are corrected and reviewed, but rejecting ~01 and other unsupported schema constructs is not full required validation parity. See docs/HANDOFF.md and preserved hosted reviews. Companion license-declaration issue: hsdk-4po. Goal paused; resume only by explicit user instruction.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-zpf",
+    "depends_on_id": "hsdk-mcp-y1i",
+    "type": "discovered-from",
+    "created_at": "2026-09-08T13:44:07.268488Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
+* DONE [#B] Deliver usable local Droid run and session API
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-zti
+:LABELS:   []
+:ISSUE_TYPE: feature
+:CREATED:  [2026-09-06 Sun 13:46]
+:MODIFIED: [2026-09-06 Sun 19:23]
+:CREATED_BY: johnw
+:FINISHED: [2026-09-06 Sun 19:23]
+:CLOSE_REASON: Local MVP delivered: live stream/result/cleanup verified within two authorized attempts; native follow-up/lifecycle coverage and final package/example checks pass. Evidence: /tmp/droid-local-final.z239ap7y
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Delivered the narrowed local Droid workflow: prompts, streamed text, final results, same-session follow-up and scoped cleanup. Exhaustive SDK/schema parity and daemon/WebSocket work remain backlog, not delivery gates.
+
+Runtime baseline: installed CLI 0.212.1 / protocol 1.201.1. Launch arguments are exec --input-format stream-jsonrpc --output-format stream-jsonrpc. Minimal initialization uses machineId=default, absolute cwd, optional modelId and autoRejectPermissionRequests=true. Existing CLI authentication is inherited, unsupported SDK identity is omitted, and inherited FACTORY_UPSTREAM_CLIENT_TYPE/FACTORY_UPSTREAM_SDK labels are removed rather than impersonating Python or TypeScript. No credential discovery/helper implementation was added.
+
+Factory.Droid exposes DroidOptions/defaultDroidOptions, withDroidSession, sendPrompt, runDroid, streamDroid, session ID and final text result. Ordinary callers do not manage envelopes, IDs or threads. Existing process/RPC/dispatcher code owns the lifecycle. Text deltas and prefilled messages accumulate until explicit completion; irrelevant and explicitly foreign-session events are ignored. Failed/cancelled turns invalidate the session and request interruption. Permission and question requests default to cancellation. examples/Main.hs demonstrates two prompts in one scope with a two-minute per-turn timeout.
+
+The first authorized real-CLI attempt failed with DroidInvalidEvent and still reaped the child. It exposed an incorrectly required sessionId in local notification parameters; the installed protocol and reference schema make that field optional. The parser now accepts untagged local notifications while preserving explicit session filtering, with a native regression test.
+
+The second authorized prompt attempt used a compiled Haskell check in a fresh temporary directory. It streamed HELLO at 4.476 seconds, asserted matching final text and session ID, and completed with exit code zero in 6.771 seconds. The monitored child was gone after scope exit. Two prompt attempts were used in total; no additional model request was made. Same-session follow-up is verified offline, not by a completed live two-turn run.
+
+Final verification on Apple Silicon macOS/GHC 9.10.3: build all with -Werror; 2691 Haskell tests including 11 high-level native-peer checks; five reference-audit tests; HLint, Ormolu and actionlint; Haddock and cabal check. One freshly unpacked source distribution built the library, tests and example, passed the same tests/audit, and matched all 82 packaged source files. Its compiled two-turn example passed against a native offline peer; README examples passed ghc -fno-code -Wall -Werror. Existing Haddock dependency/Generic link warnings and the no-repository Cabal advisory remain documented, not suppressed.
+
+Evidence: /tmp/droid-local-final.z239ap7y contains live-once.hs, live-second-evidence.json, live output logs, focused-tests.log, final-checks.log, haddock.log, distribution.log, offline-example output, readme-check.log, verified-package-files.json and the reviewed mvp-diff.patch. A transient macOS loader stall delayed intermediate tool invocations; final checks passed with the same pinned native tools, without a source workaround or disabled check.
+
+The unfinished WebSocket source/test remain preserved at /tmp/droid-websocket-deferred.nr56Lv and excluded from the package. Remaining parity and broader platform/compiler work are backlog. README provides concise high-level usage. Changes remain unstaged and uncommitted; no push or publication occurred.
