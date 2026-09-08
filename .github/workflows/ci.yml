@@ -1,0 +1,56 @@
+name: CI
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        ghc: ['9.10.3', '9.12.4', '9.14.1']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: haskell-actions/setup@bda9c527d4136f7759733016190c34a24c84f4f4 # v2
+        with:
+          ghc-version: ${{ matrix.ghc }}
+          cabal-version: '3.16.1.0'
+      - run: cabal build all --ghc-options=-Werror
+      - run: cabal test all --test-show-details=direct
+      - run: python3 scripts/check_attachment_files.py
+      - run: cabal haddock all
+      - run: cabal check
+      - name: Verify source distribution
+        shell: bash
+        run: |
+          cabal sdist
+          scratch=$(mktemp -d)
+          tar -xzf dist-newstyle/sdist/droid-sdk-0.1.0.0.tar.gz -C "$scratch"
+          cd "$scratch/droid-sdk-0.1.0.0"
+          cabal build all --enable-tests --ghc-options=-Werror
+          cabal test all --enable-tests --test-show-details=direct
+          python3 scripts/reference_schemas.py
+          python3 scripts/check_attachment_files.py
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: haskell-actions/setup@bda9c527d4136f7759733016190c34a24c84f4f4 # v2
+        with:
+          ghc-version: '9.10.3'
+          cabal-version: '3.16.1.0'
+      - name: Install pinned development tools
+        run: cabal install ormolu-0.8.0.2 hlint-3.10 --installdir="$RUNNER_TEMP/haskell-tools"
+      - name: Check formatting and lint
+        run: |
+          export PATH="$RUNNER_TEMP/haskell-tools:$PATH"
+          find src test examples -name '*.hs' -exec ormolu --mode check {} +
+          hlint src test examples
+      - run: python3 scripts/reference_schemas.py
+      - run: python3 -m unittest discover -s scripts -p 'test_*.py' -v
+      - run: git diff --check

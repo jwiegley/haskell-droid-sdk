@@ -1,0 +1,170 @@
+cabal-version:      3.12
+name:               droid-sdk
+version:            0.1.0.0
+synopsis:           Native Haskell SDK for Factory Droid
+description:
+  Native local Droid runs and scoped sessions with text and event streams,
+  validated attachments, typed output, cancellation and cleanup. Low-level
+  RPC and wire codecs are also available. Broader functional SDK coverage
+  remains in progress; exhaustive schema reproduction is a separate backlog.
+license:            Apache-2.0
+license-file:       LICENSE
+author:             John Wiegley
+maintainer:         John Wiegley
+category:           Network
+build-type:         Simple
+tested-with:        GHC ==9.10.3
+extra-doc-files:
+  README.md
+  docs/parity.md
+  docs/development.md
+  docs/exhaustive-codec-backlog.md
+  NOTICE
+extra-source-files:
+  .github/workflows/ci.yml
+  flake.nix
+  flake.lock
+  schema/manifest.json
+  scripts/*.py
+data-files:
+  schema/*.schema.json
+
+common warnings
+  default-language: GHC2024
+  ghc-options:
+    -Wall -Wcompat -Widentities
+    -Wincomplete-uni-patterns -Wincomplete-record-updates
+
+library
+  import:          warnings
+  hs-source-dirs:  src
+  exposed-modules:
+    Factory.Droid
+    Factory.Droid.Client
+    Factory.Droid.Input
+    Factory.Droid.Interaction
+    Factory.Droid.Protocol
+    Factory.Droid.Protocol.Dispatch
+    Factory.Droid.Schema.Automation
+    Factory.Droid.Schema.Content
+    Factory.Droid.Schema.Context
+    Factory.Droid.Schema.Control
+    Factory.Droid.Schema.Daemon.Terminal
+    Factory.Droid.Schema.Daemon.Workspace
+    Factory.Droid.Schema.Daemon.Worktree
+    Factory.Droid.Schema.Discovery
+    Factory.Droid.Schema.Enums
+    Factory.Droid.Schema.Host
+    Factory.Droid.Schema.Interaction
+    Factory.Droid.Schema.Local
+    Factory.Droid.Schema.Loop
+    Factory.Droid.Schema.MCP
+    Factory.Droid.Schema.Messages
+    Factory.Droid.Schema.Metadata
+    Factory.Droid.Schema.Mission
+    Factory.Droid.Schema.Models
+    Factory.Droid.Schema.Notifications
+    Factory.Droid.Schema.Primitives
+    Factory.Droid.Schema.RPC
+    Factory.Droid.Schema.Script
+    Factory.Droid.Schema.Session
+    Factory.Droid.Schema.Settings
+    Factory.Droid.Schema.Sources
+    Factory.Droid.Schema.SystemPrompt
+    Factory.Droid.Schema.Tools
+    Factory.Droid.Schema.Usage
+    Factory.Droid.Transport.Process
+  other-modules:
+    Factory.Droid.Internal.Exception
+    Factory.Droid.Internal.JSON
+    Factory.Droid.Internal.Output
+    Factory.Droid.Internal.Stream
+  build-depends:
+    base >=4.20 && <4.23,
+    aeson >=2.2.4 && <2.4,
+    async >=2.2.5 && <2.3,
+    base64-bytestring >=1.2.1 && <1.3,
+    bytestring >=0.12.2 && <0.13,
+    containers >=0.7 && <0.9,
+    deepseq >=1.5 && <1.6,
+    directory >=1.3.8.5 && <1.4,
+    filepath >=1.5.4 && <1.6,
+    process >=1.6.26.1 && <1.7,
+    scientific >=0.3.8 && <0.4,
+    stm >=2.5.3.1 && <2.6,
+    text >=2.1 && <2.2,
+    time >=1.12.2 && <1.13,
+    unix >=2.8.7 && <2.9,
+    uuid >=1.3.16 && <1.4,
+    uuid-types >=1.0.6.1 && <1.1
+
+test-suite droid-sdk-test
+  import:          warnings
+  type:            exitcode-stdio-1.0
+  hs-source-dirs:   test
+  main-is:         Main.hs
+  other-modules:
+    AutomationSpec
+    ClientSpec
+    ContentSpec
+    ContextSpec
+    ControlSpec
+    DaemonWorkspaceSpec
+    DroidSpec
+    DiscoverySpec
+    DispatchSpec
+    EnvelopeSpec
+    HandlerSpec
+    HostSpec
+    InputSpec
+    InteractionSpec
+    LoopSpec
+    MCPSpec
+    MessagesSpec
+    MetadataSpec
+    MissionSpec
+    ModelsSpec
+    NotificationsSpec
+    Paths_droid_sdk
+    ProcessSpec
+    ProtocolSpec
+    RPCSpec
+    SchemaTest
+    ScriptSpec
+    SessionSpec
+    SettingsSpec
+    SourcesSpec
+    SystemPromptSpec
+    TerminalSpec
+    TimestampSpec
+    ToolNotificationsSpec
+    ToolsSpec
+    UsageSpec
+    WorktreeSpec
+  autogen-modules: Paths_droid_sdk
+  ghc-options:     -threaded -rtsopts
+  build-depends:
+    base >=4.20 && <4.23,
+    aeson >=2.2.4 && <2.4,
+    async >=2.2.5 && <2.3,
+    bytestring >=0.12.2 && <0.13,
+    directory >=1.3.8.5 && <1.4,
+    droid-sdk,
+    process >=1.6.26.1 && <1.7,
+    scientific >=0.3.8 && <0.4,
+    stm >=2.5.3.1 && <2.6,
+    text >=2.1 && <2.2,
+    unix >=2.8.7 && <2.9,
+    tasty >=1.5 && <1.6,
+    tasty-hunit >=0.10 && <0.11,
+    tasty-quickcheck >=0.11 && <0.12
+
+executable droid-example
+  import:          warnings
+  hs-source-dirs:  examples
+  main-is:         Main.hs
+  ghc-options:     -threaded -rtsopts
+  build-depends:
+    base >=4.20 && <4.23,
+    droid-sdk,
+    text >=2.1 && <2.2

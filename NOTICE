@@ -1,0 +1,10 @@
+Factory Droid SDK for Haskell
+
+This port is derived from the Factory Droid SDK public contracts and schemas.
+The reference Python and TypeScript SDKs are distributed under Apache-2.0.
+
+Upstream notice retained from the Python SDK:
+Copyright 2025 The San Francisco AI Factory, Inc
+
+The supplied JSON Schema documents are reproduced unchanged. Their provenance
+and fingerprints are recorded in schema/manifest.json and docs/parity.md.
