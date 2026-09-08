@@ -390,6 +390,37 @@ The selected local CLI merges a nonempty supplied list with its user MCP configu
 
 External MCP configuration/management and early-event delivery are verified against offline peers. SDK-hosted Haskell tools and live authentication verification remain separate work; see [current evidence](docs/development.md#external-mcp-configuration-delivery).
 
+## Hosted Haskell tools
+
+`Factory.Droid.MCP.Tool` defines native handlers; `Factory.Droid.MCP.Server` owns authenticated loopback HTTP servers. Put server handles in `droidHostedMcpServers` or `daemonHostedMcpServers` to acquire them before session startup and release them after the session scope. The example below makes no model turn, but calling it can contact the CLI and configured services. Offline verification compiles it without execution.
+
+```haskell
+{-# LANGUAGE OverloadedStrings #-}
+
+module HostedExample (inspectHosted) where
+
+import Factory.Droid
+import Factory.Droid.MCP.Server
+import Factory.Droid.MCP.Tool
+import Factory.Droid.Schema.MCP (ListMcpServersResult)
+
+inspectHosted :: FilePath -> IO ListMcpServersResult
+inspectHosted directory = do
+  echo <- either (const (ioError (userError "Invalid tool definition"))) pure
+    (rawTool "echo" "Echo supplied arguments" openObjectSchema (pure . structuredResult))
+  server <- newMcpServer (defaultMcpServerOptions "haskell-echo") [echo]
+  let options = (defaultDroidOptions directory) {droidHostedMcpServers = [server]}
+  withDroidSession options listDroidMcpServers
+```
+
+`rawTool` receives only the argument object. `typedTool` additionally decodes it once with `FromJSON`; `structuredTool` serializes a typed return value with `ToJSON` and validates its advertised object output schema. String-like output uses `textResult`; `structuredResult` supplies both text JSON and structured content. `jsonContent` validates rich text/image/audio/resource-link/embedded-resource blocks. Argument or handler failures become sanitized error tool results; invalid result envelopes remain protocol errors.
+
+Server handles use identity equality. Repeated and concurrent `startMcpServer` calls share the current runtime; explicit start retains caller ownership until `closeMcpServer`. `withMcpServer` and session integration acquire leases: overlapping scopes share an endpoint, and the last SDK-owned lease stops it. Already manually started servers are borrowed, not silently transferred. Replacement and rollback retain the original scope's endpoint and lease. Close is repeat-safe, waits for admitted handler finalizers and is shared by concurrent closers; restart waits for closure and rotates the bearer token. Self-close from a handler is rejected to avoid deadlock. Handlers must cooperate with asynchronous cancellation.
+
+The endpoint binds only `127.0.0.1` on an ephemeral port, requires a random bearer token, and validates Host, optional Origin, Accept and JSON content type before reading a bounded body. Defaults are 4 MiB per request, 10 MiB per response and a thirty-second tool deadline; limits are configurable. Replies use stateless JSON, not a persistent MCP session or cross-POST cancellation registry. Scope closure and request deadlines cancel owned work; client disconnect does not undo effects or promise immediate cancellation. No browser, permissive CORS or public bind is introduced. Remote daemon targets cannot use SDK-owned loopback servers without an explicit forwarding arrangement; pass a caller-managed external configuration for such arrangements.
+
+**Schema validation is a checked subset, not unrestricted parity.** `mkMcpSchema` requires an object-shaped JSON Schema and rejects unsupported constructs before hosting. The current profile supports core object/array/numeric constraints, local references and combinators. It excludes patterns, dynamic/external references, unevaluated keywords and affected `~01` pointer escapes; format/content fields are annotations, not assertions. These remaining conformance limits are tracked in `hsdk-zpf`, so the hosted milestone is still open. See [implementation evidence](docs/development.md#hosted-mcp-native-core).
+
 ## Build and example
 
 ```sh

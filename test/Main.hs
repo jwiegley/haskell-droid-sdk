@@ -33,6 +33,7 @@ import EnvelopeSpec (envelopeTests)
 import Factory.Droid.Schema.Enums
 import HandlerSpec (handlerTests)
 import HostSpec (hostTests)
+import HostedMcpSpec (hostedMcpTests)
 import InputSpec (inputTests)
 import InteractionSpec (interactionTests)
 import LoopSpec (loopTests)
@@ -121,6 +122,7 @@ suiteMain = do
         discoveryTests droidSchema,
         mcpTests droidSchema,
         mcpConfigTests,
+        hostedMcpTests,
         missionTests droidSchema,
         automationTests droidSchema,
         workspaceTests droidSchema daemonSchema,

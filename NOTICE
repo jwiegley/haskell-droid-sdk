@@ -8,3 +8,13 @@ Copyright 2025 The San Francisco AI Factory, Inc
 
 The supplied JSON Schema documents are reproduced unchanged. Their provenance
 and fingerprints are recorded in schema/manifest.json and docs/parity.md.
+
+Hosted MCP transport contracts were also inspected in @modelcontextprotocol/sdk
+1.29.0, distributed under the MIT license. No JavaScript runtime is required.
+
+The jsonschema-0.3.0.1 package metadata and LICENSE declare MPL-2.0
+(DPella AB). Inspected JSONSchema.Validation and JSONSchema.URIFragment
+module headers instead declare LicenseRef-AllRightsReserved. This discrepancy
+requires authoritative clarification before distribution sign-off; it is tracked
+as hsdk-4po. The dependency is consumed separately, not vendored here.
+Source: https://hackage.haskell.org/package/jsonschema-0.3.0.1.

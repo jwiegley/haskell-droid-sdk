@@ -106,6 +106,7 @@ import Factory.Droid.Input (DroidInput (..), droidDocumentSource, droidImageSour
 import Factory.Droid.Interaction
 import Factory.Droid.Internal.Output
 import Factory.Droid.Internal.Stream
+import Factory.Droid.MCP.Server qualified as Hosted
 import Factory.Droid.Protocol
 import Factory.Droid.Protocol.Dispatch
 import Factory.Droid.Schema.Context (ContextStats, GetContextBreakdownResult)
@@ -137,7 +138,8 @@ data DroidOptions = DroidOptions
     droidTurnTimeoutMicros :: !(Maybe Int),
     droidFrameLimitBytes :: !Int,
     droidSystemPrompt :: !(Maybe SystemPromptConfig),
-    droidMcpOptions :: !McpSessionOptions
+    droidMcpOptions :: !McpSessionOptions,
+    droidHostedMcpServers :: ![Hosted.McpServer]
   }
   deriving stock (Eq)
 
@@ -147,7 +149,7 @@ instance Show DroidOptions where
 -- | Use the installed droid, the given directory and its default model. Turns
 -- have no implicit deadline; asynchronous cancellation remains available.
 defaultDroidOptions :: FilePath -> DroidOptions
-defaultDroidOptions directory = DroidOptions "droid" directory Nothing Nothing (10 * 1024 * 1024) Nothing defaultMcpSessionOptions
+defaultDroidOptions directory = DroidOptions "droid" directory Nothing Nothing (10 * 1024 * 1024) Nothing defaultMcpSessionOptions []
 
 -- | Local stream failures. Reported messages/reasons remain explicit data but
 -- are not included in Show. RPC and process failures retain their existing types.
@@ -345,6 +347,11 @@ withLocalSession options handlers saved action = do
   forM_ (droidTurnTimeoutMicros options) $ \micros -> unless (micros >= 0) (throwIO RpcInvalidTimeout)
   mcpOptions <- either throwIO pure (validateMcpConfiguration (droidMcpOptions options))
   unless (isNothing saved || isNothing (sessionBlockOnMcpLoad mcpOptions)) (throwIO McpInitOnlyOptionOnResume)
+  Hosted.withMcpServerOptions (droidHostedMcpServers options) mcpOptions $ \activeOptions ->
+    openLocalSession options handlers saved activeOptions action
+
+openLocalSession :: DroidOptions -> DroidHandlers -> Maybe Text -> McpSessionOptions -> (DroidSession -> IO a) -> IO a
+openLocalSession options handlers saved mcpOptions action = do
   directory <- makeAbsolute (droidWorkingDirectory options)
   environment <- filter (\(key, _) -> key `notElem` ["FACTORY_UPSTREAM_CLIENT_TYPE", "FACTORY_UPSTREAM_SDK"]) <$> getEnvironment
   let process = (Process.proc (droidExecutable options) ["exec", "--input-format", "stream-jsonrpc", "--output-format", "stream-jsonrpc"]) {cwd = Just directory, env = Just environment}

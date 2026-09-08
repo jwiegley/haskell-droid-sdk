@@ -1,14 +1,47 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module McpPeer (handleMcpRequest, earlyMcpEvents) where
+module McpPeer (handleMcpRequest, earlyMcpEvents, invokeHosted) where
 
-import Control.Monad (unless, when)
-import Data.Aeson (Object, Value (..), object, (.=))
+import Control.Monad (forM_, unless, when)
+import Data.Aeson (Object, Value (..), eitherDecode, encode, object, (.=))
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types (Pair)
+import Data.Foldable (toList)
+import Data.String (fromString)
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.Encoding qualified as Text
+import Network.HTTP.Client qualified as HTTP
+import Network.HTTP.Types (hAccept, hContentType, statusCode)
 import Test.Tasty.HUnit (assertFailure, (@?=))
+
+-- A native offline CLI/daemon peer consumes the advertised endpoint and calls
+-- the Haskell handler over real HTTP before acknowledging startup/loading.
+invokeHosted :: Object -> IO ()
+invokeHosted params = case KeyMap.lookup "mcpServers" params of
+  Just (Array configs) -> forM_ configs $ \case
+    Object fields | KeyMap.lookup "name" fields == Just (String "hosted-fixture") -> do
+      url <- case KeyMap.lookup "url" fields of Just (String value) -> pure value; _ -> assertFailure "Missing hosted URL"
+      suppliedHeaders <- case KeyMap.lookup "headers" fields of
+        Just (Array values) -> traverse header values
+        _ -> assertFailure "Missing hosted authorization"
+      KeyMap.lookup "oauth" fields @?= Just (Bool False)
+      manager <- HTTP.newManager HTTP.defaultManagerSettings
+      request <- HTTP.parseRequest (Text.unpack url)
+      let arguments = object ["source" .= String "offline-peer"]
+          payload = object ["jsonrpc" .= String "2.0", "id" .= String "hosted", "method" .= String "tools/call", "params" .= object ["name" .= String "echo", "arguments" .= arguments]]
+          configured = request {HTTP.method = "POST", HTTP.requestHeaders = [(hAccept, "application/json, text/event-stream"), (hContentType, "application/json")] <> toList suppliedHeaders, HTTP.requestBody = HTTP.RequestBodyLBS (encode payload)}
+      response <- HTTP.httpLbs configured manager
+      statusCode (HTTP.responseStatus response) @?= 200
+      result <- either (const (assertFailure "Invalid hosted result JSON")) pure (eitherDecode (HTTP.responseBody response))
+      case result of
+        Object envelope | Just (Object value) <- KeyMap.lookup "result" envelope -> KeyMap.lookup "structuredContent" value @?= Just arguments
+        _ -> assertFailure "Missing hosted result"
+    _ -> pure ()
+  _ -> pure ()
+  where
+    header (Object fields) | Just (String name) <- KeyMap.lookup "name" fields, Just (String value) <- KeyMap.lookup "value" fields = pure (fromString (Text.unpack name), Text.encodeUtf8 value)
+    header _ = assertFailure "Invalid hosted header"
 
 earlyMcpEvents :: Object -> [Value]
 earlyMcpEvents params

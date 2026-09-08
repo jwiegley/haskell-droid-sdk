@@ -64,6 +64,7 @@ import Factory.Droid.Interaction (DroidHandlers (..), defaultDroidHandlers, perm
 import Factory.Droid.Internal.Output (DroidOutput, DroidOutputResult)
 import Factory.Droid.Internal.Session qualified as Core
 import Factory.Droid.Internal.Stream (DroidEvent, DroidResult, DroidStreamMode, decodeDaemonNotification)
+import Factory.Droid.MCP.Server qualified as Hosted
 import Factory.Droid.Protocol
 import Factory.Droid.Protocol.Dispatch
 import Factory.Droid.Schema.Control (AddUserMessageParams)
@@ -96,14 +97,15 @@ data DaemonOptions = DaemonOptions
     daemonModel :: !(Maybe Text),
     daemonTurnTimeoutMicros :: !(Maybe Int),
     daemonProtocolVersion :: !Text,
-    daemonMcpOptions :: !McpSessionOptions
+    daemonMcpOptions :: !McpSessionOptions,
+    daemonHostedMcpServers :: ![Hosted.McpServer]
   }
 
 instance Show DaemonOptions where
   show _ = "DaemonOptions <redacted>"
 
 defaultDaemonOptions :: WebSocket.WebSocketTarget -> DaemonCredential -> Text -> DaemonOptions
-defaultDaemonOptions target credential cwd = DaemonOptions target WebSocket.defaultWebSocketOptions credential cwd "local" Nothing Nothing "1.201.1" defaultMcpSessionOptions
+defaultDaemonOptions target credential cwd = DaemonOptions target WebSocket.defaultWebSocketOptions credential cwd "local" Nothing Nothing "1.201.1" defaultMcpSessionOptions []
 
 data DaemonError = InvalidDaemonCredential | DaemonModelRequiresNewSession
   deriving stock (Eq, Show)
@@ -172,6 +174,13 @@ withDaemonSession options handlers saved action = do
   forM_ (daemonTurnTimeoutMicros options) $ \micros -> when (micros < 0) (throwIO RpcInvalidTimeout)
   mcpOptions <- either throwIO pure (validateMcpConfiguration (daemonMcpOptions options))
   when (isJust saved && isJust (sessionBlockOnMcpLoad mcpOptions)) (throwIO McpInitOnlyOptionOnResume)
+  when (not (null (daemonHostedMcpServers options)) && WebSocket.webSocketHost (daemonTarget options) `notElem` ["127.0.0.1", "localhost", "::1"]) (throwIO Hosted.HostedMcpRequiresLocalDaemon)
+  Hosted.withMcpServerOptions (daemonHostedMcpServers options) mcpOptions $ \activeOptions ->
+    openDaemonSession options handlers saved activeOptions action
+
+openDaemonSession :: DaemonOptions -> DroidHandlers -> Maybe Text -> McpSessionOptions -> (DaemonSession -> IO a) -> IO a
+openDaemonSession options handlers saved mcpOptions action = do
+  let credential = credentialText (daemonCredential options)
   identifier <- maybe (UUID.toText <$> nextRandom) pure saved
   withDaemonConnection options (isNothing (onDroidPermission handlers)) mcpOptions $ \(DaemonConnection connection identity) -> do
     let dispatcher = Core.connectionDispatcher connection

@@ -15,6 +15,8 @@ import Factory.Droid (DroidError (..), DroidEvent (..), DroidHandlers (..), Droi
 import Factory.Droid.Daemon qualified as Daemon
 import Factory.Droid.Input (DroidInput (..), documentFromText, droidDocumentSource, droidImageSource, droidInput, imageFromBytes)
 import Factory.Droid.Interaction (DroidMcpFailure (..), cancelDroidQuestions)
+import Factory.Droid.MCP.Server qualified as Hosted
+import Factory.Droid.MCP.Tool qualified as Hosted
 import Factory.Droid.Protocol (RpcChannelError (..), RpcResultError (..))
 import Factory.Droid.Schema.Content (ImageMediaType (ImagePNG))
 import Factory.Droid.Schema.Discovery (GetUserInfoResult (..))
@@ -25,7 +27,7 @@ import Factory.Droid.Schema.Notifications (AgentTurnCompleted (..), AgentTurnCom
 import Factory.Droid.Schema.RPC (JsonRpcError (..), JsonRpcErrorCode (..), SuccessResult (..))
 import Factory.Droid.Transport.WebSocket qualified as WebSocket
 import McpConfigSpec (fixtureMcpOptions, fixtureMcpWire, fixtureStoredServer)
-import McpPeer (earlyMcpEvents, handleMcpRequest)
+import McpPeer (earlyMcpEvents, handleMcpRequest, invokeHosted)
 import Network.WebSockets qualified as WS
 import ProcessSpec (bounded)
 import Test.Tasty (TestTree, testGroup)
@@ -253,7 +255,18 @@ options target =
 
 mcpConfigurationTests :: [TestTree]
 mcpConfigurationTests =
-  [ testCase "connection MCP observer receives pre-publication events with owned routing" $ bounded $ do
+  [ testCase "daemon startup and resume invoke session-owned Haskell tools over HTTP" $ bounded $ do
+      calls <- newIORef (0 :: Int)
+      tool <- either (const (assertFailure "Hosted tool construction failed")) pure (Hosted.rawTool "echo" "Echo" Hosted.openObjectSchema (\arguments -> modifyIORef' calls (+ 1) >> pure (Hosted.structuredResult arguments)))
+      server <- Hosted.newMcpServer (Hosted.defaultMcpServerOptions "hosted-fixture") [tool]
+      trace <- newIORef []
+      withDaemonPeer AfterAck True "1.201.1" trace $ \target ->
+        Daemon.withSession ((options target) {Daemon.daemonHostedMcpServers = [server]}) $ \_ -> readIORef calls >>= (@?= 1)
+      Hosted.getMcpServerConfig server >>= (@?= Nothing)
+      withDaemonPeer AfterAck True "1.201.1" trace $ \target ->
+        Daemon.withResumedSession ((options target) {Daemon.daemonHostedMcpServers = [server]}) "saved" $ \_ -> readIORef calls >>= (@?= 2)
+      Hosted.getMcpServerConfig server >>= (@?= Nothing),
+    testCase "connection MCP observer receives pre-publication events with owned routing" $ bounded $ do
       trace <- newIORef []
       observed <- newIORef []
       let handlers = defaultDroidHandlers {onDroidMcpEvent = Just (\source event -> case event of Left (DroidMcpConnectionFailure _) -> pure (); _ -> modifyIORef' observed (<> [(source, event)]))}
@@ -544,6 +557,7 @@ daemonPeer mode reject version trace connection = serve `catch` \(_ :: WS.Connec
       identifier <- textField "sessionId" params
       when (KeyMap.member "mcpServers" params) (notify "foreign-session" (object ["type" .= String "mcp_auth_required"]))
       forM_ (earlyMcpEvents params) (notify identifier)
+      invokeHosted params
       case KeyMap.lookup "method" initialize of
         Just (String "daemon.initialize_session") -> do
           KeyMap.lookup "machineId" params @?= Just (String "local")

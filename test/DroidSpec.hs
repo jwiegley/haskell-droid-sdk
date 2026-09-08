@@ -35,7 +35,7 @@ import Factory.Droid.Schema.Settings
 import Factory.Droid.Schema.Usage (TokenUsage (..))
 import Factory.Droid.Transport.Process (JsonLinesError (InvalidFrameLimit))
 import McpConfigSpec (fixtureMcpOptions, fixtureMcpWire)
-import McpPeer (earlyMcpEvents, handleMcpRequest)
+import McpPeer (earlyMcpEvents, handleMcpRequest, invokeHosted)
 import ProcessSpec (bounded)
 import System.Directory (doesFileExist, removePathForcibly)
 import System.Environment (getExecutablePath)
@@ -2601,6 +2601,7 @@ runDroidPeerWithState state = do
       modifyIORef' state (\current -> current {peerMcpHistory = peerMcpHistory current <> [KeyMap.filterWithKey (\key _ -> key `elem` ["mcpServers", "mcpOAuthCallbackUri", "blockOnMcpLoad"]) params]})
       let source = case KeyMap.lookup "sessionId" params of Just (String value) -> Just value; _ -> Nothing
       forM_ (earlyMcpEvents params) (emitRawFor source)
+      invokeHosted params
     expectMcpLoadKeys params = expectKeys (["autoRejectPermissionRequests", "sessionId"] <> filter (`KeyMap.member` params) ["mcpServers", "mcpOAuthCallbackUri"]) params
     respondMcp original fields = do
       history <- peerMcpHistory <$> readIORef state
