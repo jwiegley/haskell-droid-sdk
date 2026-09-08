@@ -1,0 +1,3538 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.factory.ai/droid-sdk/protocol/1.205.0/shared.schema.json",
+  "title": "Factory Droid client <-> daemon protocol (shared)",
+  "description": "Schemas both protocol peers embed: the JSON-RPC envelope, model catalog, settings, session records and tool shapes. Referenced by droid.schema.json and daemon.schema.json. Generated from the Zod schemas in @factory/droid-sdk-core. Every distinct protocol schema is a definition, named after its most upstream export; reference one with #/definitions/<Name>. Request definitions carry x-factory-response (and/or x-factory-result) naming their response definition. Wire frames are expressed as allOf: [{$ref: JsonRpcEnvelopeSchema}, {frame-specific properties}]. Values marked x-factory-runtime-only are validated more strictly at runtime than this document can express.",
+  "x-factory-protocol-version": "1.205.0",
+  "definitions": {
+    "ApplyPatchFileChangeSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "diff": {
+          "type": "string"
+        },
+        "display_operation": {
+          "enum": [
+            "create",
+            "update",
+            "delete"
+          ],
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        },
+        "file_path": {
+          "type": "string"
+        },
+        "moved_to": {
+          "type": "string"
+        },
+        "systemReminder": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "file_path",
+        "display_operation"
+      ],
+      "type": "object"
+    },
+    "ApplyPatchToolInputSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "file_path": {
+          "type": "string"
+        },
+        "patch": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "file_path",
+        "patch"
+      ],
+      "type": "object"
+    },
+    "ApplyPatchToolResultSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "files": {
+          "items": {
+            "$ref": "#/definitions/ApplyPatchFileChangeSchema"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "success": {
+          "const": true,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "success",
+        "files"
+      ],
+      "type": "object"
+    },
+    "AutonomyLevelSchema": {
+      "enum": [
+        "off",
+        "low",
+        "medium",
+        "high"
+      ],
+      "type": "string"
+    },
+    "Base64ImageSourceSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "data": {
+          "type": "string"
+        },
+        "mediaType": {
+          "enum": [
+            "image/jpeg",
+            "image/png",
+            "image/gif",
+            "image/webp"
+          ],
+          "type": "string"
+        },
+        "type": {
+          "const": "base64",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "data",
+        "mediaType"
+      ],
+      "type": "object"
+    },
+    "Base64PDFSourceSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "data": {
+          "type": "string"
+        },
+        "mediaType": {
+          "const": "application/pdf",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "parsedData": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "type": {
+          "const": "base64",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "mediaType",
+        "data"
+      ],
+      "type": "object"
+    },
+    "BaseContentBlockSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "BaseNotificationSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "params": {},
+        "type": {
+          "const": "notification",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "method"
+      ],
+      "type": "object"
+    },
+    "BaseRequestSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "method": {
+          "type": "string"
+        },
+        "params": {},
+        "type": {
+          "const": "request",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "method"
+      ],
+      "type": "object"
+    },
+    "BaseResponseFailureSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "error": {
+          "$ref": "#/definitions/JsonRpcErrorSchema"
+        },
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "result": {},
+        "type": {
+          "const": "response",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "error"
+      ],
+      "type": "object"
+    },
+    "BaseResponseSuccessSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "error": {
+          "$ref": "#/definitions/JsonRpcErrorSchema"
+        },
+        "id": {
+          "type": "string"
+        },
+        "result": {},
+        "type": {
+          "const": "response",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "id"
+      ],
+      "type": "object"
+    },
+    "BugReportSourceSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "arch": {
+          "maxLength": 32,
+          "type": "string"
+        },
+        "cliVersion": {
+          "maxLength": 100,
+          "type": "string"
+        },
+        "osVersion": {
+          "maxLength": 100,
+          "type": "string"
+        },
+        "platform": {
+          "maxLength": 32,
+          "type": "string"
+        },
+        "runtime": {
+          "enum": [
+            "local",
+            "byom",
+            "droid-computer",
+            "cloud-workspace"
+          ],
+          "type": "string"
+        },
+        "surface": {
+          "enum": [
+            "desktop",
+            "web",
+            "cli"
+          ],
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 100,
+          "type": "string"
+        }
+      },
+      "required": [
+        "surface"
+      ],
+      "type": "object"
+    },
+    "CacheLabelSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "cache_control": {
+          "additionalProperties": true,
+          "properties": {
+            "ttl": {
+              "enum": [
+                "5m",
+                "1h"
+              ],
+              "type": "string"
+            },
+            "type": {
+              "const": "ephemeral",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "ClientRequestAttributionSchema": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "properties": {
+            "client": {
+              "const": "sdk",
+              "type": "string"
+            },
+            "sdk": {
+              "$ref": "#/definitions/SdkClientMetadataSchema"
+            }
+          },
+          "required": [
+            "client",
+            "sdk"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": true,
+          "properties": {
+            "client": {
+              "enum": [
+                "web-desktop",
+                "web-app",
+                "web-workspace",
+                "daemon",
+                "cli",
+                "backend"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "client"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "CommandAckResponseSchema": {
+      "anyOf": [
+        {
+          "allOf": [
+            {
+              "$ref": "#/definitions/JsonRpcEnvelopeSchema"
+            },
+            {
+              "additionalProperties": true,
+              "properties": {
+                "error": {
+                  "$ref": "#/definitions/JsonRpcErrorSchema"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "result": {
+                  "$ref": "#/definitions/CommandAckSchema"
+                },
+                "type": {
+                  "const": "response",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "id",
+                "result"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        {
+          "$ref": "#/definitions/JsonRpcBaseResponseFailureSchema"
+        }
+      ]
+    },
+    "CommandAckSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "accepted": {
+          "const": true,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "accepted"
+      ],
+      "type": "object"
+    },
+    "CompactionModelSchema": {
+      "anyOf": [
+        {
+          "const": "current-model",
+          "type": "string"
+        },
+        {
+          "enum": [
+            "claude-3-5-sonnet-20241022",
+            "claude-3-7-sonnet-20250219",
+            "claude-sonnet-4-20250514",
+            "claude-opus-4-1-20250805",
+            "claude-3-5-haiku-20241022",
+            "claude-sonnet-4-5-20250929",
+            "claude-opus-4-5-20251101",
+            "claude-haiku-4-5-20251001",
+            "claude-sonnet-4-6",
+            "claude-opus-4-6",
+            "claude-opus-4-6-fast",
+            "claude-opus-4-7",
+            "claude-opus-4-7-fast",
+            "claude-opus-4-8",
+            "claude-opus-4-8-fast",
+            "claude-opus-5",
+            "claude-opus-5-fast",
+            "claude-sonnet-5",
+            "claude-fable-5",
+            "claude-fable-5.1",
+            "atlas-07-21",
+            "aster-07-15",
+            "gpt-5-2025-08-07",
+            "gpt-5-mini-2025-08-07",
+            "gpt-5-nano-2025-08-07",
+            "gpt-5-codex",
+            "gpt-5.1",
+            "gpt-5.1-codex",
+            "gpt-5.1-codex-max",
+            "gpt-5.2",
+            "gpt-5.2-codex",
+            "gpt-5.3-codex",
+            "gpt-5.3-codex-fast",
+            "gpt-5.4",
+            "gpt-5.4-fast",
+            "gpt-5.4-mini",
+            "gpt-5.4-mini-fast",
+            "gpt-5.5",
+            "gpt-5.5-fast",
+            "gpt-5.5-pro",
+            "gpt-5.6-sol",
+            "gpt-5.6-sol-fast",
+            "gpt-5.6-terra",
+            "gpt-5.6-luna",
+            "gpt-6-astra",
+            "gpt-image-2",
+            "gpt-transcribe",
+            "gpt-4o-mini-transcribe",
+            "gemini-2.5-flash",
+            "gemini-2.5-pro",
+            "gemini-3-pro-preview",
+            "gemini-3-flash-preview",
+            "gemini-3.1-pro-preview",
+            "gemini-3.5-flash",
+            "gemini-3.6-flash",
+            "gemini-3.7-flash",
+            "gemini-3.8-flash",
+            "gemini-3-pro-image-preview",
+            "garnet-07-15",
+            "grok-4.5",
+            "grok-4.6",
+            "glm-4.6",
+            "glm-4.7",
+            "kimi-k2.5",
+            "kimi-k2.6",
+            "kimi-k2.7-code",
+            "kimi-k3",
+            "deepseek-v4-flash-0731",
+            "deepseek-v4-pro",
+            "minimax-m2.5",
+            "minimax-m2.7",
+            "minimax-m3",
+            "glm-5",
+            "glm-5.1",
+            "glm-5.2",
+            "glm-5.2-fast",
+            "glm-5.3",
+            "glm-5.3-flash",
+            "inkling",
+            "nemotron-3-ultra",
+            "olive-05-22",
+            "oriel-06-01",
+            "ocelot-06-01",
+            "okappa-alpha",
+            "omaffa-alpha",
+            "titan-02-12",
+            "aspen-05-15",
+            "almond-05-27",
+            "anise-06-16",
+            "olm-03-05",
+            "orbit-04-09",
+            "oxide-06-01",
+            "oxbow-06-01",
+            "owl-06-21",
+            "gantry-05-07",
+            "amber-07-09",
+            "agate-07-11"
+          ],
+          "type": "string"
+        },
+        {
+          "pattern": "^custom:.+$",
+          "type": "string"
+        }
+      ]
+    },
+    "ContentBlockSchema": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/TextBlockSchema"
+        },
+        {
+          "$ref": "#/definitions/ImageBlockSchema"
+        },
+        {
+          "$ref": "#/definitions/ThinkingBlockSchema"
+        },
+        {
+          "$ref": "#/definitions/RedactedThinkingBlockSchema"
+        },
+        {
+          "$ref": "#/definitions/ToolUseSchema"
+        },
+        {
+          "$ref": "#/definitions/ToolResultSchema"
+        },
+        {
+          "$ref": "#/definitions/DocumentBlockSchema"
+        }
+      ]
+    },
+    "CreateToolInputSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "file_path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "file_path",
+        "content"
+      ],
+      "type": "object"
+    },
+    "CustomModelAuthModeSchema": {
+      "enum": [
+        "provider-default",
+        "bearer"
+      ],
+      "type": "string"
+    },
+    "CustomModelBedrockRequestMetadataSchema": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "type": "object"
+    },
+    "CustomModelsSchema": {
+      "items": {
+        "$ref": "#/definitions/ManagedCustomModelSchema"
+      },
+      "type": "array"
+    },
+    "DiffLineSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "lineNumber": {
+          "additionalProperties": true,
+          "properties": {
+            "new": {
+              "type": "number"
+            },
+            "old": {
+              "type": "number"
+            }
+          },
+          "type": "object"
+        },
+        "type": {
+          "enum": [
+            "added",
+            "removed",
+            "unchanged",
+            "context"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "content"
+      ],
+      "type": "object"
+    },
+    "DocumentBlockSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/definitions/DocumentSourceSchema"
+        },
+        "type": {
+          "const": "document",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "source"
+      ],
+      "type": "object"
+    },
+    "DocumentSourceSchema": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/Base64PDFSourceSchema"
+        },
+        {
+          "$ref": "#/definitions/PlainTextSourceSchema"
+        }
+      ]
+    },
+    "DroidInteractionModeSchema": {
+      "enum": [
+        "auto",
+        "spec",
+        "agi",
+        "mission"
+      ],
+      "type": "string"
+    },
+    "EditToolInputSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "change_all": {
+          "type": "boolean"
+        },
+        "file_path": {
+          "type": "string"
+        },
+        "new_str": {
+          "type": "string"
+        },
+        "old_str": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "file_path",
+        "old_str",
+        "new_str"
+      ],
+      "type": "object"
+    },
+    "EmptyObjectResponseSchema": {
+      "anyOf": [
+        {
+          "allOf": [
+            {
+              "$ref": "#/definitions/JsonRpcEnvelopeSchema"
+            },
+            {
+              "additionalProperties": true,
+              "properties": {
+                "error": {
+                  "$ref": "#/definitions/JsonRpcErrorSchema"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "result": {
+                  "$ref": "#/definitions/EmptyObjectSchema"
+                },
+                "type": {
+                  "const": "response",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "id",
+                "result"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        {
+          "$ref": "#/definitions/JsonRpcBaseResponseFailureSchema"
+        }
+      ]
+    },
+    "EmptyObjectSchema": {
+      "additionalProperties": true,
+      "properties": {},
+      "type": "object"
+    },
+    "ExecuteToolInputSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "command": {
+          "type": "string"
+        },
+        "fireAndForget": {
+          "type": "boolean"
+        },
+        "riskLevel": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "type": "string"
+        },
+        "riskLevelReason": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "timeout": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "command"
+      ],
+      "type": "object"
+    },
+    "ExitSpecModeToolInputSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "plan": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "plan"
+      ],
+      "type": "object"
+    },
+    "FactoryDroidMessageSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "apiProvider": {
+          "enum": [
+            "bedrock",
+            "anthropic",
+            "vertex_anthropic",
+            "bedrock_anthropic",
+            "bedrock_converse",
+            "bedrock_openai",
+            "openai",
+            "azure_openai",
+            "google",
+            "xai",
+            "mistral",
+            "fireworks",
+            "baseten",
+            "snowflake"
+          ],
+          "type": "string"
+        },
+        "chatCompletionReasoningContent": {
+          "type": "string"
+        },
+        "chatCompletionReasoningField": {
+          "enum": [
+            "reasoning",
+            "reasoning_content"
+          ],
+          "type": "string"
+        },
+        "content": {
+          "items": {
+            "$ref": "#/definitions/ContentBlockSchema"
+          },
+          "type": "array"
+        },
+        "createdAt": {
+          "type": "number"
+        },
+        "geminiThoughtSignature": {
+          "description": "@deprecated Use thinking block `signature` fields with `signatureProvider: \"google\"` instead. Do not use in new code.",
+          "type": "string"
+        },
+        "hiddenFromUserViews": {
+          "type": "boolean"
+        },
+        "hookCommands": {
+          "items": {
+            "additionalProperties": true,
+            "properties": {
+              "command": {
+                "type": "string"
+              },
+              "timeout": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "command"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "hookEndTime": {
+          "type": "number"
+        },
+        "hookEventName": {
+          "type": "string"
+        },
+        "hookMatcher": {
+          "type": "string"
+        },
+        "hookOrder": {
+          "type": "number"
+        },
+        "hookParentId": {
+          "type": "string"
+        },
+        "hookPreventedAction": {
+          "type": "boolean"
+        },
+        "hookResults": {
+          "items": {
+            "additionalProperties": true,
+            "properties": {
+              "exitCode": {
+                "type": "number"
+              },
+              "stderr": {
+                "type": "string"
+              },
+              "stdout": {
+                "type": "string"
+              },
+              "suppressOutput": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "exitCode",
+              "stdout",
+              "stderr"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "hookStartTime": {
+          "type": "number"
+        },
+        "hookStatus": {
+          "enum": [
+            "executing",
+            "completed",
+            "error"
+          ],
+          "type": "string"
+        },
+        "hookToolCallId": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "interactionMode": {
+          "$ref": "#/definitions/DroidInteractionModeSchema"
+        },
+        "isError": {
+          "type": "boolean"
+        },
+        "isParallelExecution": {
+          "type": "boolean"
+        },
+        "isUserVisible": {
+          "type": "boolean"
+        },
+        "modelId": {
+          "type": "string"
+        },
+        "openaiEncryptedContent": {
+          "type": "string"
+        },
+        "openaiMessageId": {
+          "type": "string"
+        },
+        "openaiPhase": {
+          "anyOf": [
+            {
+              "enum": [
+                "commentary",
+                "final_answer"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "openaiReasoningId": {
+          "type": "string"
+        },
+        "openaiReasoningSummary": {
+          "type": "string"
+        },
+        "parallelGroupId": {
+          "type": "string"
+        },
+        "parentId": {
+          "type": "string"
+        },
+        "reasoningEffort": {
+          "$ref": "#/definitions/ReasoningEffortSchema"
+        },
+        "role": {
+          "$ref": "#/definitions/MessageRoleSchema"
+        },
+        "routerId": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "number"
+        },
+        "userMessageSource": {
+          "$ref": "#/definitions/SessionOriginSchema"
+        },
+        "visibility": {
+          "$ref": "#/definitions/MessageVisibilitySchema"
+        }
+      },
+      "required": [
+        "id",
+        "role",
+        "content",
+        "createdAt",
+        "updatedAt"
+      ],
+      "type": "object"
+    },
+    "FactoryDroidMessageWithCachingSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "apiProvider": {
+          "enum": [
+            "bedrock",
+            "anthropic",
+            "vertex_anthropic",
+            "bedrock_anthropic",
+            "bedrock_converse",
+            "bedrock_openai",
+            "openai",
+            "azure_openai",
+            "google",
+            "xai",
+            "mistral",
+            "fireworks",
+            "baseten",
+            "snowflake"
+          ],
+          "type": "string"
+        },
+        "chatCompletionReasoningContent": {
+          "type": "string"
+        },
+        "chatCompletionReasoningField": {
+          "enum": [
+            "reasoning",
+            "reasoning_content"
+          ],
+          "type": "string"
+        },
+        "content": {
+          "items": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/ContentBlockSchema"
+              },
+              {
+                "$ref": "#/definitions/CacheLabelSchema"
+              }
+            ]
+          },
+          "type": "array"
+        },
+        "createdAt": {
+          "type": "number"
+        },
+        "geminiThoughtSignature": {
+          "description": "@deprecated Use thinking block `signature` fields with `signatureProvider: \"google\"` instead. Do not use in new code.",
+          "type": "string"
+        },
+        "hiddenFromUserViews": {
+          "type": "boolean"
+        },
+        "hookCommands": {
+          "items": {
+            "additionalProperties": true,
+            "properties": {
+              "command": {
+                "type": "string"
+              },
+              "timeout": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "command"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "hookEndTime": {
+          "type": "number"
+        },
+        "hookEventName": {
+          "type": "string"
+        },
+        "hookMatcher": {
+          "type": "string"
+        },
+        "hookOrder": {
+          "type": "number"
+        },
+        "hookParentId": {
+          "type": "string"
+        },
+        "hookPreventedAction": {
+          "type": "boolean"
+        },
+        "hookResults": {
+          "items": {
+            "additionalProperties": true,
+            "properties": {
+              "exitCode": {
+                "type": "number"
+              },
+              "stderr": {
+                "type": "string"
+              },
+              "stdout": {
+                "type": "string"
+              },
+              "suppressOutput": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "exitCode",
+              "stdout",
+              "stderr"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "hookStartTime": {
+          "type": "number"
+        },
+        "hookStatus": {
+          "enum": [
+            "executing",
+            "completed",
+            "error"
+          ],
+          "type": "string"
+        },
+        "hookToolCallId": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "interactionMode": {
+          "$ref": "#/definitions/DroidInteractionModeSchema"
+        },
+        "isError": {
+          "type": "boolean"
+        },
+        "isParallelExecution": {
+          "type": "boolean"
+        },
+        "isUserVisible": {
+          "type": "boolean"
+        },
+        "modelId": {
+          "type": "string"
+        },
+        "openaiEncryptedContent": {
+          "type": "string"
+        },
+        "openaiMessageId": {
+          "type": "string"
+        },
+        "openaiPhase": {
+          "anyOf": [
+            {
+              "enum": [
+                "commentary",
+                "final_answer"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "openaiReasoningId": {
+          "type": "string"
+        },
+        "openaiReasoningSummary": {
+          "type": "string"
+        },
+        "parallelGroupId": {
+          "type": "string"
+        },
+        "parentId": {
+          "type": "string"
+        },
+        "reasoningEffort": {
+          "$ref": "#/definitions/ReasoningEffortSchema"
+        },
+        "role": {
+          "$ref": "#/definitions/MessageRoleSchema"
+        },
+        "routerId": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "number"
+        },
+        "userMessageSource": {
+          "$ref": "#/definitions/SessionOriginSchema"
+        },
+        "visibility": {
+          "$ref": "#/definitions/MessageVisibilitySchema"
+        }
+      },
+      "required": [
+        "id",
+        "role",
+        "content",
+        "createdAt",
+        "updatedAt"
+      ],
+      "type": "object"
+    },
+    "FetchUrlToolInputSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "type": "object"
+    },
+    "FileEditToolProfileSchema": {
+      "enum": [
+        "apply-patch",
+        "create-edit"
+      ],
+      "type": "string"
+    },
+    "FileOperationResultSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "diff": {
+          "type": "string"
+        },
+        "diffLines": {
+          "items": {
+            "$ref": "#/definitions/DiffLineSchema"
+          },
+          "type": "array"
+        },
+        "file_path": {
+          "type": "string"
+        },
+        "filePath": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "GlobToolInputSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "excludePatterns": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "folder": {
+          "type": "string"
+        },
+        "patterns": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "GrepToolInputSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "case_insensitive": {
+          "type": "boolean"
+        },
+        "context": {
+          "type": "number"
+        },
+        "context_after": {
+          "type": "number"
+        },
+        "context_before": {
+          "type": "number"
+        },
+        "glob_pattern": {
+          "type": "string"
+        },
+        "head_limit": {
+          "type": "number"
+        },
+        "line_numbers": {
+          "type": "boolean"
+        },
+        "output_mode": {
+          "enum": [
+            "file_paths",
+            "content"
+          ],
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "pattern": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "pattern"
+      ],
+      "type": "object"
+    },
+    "HostConfigSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "computerRegistration": {
+          "additionalProperties": true,
+          "properties": {
+            "computerId": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "firestoreOrgId": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "registeredAt": {
+              "type": "number"
+            },
+            "userId": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "computerId",
+            "firestoreOrgId",
+            "userId",
+            "registeredAt"
+          ],
+          "type": "object"
+        },
+        "createdAt": {
+          "type": "number"
+        },
+        "hostId": {
+          "$ref": "#/definitions/HostIdSchema"
+        },
+        "schemaVersion": {
+          "const": 1,
+          "type": "number"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "hostId",
+        "createdAt"
+      ],
+      "type": "object"
+    },
+    "HostIdSchema": {
+      "format": "uuid",
+      "type": "string"
+    },
+    "ImageBlockSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "generated": {
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/definitions/Base64ImageSourceSchema"
+        },
+        "type": {
+          "const": "image",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "source"
+      ],
+      "type": "object"
+    },
+    "JsonRpcBaseNotificationSchema": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/JsonRpcEnvelopeSchema"
+        },
+        {
+          "additionalProperties": true,
+          "properties": {
+            "method": {
+              "type": "string"
+            },
+            "params": {},
+            "type": {
+              "const": "notification",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "method"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "JsonRpcBaseRequestSchema": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/JsonRpcEnvelopeSchema"
+        },
+        {
+          "additionalProperties": true,
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "method": {
+              "type": "string"
+            },
+            "params": {},
+            "type": {
+              "const": "request",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "id",
+            "method"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "JsonRpcBaseResponseFailureSchema": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/JsonRpcEnvelopeSchema"
+        },
+        {
+          "additionalProperties": true,
+          "properties": {
+            "error": {
+              "$ref": "#/definitions/JsonRpcErrorSchema"
+            },
+            "id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "result": {},
+            "type": {
+              "const": "response",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "id",
+            "error"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "JsonRpcBaseResponseSchema": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/JsonRpcBaseResponseFailureSchema"
+        },
+        {
+          "$ref": "#/definitions/JsonRpcBaseResponseSuccessSchema"
+        }
+      ]
+    },
+    "JsonRpcBaseResponseSuccessSchema": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/JsonRpcEnvelopeSchema"
+        },
+        {
+          "additionalProperties": true,
+          "properties": {
+            "error": {
+              "$ref": "#/definitions/JsonRpcErrorSchema"
+            },
+            "id": {
+              "type": "string"
+            },
+            "result": {},
+            "type": {
+              "const": "response",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "id"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "JsonRpcEnvelopeSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "_meta": {
+          "$ref": "#/definitions/TraceContextMetaSchema"
+        },
+        "factoryApiVersion": {
+          "const": "1.0.0",
+          "description": "DEPRECATED - use factoryProtocolVersion for versioning instead",
+          "type": "string"
+        },
+        "factoryProtocolVersion": {
+          "type": "string"
+        },
+        "jsonrpc": {
+          "const": "2.0",
+          "type": "string"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "factoryApiVersion"
+      ],
+      "type": "object"
+    },
+    "JsonRpcErrorSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "code": {
+          "enum": [
+            -32700,
+            -32600,
+            -32601,
+            -32602,
+            -32603,
+            -32001,
+            -32004,
+            -32005,
+            -32006
+          ],
+          "type": "number"
+        },
+        "data": {},
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "type": "object"
+    },
+    "JsonRpcMessageSchema": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/JsonRpcBaseRequestSchema"
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/definitions/JsonRpcEnvelopeSchema"
+            },
+            {
+              "additionalProperties": true,
+              "properties": {
+                "error": {
+                  "$ref": "#/definitions/JsonRpcErrorSchema"
+                },
+                "id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "result": {},
+                "type": {
+                  "const": "response",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "id"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        {
+          "$ref": "#/definitions/JsonRpcBaseNotificationSchema"
+        }
+      ]
+    },
+    "JsonRpcProtocolVersionMismatchErrorDataSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "localFactoryProtocolVersion": {
+          "type": "string"
+        },
+        "messageType": {
+          "enum": [
+            "request",
+            "response",
+            "notification"
+          ],
+          "type": "string"
+        },
+        "method": {
+          "type": "string"
+        },
+        "peerFactoryProtocolVersion": {
+          "type": "string"
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "localFactoryProtocolVersion",
+        "peerFactoryProtocolVersion"
+      ],
+      "type": "object"
+    },
+    "LegacyComputerConfigSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "computerId": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "registeredAt": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "computerId",
+        "registeredAt"
+      ],
+      "type": "object"
+    },
+    "ListModelsOptionsSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "includeDisabled": {
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "ListModelsResultSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "models": {
+          "items": {
+            "$ref": "#/definitions/ModelInfoSchema"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "models"
+      ],
+      "type": "object"
+    },
+    "LSToolInputSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "directory_path": {
+          "type": "string"
+        },
+        "ignorePatterns": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "ManagedCustomModelSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "apiKey": {
+          "type": "string"
+        },
+        "apiKeyHelper": {
+          "type": "string"
+        },
+        "apiKeyHelperTtlMs": {
+          "exclusiveMinimum": 0,
+          "type": "integer"
+        },
+        "authMode": {
+          "description": "Authentication mode for the configured credential. \"bearer\" uses the Anthropic SDK authToken path; omitted or \"provider-default\" preserves native provider authentication.",
+          "enum": [
+            "provider-default",
+            "bearer"
+          ],
+          "type": "string"
+        },
+        "baseModelId": {
+          "x-factory-runtime-only": "Runtime enforces an additional cross-field or custom refinement that JSON Schema cannot express."
+        },
+        "baseUrl": {
+          "type": "string"
+        },
+        "bedrock": {
+          "additionalProperties": true,
+          "properties": {
+            "awsAuthRefresh": {
+              "type": "string"
+            },
+            "awsCredentialExport": {
+              "type": "string"
+            },
+            "awsProfile": {
+              "type": "string"
+            },
+            "awsRegion": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "bedrockBaseUrl": {
+              "anyOf": [
+                {
+                  "format": "uri",
+                  "type": "string"
+                },
+                {
+                  "pattern": "\\$\\{[A-Za-z_][A-Za-z0-9_]*\\}",
+                  "type": "string"
+                }
+              ]
+            },
+            "requestMetadata": {
+              "$ref": "#/definitions/CustomModelBedrockRequestMetadataSchema"
+            }
+          },
+          "type": "object"
+        },
+        "displayName": {
+          "type": "string"
+        },
+        "enableThinking": {
+          "type": "boolean"
+        },
+        "extraArgs": {
+          "additionalProperties": {},
+          "type": "object"
+        },
+        "extraHeaders": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "fileEditToolProfile": {
+          "description": "Optional file-tool override for exceptional model harnesses. Use \"apply-patch\" to advertise ApplyPatch or \"create-edit\" to advertise Create and Edit. This setting takes precedence over registry overrides, registry provider identity, and GPT/Codex/o-series name inference.",
+          "enum": [
+            "apply-patch",
+            "create-edit"
+          ],
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "index": {
+          "type": "number"
+        },
+        "maxContextLimit": {
+          "type": "number"
+        },
+        "maxOutputTokens": {
+          "type": "number"
+        },
+        "model": {
+          "type": "string"
+        },
+        "noImageSupport": {
+          "type": "boolean"
+        },
+        "provider": {
+          "$ref": "#/definitions/ModelProviderSchema"
+        },
+        "reasoningEffort": {
+          "$ref": "#/definitions/ReasoningEffortSchema"
+        },
+        "thinkingMaxTokens": {
+          "type": "number"
+        },
+        "useInRouter": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "model",
+        "provider"
+      ],
+      "type": "object",
+      "x-factory-runtime-only": "Runtime enforces an additional cross-field or custom refinement that JSON Schema cannot express."
+    },
+    "McpOAuthConfigSchema": {
+      "anyOf": [
+        {
+          "const": false,
+          "type": "boolean"
+        },
+        {
+          "$ref": "#/definitions/McpOAuthOptionsSchema"
+        }
+      ]
+    },
+    "McpOAuthOptionsSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "authorizationServerIssuer": {
+          "format": "uri",
+          "type": "string"
+        },
+        "callbackPort": {
+          "maximum": 65535,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "clientId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "clientMetadataUrl": {
+          "format": "uri",
+          "type": "string",
+          "x-factory-runtime-only": "Runtime enforces an additional cross-field or custom refinement that JSON Schema cannot express."
+        },
+        "clientSecret": {
+          "minLength": 1,
+          "type": "string",
+          "x-factory-runtime-only": "Runtime enforces an additional cross-field or custom refinement that JSON Schema cannot express."
+        },
+        "resource": {
+          "anyOf": [
+            {
+              "format": "uri",
+              "type": "string"
+            },
+            {
+              "const": false,
+              "type": "boolean"
+            }
+          ]
+        },
+        "scopes": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "tokenEndpointAuthMethod": {
+          "enum": [
+            "none",
+            "client_secret_basic",
+            "client_secret_post"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object",
+      "x-factory-runtime-only": "Runtime enforces an additional cross-field or custom refinement that JSON Schema cannot express."
+    },
+    "MessageRoleSchema": {
+      "enum": [
+        "user",
+        "assistant",
+        "tool",
+        "system"
+      ],
+      "type": "string"
+    },
+    "MessageVisibilitySchema": {
+      "enum": [
+        "both",
+        "llm_only",
+        "user_only"
+      ],
+      "type": "string"
+    },
+    "MissionModelSettingsSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "skipScrutiny": {
+          "type": "boolean"
+        },
+        "skipUserTesting": {
+          "type": "boolean"
+        },
+        "validationWorkerModel": {
+          "type": "string"
+        },
+        "validationWorkerReasoningEffort": {
+          "$ref": "#/definitions/ReasoningEffortSchema"
+        },
+        "workerModel": {
+          "type": "string"
+        },
+        "workerReasoningEffort": {
+          "$ref": "#/definitions/ReasoningEffortSchema"
+        }
+      },
+      "type": "object"
+    },
+    "ModelFallbackReasonSchema": {
+      "enum": [
+        "custom_model_not_configured",
+        "model_not_available_for_org"
+      ],
+      "type": "string"
+    },
+    "ModelFallbackSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "reason": {
+          "$ref": "#/definitions/ModelFallbackReasonSchema"
+        },
+        "requestedModel": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestedModel",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "ModelInfoSchema": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "properties": {
+            "defaultReasoningEffort": {
+              "$ref": "#/definitions/ReasoningEffortSchema"
+            },
+            "disabled": {
+              "const": true,
+              "type": "boolean"
+            },
+            "disabledReason": {
+              "type": "string"
+            },
+            "displayName": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "isCustom": {
+              "default": false,
+              "type": "boolean"
+            },
+            "kind": {
+              "enum": [
+                "concrete",
+                "router"
+              ],
+              "type": "string"
+            },
+            "modelProvider": {
+              "$ref": "#/definitions/ModelProviderSchema"
+            },
+            "noImageSupport": {
+              "type": "boolean"
+            },
+            "promoLabel": {
+              "type": "string"
+            },
+            "shortDisplayName": {
+              "type": "string"
+            },
+            "supportedReasoningEfforts": {
+              "items": {
+                "$ref": "#/definitions/ReasoningEffortSchema"
+              },
+              "type": "array"
+            },
+            "supportsImageGeneration": {
+              "type": "boolean"
+            },
+            "tier": {
+              "enum": [
+                "standard",
+                "premium",
+                "overage"
+              ],
+              "type": "string"
+            },
+            "tokenMultiplier": {
+              "type": "number"
+            },
+            "variantBadge": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "displayName",
+            "shortDisplayName",
+            "modelProvider",
+            "supportedReasoningEfforts",
+            "defaultReasoningEffort",
+            "disabled",
+            "disabledReason"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": true,
+          "properties": {
+            "defaultReasoningEffort": {
+              "$ref": "#/definitions/ReasoningEffortSchema"
+            },
+            "disabled": {
+              "const": false,
+              "type": "boolean"
+            },
+            "disabledReason": {
+              "not": {}
+            },
+            "displayName": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "isCustom": {
+              "default": false,
+              "type": "boolean"
+            },
+            "kind": {
+              "enum": [
+                "concrete",
+                "router"
+              ],
+              "type": "string"
+            },
+            "modelProvider": {
+              "$ref": "#/definitions/ModelProviderSchema"
+            },
+            "noImageSupport": {
+              "type": "boolean"
+            },
+            "promoLabel": {
+              "type": "string"
+            },
+            "shortDisplayName": {
+              "type": "string"
+            },
+            "supportedReasoningEfforts": {
+              "items": {
+                "$ref": "#/definitions/ReasoningEffortSchema"
+              },
+              "type": "array"
+            },
+            "supportsImageGeneration": {
+              "type": "boolean"
+            },
+            "tier": {
+              "enum": [
+                "standard",
+                "premium",
+                "overage"
+              ],
+              "type": "string"
+            },
+            "tokenMultiplier": {
+              "type": "number"
+            },
+            "variantBadge": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "displayName",
+            "shortDisplayName",
+            "modelProvider",
+            "supportedReasoningEfforts",
+            "defaultReasoningEffort"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ModelMetadataSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "defaultReasoningEffort": {
+          "$ref": "#/definitions/ReasoningEffortSchema"
+        },
+        "displayName": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "isCustom": {
+          "default": false,
+          "type": "boolean"
+        },
+        "kind": {
+          "enum": [
+            "concrete",
+            "router"
+          ],
+          "type": "string"
+        },
+        "modelProvider": {
+          "$ref": "#/definitions/ModelProviderSchema"
+        },
+        "noImageSupport": {
+          "type": "boolean"
+        },
+        "promoLabel": {
+          "type": "string"
+        },
+        "shortDisplayName": {
+          "type": "string"
+        },
+        "supportedReasoningEfforts": {
+          "items": {
+            "$ref": "#/definitions/ReasoningEffortSchema"
+          },
+          "type": "array"
+        },
+        "supportsImageGeneration": {
+          "type": "boolean"
+        },
+        "tier": {
+          "enum": [
+            "standard",
+            "premium",
+            "overage"
+          ],
+          "type": "string"
+        },
+        "tokenMultiplier": {
+          "type": "number"
+        },
+        "variantBadge": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "displayName",
+        "shortDisplayName",
+        "modelProvider",
+        "supportedReasoningEfforts",
+        "defaultReasoningEffort"
+      ],
+      "type": "object"
+    },
+    "ModelProviderSchema": {
+      "enum": [
+        "anthropic",
+        "openai",
+        "generic-chat-completion-api",
+        "factory",
+        "google",
+        "xai",
+        "voyage",
+        "bedrock-converse"
+      ],
+      "type": "string"
+    },
+    "PlainTextSourceSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "data": {
+          "type": "string"
+        },
+        "mediaType": {
+          "const": "text/plain",
+          "type": "string"
+        },
+        "mime": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "const": "text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "mediaType",
+        "data"
+      ],
+      "type": "object"
+    },
+    "ProposeMissionToolInputSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "proposal": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "proposal"
+      ],
+      "type": "object"
+    },
+    "ReadToolInputSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "file_path": {
+          "type": "string"
+        },
+        "image_quality": {
+          "enum": [
+            "default",
+            "high"
+          ],
+          "type": "string"
+        },
+        "limit": {
+          "type": "number"
+        },
+        "offset": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "file_path"
+      ],
+      "type": "object"
+    },
+    "ReasoningEffortSchema": {
+      "enum": [
+        "none",
+        "dynamic",
+        "off",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "type": "string"
+    },
+    "RedactedThinkingBlockSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "data": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "type": {
+          "const": "redacted_thinking",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ],
+      "type": "object"
+    },
+    "SandboxModeSchema": {
+      "enum": [
+        "per-command",
+        "whole-process"
+      ],
+      "type": "string"
+    },
+    "ScriptRunResultSchema": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "runId": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "status": {
+              "const": "running",
+              "type": "string"
+            }
+          },
+          "required": [
+            "runId",
+            "status"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "runId": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "status": {
+              "const": "stalled",
+              "type": "string"
+            }
+          },
+          "required": [
+            "runId",
+            "status"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "backgroundTasks": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "description": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "taskId": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "taskId"
+                ],
+                "type": "object"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            "result": {
+              "$ref": "#/definitions/ScriptRunResultValueSchema"
+            },
+            "runId": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "status": {
+              "const": "completed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "runId",
+            "status",
+            "result"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "backgroundTasks": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "description": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "taskId": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "taskId"
+                ],
+                "type": "object"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            "resultPath": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "runId": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "status": {
+              "const": "completed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "runId",
+            "status",
+            "resultPath"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "backgroundTasks": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "description": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "taskId": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "taskId"
+                ],
+                "type": "object"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            "error": {
+              "type": "string"
+            },
+            "runId": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "status": {
+              "const": "failed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "runId",
+            "status",
+            "error"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "backgroundTasks": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "description": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "taskId": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "taskId"
+                ],
+                "type": "object"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            "interruptedCalls": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "input": {
+                    "additionalProperties": {
+                      "$ref": "#/definitions/ScriptRunResultValueSchema"
+                    },
+                    "type": "object"
+                  },
+                  "name": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "taskId": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "toolUseId": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "toolUseId",
+                  "name",
+                  "input"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "runId": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "status": {
+              "const": "cancelled",
+              "type": "string"
+            }
+          },
+          "required": [
+            "runId",
+            "status",
+            "interruptedCalls"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ScriptRunResultValueSchema": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "items": {
+            "$ref": "#/definitions/ScriptRunResultValueSchema"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/definitions/ScriptRunResultValueSchema"
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "SdkClientMetadataSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "language": {
+          "enum": [
+            "typescript",
+            "python"
+          ],
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9.+-]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "language",
+        "version"
+      ],
+      "type": "object"
+    },
+    "SessionIdParamsSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "SessionOriginSchema": {
+      "enum": [
+        "web",
+        "desktop",
+        "cli_tui",
+        "cli_exec",
+        "cli_acp",
+        "slack",
+        "jira",
+        "linear",
+        "microsoft-teams",
+        "sessions_api",
+        "api",
+        "sdk",
+        "automation",
+        "readiness-remediation",
+        "readiness-evaluation",
+        "wiki-generation",
+        "wiki-ci-setup"
+      ],
+      "type": "string"
+    },
+    "SessionSourceSchema": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "properties": {
+            "automationId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "channel": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "delegationSessionId": {
+              "type": "string"
+            },
+            "platform": {
+              "const": "slack",
+              "type": "string"
+            },
+            "teamId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "threadTs": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "userId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "platform",
+            "delegationSessionId"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": true,
+          "properties": {
+            "delegationSessionId": {
+              "type": "string"
+            },
+            "platform": {
+              "const": "web",
+              "type": "string"
+            }
+          },
+          "required": [
+            "platform",
+            "delegationSessionId"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": true,
+          "properties": {
+            "delegationSessionId": {
+              "type": "string"
+            },
+            "platform": {
+              "const": "api",
+              "type": "string"
+            }
+          },
+          "required": [
+            "platform",
+            "delegationSessionId"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": true,
+          "properties": {
+            "delegationSessionId": {
+              "type": "string"
+            },
+            "platform": {
+              "const": "sessions_api",
+              "type": "string"
+            }
+          },
+          "required": [
+            "platform",
+            "delegationSessionId"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": true,
+          "properties": {
+            "cloudId": {
+              "type": "string"
+            },
+            "commentId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "delegationSessionId": {
+              "type": "string"
+            },
+            "issueId": {
+              "type": "string"
+            },
+            "issueKey": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "platform": {
+              "const": "jira",
+              "type": "string"
+            },
+            "projectId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "siteId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "taskId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "userId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "platform",
+            "cloudId",
+            "issueId",
+            "delegationSessionId"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": true,
+          "properties": {
+            "agentSessionId": {
+              "type": "string"
+            },
+            "delegationSessionId": {
+              "type": "string"
+            },
+            "issueId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "issueIdentifier": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "issueUrl": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "organizationId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "platform": {
+              "const": "linear",
+              "type": "string"
+            },
+            "userId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "platform",
+            "agentSessionId",
+            "delegationSessionId"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": true,
+          "properties": {
+            "aadObjectId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "channelId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "conversationId": {
+              "type": "string"
+            },
+            "conversationType": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "personal",
+                    "groupChat",
+                    "channel"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "delegationSessionId": {
+              "type": "string"
+            },
+            "platform": {
+              "const": "microsoft-teams",
+              "type": "string"
+            },
+            "rootMessageId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "serviceUrl": {
+              "type": "string"
+            },
+            "teamId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "tenantId": {
+              "type": "string"
+            },
+            "userId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "platform",
+            "tenantId",
+            "conversationId",
+            "serviceUrl",
+            "delegationSessionId"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": true,
+          "properties": {
+            "criterionId": {
+              "type": "string"
+            },
+            "platform": {
+              "const": "readiness-remediation",
+              "type": "string"
+            },
+            "reportId": {
+              "type": "string"
+            },
+            "repoUrl": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "platform",
+            "reportId",
+            "repoUrl",
+            "criterionId"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": true,
+          "properties": {
+            "platform": {
+              "const": "readiness-evaluation",
+              "type": "string"
+            },
+            "repoUrl": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "platform",
+            "repoUrl"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": true,
+          "properties": {
+            "automationId": {
+              "type": "string"
+            },
+            "computerId": {
+              "type": "string"
+            },
+            "platform": {
+              "const": "automation",
+              "type": "string"
+            }
+          },
+          "required": [
+            "platform",
+            "automationId",
+            "computerId"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": true,
+          "properties": {
+            "platform": {
+              "const": "wiki-generation",
+              "type": "string"
+            },
+            "repoUrl": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "platform",
+            "repoUrl"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": true,
+          "properties": {
+            "platform": {
+              "const": "wiki-ci-setup",
+              "type": "string"
+            },
+            "repoUrl": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "platform",
+            "repoUrl"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": true,
+          "properties": {
+            "platform": {
+              "const": "tui",
+              "type": "string"
+            }
+          },
+          "required": [
+            "platform"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": true,
+          "properties": {
+            "platform": {
+              "const": "desktop",
+              "type": "string"
+            }
+          },
+          "required": [
+            "platform"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": true,
+          "properties": {
+            "platform": {
+              "const": "acp",
+              "type": "string"
+            }
+          },
+          "required": [
+            "platform"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": true,
+          "properties": {
+            "platform": {
+              "const": "unknown",
+              "type": "string"
+            }
+          },
+          "required": [
+            "platform"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SessionTagSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "metadata": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "name": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "SessionWorktreeMetadataSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "branch": {
+          "type": "string"
+        },
+        "lifecycle": {
+          "$ref": "#/definitions/WorktreeLifecycleSchema"
+        },
+        "parentWorktreePath": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "removedAt": {
+          "type": "string"
+        },
+        "repoRoot": {
+          "type": "string"
+        },
+        "setupProfileId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "repoRoot"
+      ],
+      "type": "object"
+    },
+    "SettingsLevelSchema": {
+      "enum": [
+        "org",
+        "runtime",
+        "user",
+        "project",
+        "folder",
+        "dynamic",
+        "builtin"
+      ],
+      "type": "string"
+    },
+    "SkillLocationSchema": {
+      "enum": [
+        "project",
+        "personal",
+        "builtin",
+        "automation"
+      ],
+      "type": "string"
+    },
+    "SkillToolInputSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "skill": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "skill"
+      ],
+      "type": "object"
+    },
+    "SuccessOrErrorResultResponseSchema": {
+      "anyOf": [
+        {
+          "allOf": [
+            {
+              "$ref": "#/definitions/JsonRpcEnvelopeSchema"
+            },
+            {
+              "additionalProperties": true,
+              "properties": {
+                "error": {
+                  "$ref": "#/definitions/JsonRpcErrorSchema"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "result": {
+                  "$ref": "#/definitions/SuccessOrErrorResultSchema"
+                },
+                "type": {
+                  "const": "response",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "id",
+                "result"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        {
+          "$ref": "#/definitions/JsonRpcBaseResponseFailureSchema"
+        }
+      ]
+    },
+    "SuccessOrErrorResultSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "error": {
+          "type": "string"
+        },
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "success"
+      ],
+      "type": "object"
+    },
+    "SuccessResultResponseSchema": {
+      "anyOf": [
+        {
+          "allOf": [
+            {
+              "$ref": "#/definitions/JsonRpcEnvelopeSchema"
+            },
+            {
+              "additionalProperties": true,
+              "properties": {
+                "error": {
+                  "$ref": "#/definitions/JsonRpcErrorSchema"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "result": {
+                  "$ref": "#/definitions/SuccessResultSchema"
+                },
+                "type": {
+                  "const": "response",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "id",
+                "result"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        {
+          "$ref": "#/definitions/JsonRpcBaseResponseFailureSchema"
+        }
+      ]
+    },
+    "SuccessResultSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "success"
+      ],
+      "type": "object"
+    },
+    "SystemPromptConfigSchema": {
+      "anyOf": [
+        {
+          "pattern": "\\S",
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "append": {
+              "pattern": "\\S",
+              "type": "string"
+            },
+            "preset": {
+              "const": "droid",
+              "type": "string"
+            },
+            "type": {
+              "const": "preset",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "preset",
+            "append"
+          ],
+          "type": "object",
+          "x-factory-runtime-only": "Runtime normalizes this value before validation; the schema describes the post-normalization shape."
+        }
+      ]
+    },
+    "TaskToolInputSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "description": {
+          "description": "A short (3-5 word) description of the task (used in UI)",
+          "type": "string"
+        },
+        "prompt": {
+          "description": "The full task prompt for the subagent to execute",
+          "type": "string"
+        },
+        "subagent_type": {
+          "description": "The custom droid name/identifier to run (must match an available droid; do not guess)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "subagent_type",
+        "description",
+        "prompt"
+      ],
+      "type": "object"
+    },
+    "TextBlockSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "type": {
+          "const": "text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "text"
+      ],
+      "type": "object"
+    },
+    "ThinkingBlockSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "durationMs": {
+          "minimum": 0,
+          "type": "number"
+        },
+        "id": {
+          "type": "string"
+        },
+        "signature": {
+          "type": "string"
+        },
+        "signatureProvider": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ModelProviderSchema"
+            },
+            {
+              "const": "unknown",
+              "type": "string"
+            }
+          ]
+        },
+        "thinking": {
+          "type": "string"
+        },
+        "type": {
+          "const": "thinking",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "signature",
+        "thinking"
+      ],
+      "type": "object"
+    },
+    "TodoWriteToolInputSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "todos": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "todos"
+      ],
+      "type": "object"
+    },
+    "TokenUsageSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "cacheCreationTokens": {
+          "type": "number"
+        },
+        "cacheReadTokens": {
+          "type": "number"
+        },
+        "factoryCredits": {
+          "type": "number"
+        },
+        "inputTokens": {
+          "type": "number"
+        },
+        "outputTokens": {
+          "type": "number"
+        },
+        "thinkingTokens": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "inputTokens",
+        "outputTokens",
+        "cacheCreationTokens",
+        "cacheReadTokens",
+        "thinkingTokens"
+      ],
+      "type": "object"
+    },
+    "ToolExecutionModeSchema": {
+      "enum": [
+        "direct_only",
+        "direct_and_script",
+        "script_only"
+      ],
+      "type": "string"
+    },
+    "ToolResultSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "content": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/TextBlockSchema"
+                  },
+                  {
+                    "$ref": "#/definitions/ImageBlockSchema"
+                  },
+                  {
+                    "$ref": "#/definitions/DocumentBlockSchema"
+                  }
+                ]
+              },
+              "type": "array"
+            }
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "isError": {
+          "type": "boolean"
+        },
+        "toolUseId": {
+          "type": "string"
+        },
+        "type": {
+          "const": "tool_result",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "toolUseId"
+      ],
+      "type": "object"
+    },
+    "ToolUseSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "input": {
+          "additionalProperties": {},
+          "type": "object"
+        },
+        "name": {
+          "type": "string"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "scriptExecution": {
+          "additionalProperties": true,
+          "properties": {
+            "outerToolUseId": {
+              "type": "string"
+            },
+            "runId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "runId",
+            "outerToolUseId"
+          ],
+          "type": "object"
+        },
+        "thoughtSignature": {
+          "type": "string"
+        },
+        "type": {
+          "const": "tool_use",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "input",
+        "name"
+      ],
+      "type": "object"
+    },
+    "TraceContextMetaSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "requestAttribution": {
+          "$ref": "#/definitions/ClientRequestAttributionSchema"
+        },
+        "traceparent": {
+          "type": "string"
+        },
+        "tracestate": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "WebSearchToolInputSchema": {
+      "additionalProperties": true,
+      "properties": {
+        "category": {
+          "type": "string"
+        },
+        "excludeDomains": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "includeDomains": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "numResults": {
+          "type": "number"
+        },
+        "query": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "type": "object"
+    },
+    "WorktreeLifecycleSchema": {
+      "enum": [
+        "ephemeral",
+        "persistent"
+      ],
+      "type": "string"
+    }
+  }
+}

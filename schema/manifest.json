@@ -1,0 +1,32 @@
+{
+  "protocolVersion": "1.205.0",
+  "python": {
+    "repository": "https://github.com/Factory-AI/droid-sdk-python",
+    "commit": "6d06b4e613aab3990cf2ced469b5c4e80053e52e",
+    "version": "0.4.0"
+  },
+  "typescript": {
+    "repository": "https://github.com/Factory-AI/droid-sdk-typescript",
+    "commit": "87b4c4c4e4fc093e10a94f1e767ed57b7cbf597e",
+    "package": "@factory/droid-sdk",
+    "version": "0.7.0"
+  },
+  "schemas": {
+    "daemon.schema.json": {
+      "sha256": "0c3ee2b216dec8ac0838ef723a0d3da66372c50f7fce853ebd54dd03e497c40a",
+      "definitions": 418
+    },
+    "droid.schema.json": {
+      "sha256": "42217102d3b8446b1daee1ff2b906df24ddf67324a10d6d0ceb9b5bd650e1300",
+      "definitions": 223
+    },
+    "protocol.schema.json": {
+      "sha256": "07793ded8fbbea30e53f31858b80253f2c278320ff20a7565cd6e0a507ce9863",
+      "definitions": 739
+    },
+    "shared.schema.json": {
+      "sha256": "73c36c7f9f49a5f0de342459db97381559813a5519465cb77a6e68f25ed5ddbc",
+      "definitions": 98
+    }
+  }
+}

@@ -1,0 +1,2226 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.factory.ai/droid-sdk/protocol/1.205.0/protocol.schema.json",
+  "title": "Factory Droid client <-> daemon protocol",
+  "description": "Index of the complete protocol: every definition is a $ref into the part that owns it (shared.schema.json, droid.schema.json, daemon.schema.json). Load all four files to resolve any #/definitions/<Name> through this document, or load only the parts you need (a droid exec client needs shared + droid). Generated from the Zod schemas in @factory/droid-sdk-core. Every distinct protocol schema is a definition, named after its most upstream export; reference one with #/definitions/<Name>. Request definitions carry x-factory-response (and/or x-factory-result) naming their response definition. Wire frames are expressed as allOf: [{$ref: JsonRpcEnvelopeSchema}, {frame-specific properties}]. Values marked x-factory-runtime-only are validated more strictly at runtime than this document can express.",
+  "x-factory-protocol-version": "1.205.0",
+  "definitions": {
+    "AddMcpServerRequestParamsSchema": {
+      "$ref": "droid.schema.json#/definitions/AddMcpServerRequestParamsSchema"
+    },
+    "AddMcpServerRequestSchema": {
+      "$ref": "droid.schema.json#/definitions/AddMcpServerRequestSchema"
+    },
+    "AddUserMessageRequestParamsSchema": {
+      "$ref": "droid.schema.json#/definitions/AddUserMessageRequestParamsSchema"
+    },
+    "AddUserMessageRequestSchema": {
+      "$ref": "droid.schema.json#/definitions/AddUserMessageRequestSchema"
+    },
+    "AgentTurnCompletedNotificationSchema": {
+      "$ref": "droid.schema.json#/definitions/AgentTurnCompletedNotificationSchema"
+    },
+    "AgentTurnCompletionReasonSchema": {
+      "$ref": "droid.schema.json#/definitions/AgentTurnCompletionReasonSchema"
+    },
+    "AppendMessagesRequestParamsSchema": {
+      "$ref": "droid.schema.json#/definitions/AppendMessagesRequestParamsSchema"
+    },
+    "AppendMessagesRequestSchema": {
+      "$ref": "droid.schema.json#/definitions/AppendMessagesRequestSchema"
+    },
+    "ApplyPatchFileChangeSchema": {
+      "$ref": "shared.schema.json#/definitions/ApplyPatchFileChangeSchema"
+    },
+    "ApplyPatchToolInputSchema": {
+      "$ref": "shared.schema.json#/definitions/ApplyPatchToolInputSchema"
+    },
+    "ApplyPatchToolResultSchema": {
+      "$ref": "shared.schema.json#/definitions/ApplyPatchToolResultSchema"
+    },
+    "AskUserCollectedAnswerSchema": {
+      "$ref": "droid.schema.json#/definitions/AskUserCollectedAnswerSchema"
+    },
+    "AskUserQuestionSchema": {
+      "$ref": "droid.schema.json#/definitions/AskUserQuestionSchema"
+    },
+    "AskUserRequestParamsSchema": {
+      "$ref": "droid.schema.json#/definitions/AskUserRequestParamsSchema"
+    },
+    "AskUserRequestSchema": {
+      "$ref": "droid.schema.json#/definitions/AskUserRequestSchema"
+    },
+    "AskUserResponseSchema": {
+      "$ref": "droid.schema.json#/definitions/AskUserResponseSchema"
+    },
+    "AskUserResultSchema": {
+      "$ref": "droid.schema.json#/definitions/AskUserResultSchema"
+    },
+    "AssistantMessageRetractedNotificationSchema": {
+      "$ref": "droid.schema.json#/definitions/AssistantMessageRetractedNotificationSchema"
+    },
+    "AssistantTextCompleteNotificationSchema": {
+      "$ref": "droid.schema.json#/definitions/AssistantTextCompleteNotificationSchema"
+    },
+    "AssistantTextDeltaNotificationSchema": {
+      "$ref": "droid.schema.json#/definitions/AssistantTextDeltaNotificationSchema"
+    },
+    "AuthenticateMcpServerRequestSchema": {
+      "$ref": "droid.schema.json#/definitions/AuthenticateMcpServerRequestSchema"
+    },
+    "AutomationCreateToolInputSchema": {
+      "$ref": "droid.schema.json#/definitions/AutomationCreateToolInputSchema"
+    },
+    "AutomationDeleteToolInputSchema": {
+      "$ref": "droid.schema.json#/definitions/AutomationDeleteToolInputSchema"
+    },
+    "AutomationEditToolInputSchema": {
+      "$ref": "droid.schema.json#/definitions/AutomationEditToolInputSchema"
+    },
+    "AutomationListToolInputSchema": {
+      "$ref": "droid.schema.json#/definitions/AutomationListToolInputSchema"
+    },
+    "AutomationPendingSetupSchema": {
+      "$ref": "daemon.schema.json#/definitions/AutomationPendingSetupSchema"
+    },
+    "AutomationPrivacyLevelSchema": {
+      "$ref": "daemon.schema.json#/definitions/AutomationPrivacyLevelSchema"
+    },
+    "AutomationReadToolInputSchema": {
+      "$ref": "droid.schema.json#/definitions/AutomationReadToolInputSchema"
+    },
+    "AutomationScaffoldSkillFileSchema": {
+      "$ref": "daemon.schema.json#/definitions/AutomationScaffoldSkillFileSchema"
+    },
+    "AutomationScaffoldSkillSchema": {
+      "$ref": "daemon.schema.json#/definitions/AutomationScaffoldSkillSchema"
+    },
+    "AutomationTemplateIdSchema": {
+      "$ref": "daemon.schema.json#/definitions/AutomationTemplateIdSchema"
+    },
+    "AutonomyLevelSchema": {
+      "$ref": "shared.schema.json#/definitions/AutonomyLevelSchema"
+    },
+    "Base64ImageSourceSchema": {
+      "$ref": "shared.schema.json#/definitions/Base64ImageSourceSchema"
+    },
+    "Base64PDFSourceSchema": {
+      "$ref": "shared.schema.json#/definitions/Base64PDFSourceSchema"
+    },
+    "BaseContentBlockSchema": {
+      "$ref": "shared.schema.json#/definitions/BaseContentBlockSchema"
+    },
+    "BaseNotificationSchema": {
+      "$ref": "shared.schema.json#/definitions/BaseNotificationSchema"
+    },
+    "BaseRequestSchema": {
+      "$ref": "shared.schema.json#/definitions/BaseRequestSchema"
+    },
+    "BaseResponseFailureSchema": {
+      "$ref": "shared.schema.json#/definitions/BaseResponseFailureSchema"
+    },
+    "BaseResponseSuccessSchema": {
+      "$ref": "shared.schema.json#/definitions/BaseResponseSuccessSchema"
+    },
+    "BugReportSourceSchema": {
+      "$ref": "shared.schema.json#/definitions/BugReportSourceSchema"
+    },
+    "CacheLabelSchema": {
+      "$ref": "shared.schema.json#/definitions/CacheLabelSchema"
+    },
+    "CancelMcpAuthRequestSchema": {
+      "$ref": "droid.schema.json#/definitions/CancelMcpAuthRequestSchema"
+    },
+    "ChangeWorkingDirectoryRequestParamsSchema": {
+      "$ref": "droid.schema.json#/definitions/ChangeWorkingDirectoryRequestParamsSchema"
+    },
+    "ChangeWorkingDirectoryRequestSchema": {
+      "$ref": "droid.schema.json#/definitions/ChangeWorkingDirectoryRequestSchema"
+    },
+    "ChangeWorkingDirectoryResponseSchema": {
+      "$ref": "droid.schema.json#/definitions/ChangeWorkingDirectoryResponseSchema"
+    },
+    "ChangeWorkingDirectoryResultSchema": {
+      "$ref": "droid.schema.json#/definitions/ChangeWorkingDirectoryResultSchema"
+    },
+    "ChildSessionAvailableNotificationSchema": {
+      "$ref": "droid.schema.json#/definitions/ChildSessionAvailableNotificationSchema"
+    },
+    "ClearMcpAuthRequestSchema": {
+      "$ref": "droid.schema.json#/definitions/ClearMcpAuthRequestSchema"
+    },
+    "ClientRequestAttributionSchema": {
+      "$ref": "shared.schema.json#/definitions/ClientRequestAttributionSchema"
+    },
+    "ClientRequestSchema": {
+      "$ref": "droid.schema.json#/definitions/ClientRequestSchema"
+    },
+    "CliRequestOrNotificationSchema": {
+      "$ref": "droid.schema.json#/definitions/CliRequestOrNotificationSchema"
+    },
+    "CloseSessionRequestParamsSchema": {
+      "$ref": "droid.schema.json#/definitions/CloseSessionRequestParamsSchema"
+    },
+    "CloseSessionRequestSchema": {
+      "$ref": "droid.schema.json#/definitions/CloseSessionRequestSchema"
+    },
+    "CloseTerminalRequestParamsSchema": {
+      "$ref": "daemon.schema.json#/definitions/CloseTerminalRequestParamsSchema"
+    },
+    "CloseTerminalRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/CloseTerminalRequestSchema"
+    },
+    "CommandAckResponseSchema": {
+      "$ref": "shared.schema.json#/definitions/CommandAckResponseSchema"
+    },
+    "CommandAckSchema": {
+      "$ref": "shared.schema.json#/definitions/CommandAckSchema"
+    },
+    "CompactionModelSchema": {
+      "$ref": "shared.schema.json#/definitions/CompactionModelSchema"
+    },
+    "CompactSessionRequestParamsSchema": {
+      "$ref": "droid.schema.json#/definitions/CompactSessionRequestParamsSchema"
+    },
+    "CompactSessionRequestSchema": {
+      "$ref": "droid.schema.json#/definitions/CompactSessionRequestSchema"
+    },
+    "CompactSessionResponseSchema": {
+      "$ref": "droid.schema.json#/definitions/CompactSessionResponseSchema"
+    },
+    "CompactSessionResultSchema": {
+      "$ref": "droid.schema.json#/definitions/CompactSessionResultSchema"
+    },
+    "ContentBlockSchema": {
+      "$ref": "shared.schema.json#/definitions/ContentBlockSchema"
+    },
+    "ContextBreakdownCategorySchema": {
+      "$ref": "droid.schema.json#/definitions/ContextBreakdownCategorySchema"
+    },
+    "ContextStatsSchema": {
+      "$ref": "droid.schema.json#/definitions/ContextStatsSchema"
+    },
+    "CreateMessageNotificationSchema": {
+      "$ref": "droid.schema.json#/definitions/CreateMessageNotificationSchema"
+    },
+    "CreateTerminalRequestParamsSchema": {
+      "$ref": "daemon.schema.json#/definitions/CreateTerminalRequestParamsSchema"
+    },
+    "CreateTerminalRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/CreateTerminalRequestSchema"
+    },
+    "CreateTerminalResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/CreateTerminalResponseSchema"
+    },
+    "CreateTerminalResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/CreateTerminalResultSchema"
+    },
+    "CreateToolInputSchema": {
+      "$ref": "shared.schema.json#/definitions/CreateToolInputSchema"
+    },
+    "CronCreateRootScopeSchema": {
+      "$ref": "daemon.schema.json#/definitions/CronCreateRootScopeSchema"
+    },
+    "CronCreateScopeSchema": {
+      "$ref": "daemon.schema.json#/definitions/CronCreateScopeSchema"
+    },
+    "CronCreateSessionScopeSchema": {
+      "$ref": "daemon.schema.json#/definitions/CronCreateSessionScopeSchema"
+    },
+    "CronKindSchema": {
+      "$ref": "daemon.schema.json#/definitions/CronKindSchema"
+    },
+    "CronPayloadSchema": {
+      "$ref": "daemon.schema.json#/definitions/CronPayloadSchema"
+    },
+    "CronRecordSchema": {
+      "$ref": "daemon.schema.json#/definitions/CronRecordSchema"
+    },
+    "CronRootScopeSchema": {
+      "$ref": "daemon.schema.json#/definitions/CronRootScopeSchema"
+    },
+    "CronScopeSchema": {
+      "$ref": "daemon.schema.json#/definitions/CronScopeSchema"
+    },
+    "CronSessionScopeSchema": {
+      "$ref": "daemon.schema.json#/definitions/CronSessionScopeSchema"
+    },
+    "CronStatusSchema": {
+      "$ref": "daemon.schema.json#/definitions/CronStatusSchema"
+    },
+    "CustomCommandInfoSchema": {
+      "$ref": "droid.schema.json#/definitions/CustomCommandInfoSchema"
+    },
+    "CustomModelAuthModeSchema": {
+      "$ref": "shared.schema.json#/definitions/CustomModelAuthModeSchema"
+    },
+    "CustomModelBedrockRequestMetadataSchema": {
+      "$ref": "shared.schema.json#/definitions/CustomModelBedrockRequestMetadataSchema"
+    },
+    "CustomModelsSchema": {
+      "$ref": "shared.schema.json#/definitions/CustomModelsSchema"
+    },
+    "daemon.McpServerConfigSchema": {
+      "$ref": "daemon.schema.json#/definitions/daemon.McpServerConfigSchema"
+    },
+    "DaemonAcknowledgeMissionReadinessWarningRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonAcknowledgeMissionReadinessWarningRequestSchema"
+    },
+    "DaemonAddMarketplaceRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonAddMarketplaceRequestSchema"
+    },
+    "DaemonAddMarketplaceResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonAddMarketplaceResponseSchema"
+    },
+    "DaemonAddMarketplaceResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonAddMarketplaceResultSchema"
+    },
+    "DaemonAddMcpServerRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonAddMcpServerRequestSchema"
+    },
+    "DaemonAddUserMessageRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonAddUserMessageRequestSchema"
+    },
+    "DaemonAddUserMessageResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonAddUserMessageResponseSchema"
+    },
+    "DaemonApplyAutomationConfigReasonSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonApplyAutomationConfigReasonSchema"
+    },
+    "DaemonApplyAutomationConfigRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonApplyAutomationConfigRequestSchema"
+    },
+    "DaemonApplyAutomationConfigResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonApplyAutomationConfigResponseSchema"
+    },
+    "DaemonApplyAutomationConfigResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonApplyAutomationConfigResultSchema"
+    },
+    "DaemonArchiveSessionRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonArchiveSessionRequestSchema"
+    },
+    "DaemonArchiveSessionResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonArchiveSessionResponseSchema"
+    },
+    "DaemonArchiveSessionResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonArchiveSessionResultSchema"
+    },
+    "DaemonAskUserResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonAskUserResponseSchema"
+    },
+    "DaemonAskUserResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonAskUserResultSchema"
+    },
+    "DaemonAskUserSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonAskUserSchema"
+    },
+    "DaemonAuthenticateMcpServerRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonAuthenticateMcpServerRequestSchema"
+    },
+    "DaemonAuthenticateRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonAuthenticateRequestSchema"
+    },
+    "DaemonAuthenticateResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonAuthenticateResponseSchema"
+    },
+    "DaemonCancelMcpAuthRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonCancelMcpAuthRequestSchema"
+    },
+    "DaemonChangeWorkingDirectoryRequestParamsSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonChangeWorkingDirectoryRequestParamsSchema"
+    },
+    "DaemonChangeWorkingDirectoryRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonChangeWorkingDirectoryRequestSchema"
+    },
+    "DaemonCheckFolderTrustRequestParamsSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonCheckFolderTrustRequestParamsSchema"
+    },
+    "DaemonCheckFolderTrustRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonCheckFolderTrustRequestSchema"
+    },
+    "DaemonCheckFolderTrustResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonCheckFolderTrustResponseSchema"
+    },
+    "DaemonCheckFolderTrustResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonCheckFolderTrustResultSchema"
+    },
+    "DaemonCheckoutGitBranchConflictDataSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonCheckoutGitBranchConflictDataSchema"
+    },
+    "DaemonCheckoutGitBranchRequestParamsSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonCheckoutGitBranchRequestParamsSchema"
+    },
+    "DaemonCheckoutGitBranchRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonCheckoutGitBranchRequestSchema"
+    },
+    "DaemonCheckoutGitBranchResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonCheckoutGitBranchResponseSchema"
+    },
+    "DaemonCheckoutGitBranchResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonCheckoutGitBranchResultSchema"
+    },
+    "DaemonCleanupWorktreeRequestParamsSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonCleanupWorktreeRequestParamsSchema"
+    },
+    "DaemonCleanupWorktreeRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonCleanupWorktreeRequestSchema"
+    },
+    "DaemonCleanupWorktreeResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonCleanupWorktreeResponseSchema"
+    },
+    "DaemonCleanupWorktreeResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonCleanupWorktreeResultSchema"
+    },
+    "DaemonClearMcpAuthRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonClearMcpAuthRequestSchema"
+    },
+    "DaemonCloseSessionRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonCloseSessionRequestSchema"
+    },
+    "DaemonCloseTerminalRequestParamsSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonCloseTerminalRequestParamsSchema"
+    },
+    "DaemonCloseTerminalRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonCloseTerminalRequestSchema"
+    },
+    "DaemonCompactSessionRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonCompactSessionRequestSchema"
+    },
+    "DaemonConnectionStatusNotificationSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonConnectionStatusNotificationSchema"
+    },
+    "DaemonCreateAutomationRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonCreateAutomationRequestSchema"
+    },
+    "DaemonCreateAutomationResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonCreateAutomationResponseSchema"
+    },
+    "DaemonCreateAutomationResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonCreateAutomationResultSchema"
+    },
+    "DaemonCreateCronRequestParamsSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonCreateCronRequestParamsSchema"
+    },
+    "DaemonCreateCronRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonCreateCronRequestSchema"
+    },
+    "DaemonCreateCronResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonCreateCronResponseSchema"
+    },
+    "DaemonCreateCronResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonCreateCronResultSchema"
+    },
+    "DaemonCreatePRRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonCreatePRRequestSchema"
+    },
+    "DaemonCreatePRResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonCreatePRResponseSchema"
+    },
+    "DaemonCreatePRResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonCreatePRResultSchema"
+    },
+    "DaemonCreateTerminalRequestParamsSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonCreateTerminalRequestParamsSchema"
+    },
+    "DaemonCreateTerminalRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonCreateTerminalRequestSchema"
+    },
+    "DaemonCronStateChangedNotificationParamsSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonCronStateChangedNotificationParamsSchema"
+    },
+    "DaemonCronStateChangedNotificationSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonCronStateChangedNotificationSchema"
+    },
+    "DaemonCustomModelSummarySchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonCustomModelSummarySchema"
+    },
+    "DaemonDeleteAutomationRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonDeleteAutomationRequestSchema"
+    },
+    "DaemonDeleteCronRequestParamsSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonDeleteCronRequestParamsSchema"
+    },
+    "DaemonDeleteCronRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonDeleteCronRequestSchema"
+    },
+    "DaemonDeleteCronResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonDeleteCronResponseSchema"
+    },
+    "DaemonDeleteCronResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonDeleteCronResultSchema"
+    },
+    "DaemonDeleteCustomModelRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonDeleteCustomModelRequestSchema"
+    },
+    "DaemonDeleteCustomModelResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonDeleteCustomModelResponseSchema"
+    },
+    "DaemonDeleteWorktreeSetupProfileRequestParamsSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonDeleteWorktreeSetupProfileRequestParamsSchema"
+    },
+    "DaemonDeleteWorktreeSetupProfileRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonDeleteWorktreeSetupProfileRequestSchema"
+    },
+    "DaemonExecuteRewindRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonExecuteRewindRequestSchema"
+    },
+    "DaemonExecuteRewindResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonExecuteRewindResponseSchema"
+    },
+    "DaemonExecuteRewindResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonExecuteRewindResultSchema"
+    },
+    "DaemonForkAutomationRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonForkAutomationRequestSchema"
+    },
+    "DaemonForkAutomationResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonForkAutomationResponseSchema"
+    },
+    "DaemonForkAutomationResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonForkAutomationResultSchema"
+    },
+    "DaemonForkSessionRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonForkSessionRequestSchema"
+    },
+    "DaemonForkSessionResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonForkSessionResponseSchema"
+    },
+    "DaemonForkSessionResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonForkSessionResultSchema"
+    },
+    "DaemonGenerateSemanticDiffRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonGenerateSemanticDiffRequestSchema"
+    },
+    "DaemonGenerateSemanticDiffResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonGenerateSemanticDiffResponseSchema"
+    },
+    "DaemonGenerateSemanticDiffResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonGenerateSemanticDiffResultSchema"
+    },
+    "DaemonGetAutomationHistoryRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonGetAutomationHistoryRequestSchema"
+    },
+    "DaemonGetAutomationHistoryResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonGetAutomationHistoryResponseSchema"
+    },
+    "DaemonGetAutomationHistoryResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonGetAutomationHistoryResultSchema"
+    },
+    "DaemonGetAutomationVisualRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonGetAutomationVisualRequestSchema"
+    },
+    "DaemonGetAutomationVisualResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonGetAutomationVisualResponseSchema"
+    },
+    "DaemonGetAutomationVisualResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonGetAutomationVisualResultSchema"
+    },
+    "DaemonGetContextBreakdownRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonGetContextBreakdownRequestSchema"
+    },
+    "DaemonGetDefaultSettingsRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonGetDefaultSettingsRequestSchema"
+    },
+    "DaemonGetDefaultSettingsResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonGetDefaultSettingsResponseSchema"
+    },
+    "DaemonGetDefaultSettingsResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonGetDefaultSettingsResultSchema"
+    },
+    "DaemonGetGitBranchDivergenceRequestParamsSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonGetGitBranchDivergenceRequestParamsSchema"
+    },
+    "DaemonGetGitBranchDivergenceRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonGetGitBranchDivergenceRequestSchema"
+    },
+    "DaemonGetGitBranchDivergenceResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonGetGitBranchDivergenceResponseSchema"
+    },
+    "DaemonGetGitBranchDivergenceResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonGetGitBranchDivergenceResultSchema"
+    },
+    "DaemonGetGitDiffDataSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonGetGitDiffDataSchema"
+    },
+    "DaemonGetGitDiffRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonGetGitDiffRequestSchema"
+    },
+    "DaemonGetGitDiffResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonGetGitDiffResponseSchema"
+    },
+    "DaemonGetGitDiffResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonGetGitDiffResultSchema"
+    },
+    "DaemonGetGitDiffSuccessResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonGetGitDiffSuccessResultSchema"
+    },
+    "DaemonGetGitDiffUnavailableResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonGetGitDiffUnavailableResultSchema"
+    },
+    "DaemonGetMcpConfigRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonGetMcpConfigRequestSchema"
+    },
+    "DaemonGetMcpConfigResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonGetMcpConfigResponseSchema"
+    },
+    "DaemonGetMcpConfigResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonGetMcpConfigResultSchema"
+    },
+    "DaemonGetProxyTokenRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonGetProxyTokenRequestSchema"
+    },
+    "DaemonGetProxyTokenResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonGetProxyTokenResponseSchema"
+    },
+    "DaemonGetProxyTokenResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonGetProxyTokenResultSchema"
+    },
+    "DaemonGetRewindInfoRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonGetRewindInfoRequestSchema"
+    },
+    "DaemonGetSemanticDiffCacheRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonGetSemanticDiffCacheRequestSchema"
+    },
+    "DaemonGetSemanticDiffCacheResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonGetSemanticDiffCacheResponseSchema"
+    },
+    "DaemonGetSemanticDiffCacheResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonGetSemanticDiffCacheResultSchema"
+    },
+    "DaemonGetSessionMessagesRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonGetSessionMessagesRequestSchema"
+    },
+    "DaemonGetSessionMessagesResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonGetSessionMessagesResponseSchema"
+    },
+    "DaemonGetSessionMessagesResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonGetSessionMessagesResultSchema"
+    },
+    "DaemonGetWorkspaceFileContentRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonGetWorkspaceFileContentRequestSchema"
+    },
+    "DaemonGetWorkspaceFileContentResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonGetWorkspaceFileContentResponseSchema"
+    },
+    "DaemonGetWorkspaceFileContentResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonGetWorkspaceFileContentResultSchema"
+    },
+    "DaemonGitCommitRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonGitCommitRequestSchema"
+    },
+    "DaemonGitPushRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonGitPushRequestSchema"
+    },
+    "DaemonHoldSessionCronsRequestParamsSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonHoldSessionCronsRequestParamsSchema"
+    },
+    "DaemonHoldSessionCronsRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonHoldSessionCronsRequestSchema"
+    },
+    "DaemonHoldSessionCronsResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonHoldSessionCronsResponseSchema"
+    },
+    "DaemonHoldSessionCronsResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonHoldSessionCronsResultSchema"
+    },
+    "DaemonInitializeSessionRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonInitializeSessionRequestSchema"
+    },
+    "DaemonInspectMissionReadinessRequestParamsSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonInspectMissionReadinessRequestParamsSchema"
+    },
+    "DaemonInspectMissionReadinessRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonInspectMissionReadinessRequestSchema"
+    },
+    "DaemonInspectMissionReadinessResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonInspectMissionReadinessResponseSchema"
+    },
+    "DaemonInspectMissionReadinessResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonInspectMissionReadinessResultSchema"
+    },
+    "DaemonInspectWorktreeDeletionRequestParamsSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonInspectWorktreeDeletionRequestParamsSchema"
+    },
+    "DaemonInspectWorktreeDeletionRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonInspectWorktreeDeletionRequestSchema"
+    },
+    "DaemonInspectWorktreeDeletionResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonInspectWorktreeDeletionResponseSchema"
+    },
+    "DaemonInspectWorktreeDeletionResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonInspectWorktreeDeletionResultSchema"
+    },
+    "DaemonInstallPluginRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonInstallPluginRequestSchema"
+    },
+    "DaemonInstallPluginResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonInstallPluginResponseSchema"
+    },
+    "DaemonInstallPluginResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonInstallPluginResultSchema"
+    },
+    "DaemonInstallSshKeyRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonInstallSshKeyRequestSchema"
+    },
+    "DaemonInstallSshKeyResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonInstallSshKeyResponseSchema"
+    },
+    "DaemonInstallSshKeyResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonInstallSshKeyResultSchema"
+    },
+    "DaemonInterruptSessionRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonInterruptSessionRequestSchema"
+    },
+    "DaemonKillWorkerSessionRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonKillWorkerSessionRequestSchema"
+    },
+    "DaemonListAutomationsRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListAutomationsRequestSchema"
+    },
+    "DaemonListAutomationsResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListAutomationsResponseSchema"
+    },
+    "DaemonListAutomationsResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListAutomationsResultSchema"
+    },
+    "DaemonListAvailablePluginsRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListAvailablePluginsRequestSchema"
+    },
+    "DaemonListAvailablePluginsResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListAvailablePluginsResponseSchema"
+    },
+    "DaemonListAvailablePluginsResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListAvailablePluginsResultSchema"
+    },
+    "DaemonListAvailableSessionsFilterSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListAvailableSessionsFilterSchema"
+    },
+    "DaemonListAvailableSessionsRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListAvailableSessionsRequestSchema"
+    },
+    "DaemonListAvailableSessionsResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListAvailableSessionsResponseSchema"
+    },
+    "DaemonListAvailableSessionsResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListAvailableSessionsResultSchema"
+    },
+    "DaemonListCommandsRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListCommandsRequestSchema"
+    },
+    "DaemonListCommandsResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListCommandsResponseSchema"
+    },
+    "DaemonListCommandsResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListCommandsResultSchema"
+    },
+    "DaemonListCronsRequestParamsSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListCronsRequestParamsSchema"
+    },
+    "DaemonListCronsRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListCronsRequestSchema"
+    },
+    "DaemonListCronsResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListCronsResponseSchema"
+    },
+    "DaemonListCronsResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListCronsResultSchema"
+    },
+    "DaemonListCustomModelsRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListCustomModelsRequestSchema"
+    },
+    "DaemonListCustomModelsResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListCustomModelsResponseSchema"
+    },
+    "DaemonListCustomModelsResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListCustomModelsResultSchema"
+    },
+    "DaemonListFilesRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListFilesRequestSchema"
+    },
+    "DaemonListFilesResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListFilesResponseSchema"
+    },
+    "DaemonListFilesResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListFilesResultSchema"
+    },
+    "DaemonListGitBranchesRequestParamsSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListGitBranchesRequestParamsSchema"
+    },
+    "DaemonListGitBranchesRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListGitBranchesRequestSchema"
+    },
+    "DaemonListGitBranchesResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListGitBranchesResponseSchema"
+    },
+    "DaemonListGitBranchesResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListGitBranchesResultSchema"
+    },
+    "DaemonListInstalledPluginsRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListInstalledPluginsRequestSchema"
+    },
+    "DaemonListInstalledPluginsResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListInstalledPluginsResponseSchema"
+    },
+    "DaemonListInstalledPluginsResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListInstalledPluginsResultSchema"
+    },
+    "DaemonListManagedWorktreesRequestParamsSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListManagedWorktreesRequestParamsSchema"
+    },
+    "DaemonListManagedWorktreesRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListManagedWorktreesRequestSchema"
+    },
+    "DaemonListManagedWorktreesResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListManagedWorktreesResponseSchema"
+    },
+    "DaemonListManagedWorktreesResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListManagedWorktreesResultSchema"
+    },
+    "DaemonListMarketplacesRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListMarketplacesRequestSchema"
+    },
+    "DaemonListMarketplacesResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListMarketplacesResponseSchema"
+    },
+    "DaemonListMarketplacesResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListMarketplacesResultSchema"
+    },
+    "DaemonListMcpRegistryRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListMcpRegistryRequestSchema"
+    },
+    "DaemonListMcpServersRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListMcpServersRequestSchema"
+    },
+    "DaemonListMcpToolsRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListMcpToolsRequestSchema"
+    },
+    "DaemonListModelsRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListModelsRequestSchema"
+    },
+    "DaemonListOpenedSessionsRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListOpenedSessionsRequestSchema"
+    },
+    "DaemonListOpenedSessionsResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListOpenedSessionsResponseSchema"
+    },
+    "DaemonListOpenedSessionsResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListOpenedSessionsResultSchema"
+    },
+    "DaemonListSkillsRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListSkillsRequestSchema"
+    },
+    "DaemonListSkillsResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListSkillsResponseSchema"
+    },
+    "DaemonListSkillsResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListSkillsResultSchema"
+    },
+    "DaemonListTerminalsRequestParamsSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListTerminalsRequestParamsSchema"
+    },
+    "DaemonListTerminalsRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListTerminalsRequestSchema"
+    },
+    "DaemonListWorktreeSetupProfilesRequestParamsSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListWorktreeSetupProfilesRequestParamsSchema"
+    },
+    "DaemonListWorktreeSetupProfilesRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListWorktreeSetupProfilesRequestSchema"
+    },
+    "DaemonListWorktreeSetupProfilesResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListWorktreeSetupProfilesResponseSchema"
+    },
+    "DaemonListWorktreeSetupProfilesResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonListWorktreeSetupProfilesResultSchema"
+    },
+    "DaemonLoadSessionRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonLoadSessionRequestSchema"
+    },
+    "DaemonLoadSessionSpawnOptionsSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonLoadSessionSpawnOptionsSchema"
+    },
+    "DaemonLogoutRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonLogoutRequestSchema"
+    },
+    "DaemonManagedWorktreeSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonManagedWorktreeSchema"
+    },
+    "DaemonManagedWorktreeSessionSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonManagedWorktreeSessionSchema"
+    },
+    "DaemonOptimisticMessageNotificationParamsSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonOptimisticMessageNotificationParamsSchema"
+    },
+    "DaemonOptimisticMessageNotificationSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonOptimisticMessageNotificationSchema"
+    },
+    "DaemonPauseAutomationRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonPauseAutomationRequestSchema"
+    },
+    "DaemonPauseAutomationResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonPauseAutomationResponseSchema"
+    },
+    "DaemonPauseAutomationResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonPauseAutomationResultSchema"
+    },
+    "DaemonPullRequestLookupSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonPullRequestLookupSchema"
+    },
+    "DaemonPullRequestStatusResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonPullRequestStatusResultSchema"
+    },
+    "DaemonPullRequestStatusSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonPullRequestStatusSchema"
+    },
+    "DaemonPullRequestSubjectSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonPullRequestSubjectSchema"
+    },
+    "DaemonPullUrlToCwdFileRequestParamsSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonPullUrlToCwdFileRequestParamsSchema"
+    },
+    "DaemonPullUrlToCwdFileRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonPullUrlToCwdFileRequestSchema"
+    },
+    "DaemonPullUrlToCwdFileResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonPullUrlToCwdFileResponseSchema"
+    },
+    "DaemonPullUrlToCwdFileResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonPullUrlToCwdFileResultSchema"
+    },
+    "DaemonPushCwdFileToUrlRequestParamsSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonPushCwdFileToUrlRequestParamsSchema"
+    },
+    "DaemonPushCwdFileToUrlRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonPushCwdFileToUrlRequestSchema"
+    },
+    "DaemonPushCwdFileToUrlResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonPushCwdFileToUrlResponseSchema"
+    },
+    "DaemonPushCwdFileToUrlResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonPushCwdFileToUrlResultSchema"
+    },
+    "DaemonRelayGetStatusRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonRelayGetStatusRequestSchema"
+    },
+    "DaemonRelayGetStatusResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonRelayGetStatusResponseSchema"
+    },
+    "DaemonRelayGetStatusResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonRelayGetStatusResultSchema"
+    },
+    "DaemonRelayStartRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonRelayStartRequestSchema"
+    },
+    "DaemonRelayStartResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonRelayStartResponseSchema"
+    },
+    "DaemonRelayStartResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonRelayStartResultSchema"
+    },
+    "DaemonRelayStatusChangedNotificationParamsSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonRelayStatusChangedNotificationParamsSchema"
+    },
+    "DaemonRelayStatusChangedNotificationSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonRelayStatusChangedNotificationSchema"
+    },
+    "DaemonRelayStopRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonRelayStopRequestSchema"
+    },
+    "DaemonRelayStopResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonRelayStopResponseSchema"
+    },
+    "DaemonRelayStopResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonRelayStopResultSchema"
+    },
+    "DaemonRemoveMarketplaceRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonRemoveMarketplaceRequestSchema"
+    },
+    "DaemonRemoveMcpServerRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonRemoveMcpServerRequestSchema"
+    },
+    "DaemonRenameAutomationRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonRenameAutomationRequestSchema"
+    },
+    "DaemonRenameSessionRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonRenameSessionRequestSchema"
+    },
+    "DaemonRenameSessionResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonRenameSessionResponseSchema"
+    },
+    "DaemonRequestPermissionResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonRequestPermissionResponseSchema"
+    },
+    "DaemonRequestPermissionResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonRequestPermissionResultSchema"
+    },
+    "DaemonRequestPermissionSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonRequestPermissionSchema"
+    },
+    "DaemonRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonRequestSchema"
+    },
+    "DaemonResizeRequestParamsSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonResizeRequestParamsSchema"
+    },
+    "DaemonResizeRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonResizeRequestSchema"
+    },
+    "DaemonResolvePullRequestStatusesRequestParamsSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonResolvePullRequestStatusesRequestParamsSchema"
+    },
+    "DaemonResolvePullRequestStatusesRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonResolvePullRequestStatusesRequestSchema"
+    },
+    "DaemonResolvePullRequestStatusesResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonResolvePullRequestStatusesResponseSchema"
+    },
+    "DaemonResolvePullRequestStatusesResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonResolvePullRequestStatusesResultSchema"
+    },
+    "DaemonResolveQueuedUserMessageRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonResolveQueuedUserMessageRequestSchema"
+    },
+    "DaemonResolveQueuedUserMessageResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonResolveQueuedUserMessageResponseSchema"
+    },
+    "DaemonResumeAutomationRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonResumeAutomationRequestSchema"
+    },
+    "DaemonResumeAutomationResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonResumeAutomationResponseSchema"
+    },
+    "DaemonResumeAutomationResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonResumeAutomationResultSchema"
+    },
+    "DaemonResumeSessionCronsRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonResumeSessionCronsRequestSchema"
+    },
+    "DaemonResumeSessionCronsResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonResumeSessionCronsResponseSchema"
+    },
+    "DaemonResumeSessionCronsResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonResumeSessionCronsResultSchema"
+    },
+    "DaemonRunAutomationRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonRunAutomationRequestSchema"
+    },
+    "DaemonRunAutomationResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonRunAutomationResponseSchema"
+    },
+    "DaemonRunAutomationResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonRunAutomationResultSchema"
+    },
+    "DaemonSaveSemanticDiffCacheRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSaveSemanticDiffCacheRequestSchema"
+    },
+    "DaemonSaveWorktreeSetupProfileRequestParamsSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSaveWorktreeSetupProfileRequestParamsSchema"
+    },
+    "DaemonSaveWorktreeSetupProfileRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSaveWorktreeSetupProfileRequestSchema"
+    },
+    "DaemonSaveWorktreeSetupProfileResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSaveWorktreeSetupProfileResponseSchema"
+    },
+    "DaemonSaveWorktreeSetupProfileResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSaveWorktreeSetupProfileResultSchema"
+    },
+    "DaemonSearchFilesRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSearchFilesRequestSchema"
+    },
+    "DaemonSearchFilesResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSearchFilesResponseSchema"
+    },
+    "DaemonSearchFilesResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSearchFilesResultSchema"
+    },
+    "DaemonSearchSessionsRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSearchSessionsRequestSchema"
+    },
+    "DaemonSearchSessionsResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSearchSessionsResponseSchema"
+    },
+    "DaemonSearchSessionsResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSearchSessionsResultSchema"
+    },
+    "DaemonSessionArchiveStateChangedNotificationParamsSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSessionArchiveStateChangedNotificationParamsSchema"
+    },
+    "DaemonSessionArchiveStateChangedNotificationSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSessionArchiveStateChangedNotificationSchema"
+    },
+    "DaemonSessionDefaultsManagementMapSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSessionDefaultsManagementMapSchema"
+    },
+    "DaemonSessionListFilterSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSessionListFilterSchema"
+    },
+    "DaemonSessionNotificationParamsSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSessionNotificationParamsSchema"
+    },
+    "DaemonSessionNotificationSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSessionNotificationSchema"
+    },
+    "DaemonSetPluginEnabledRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSetPluginEnabledRequestSchema"
+    },
+    "DaemonSetSkillDisabledRequestParamsSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSetSkillDisabledRequestParamsSchema"
+    },
+    "DaemonSetSkillDisabledRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSetSkillDisabledRequestSchema"
+    },
+    "DaemonSettingsManagementInfoSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSettingsManagementInfoSchema"
+    },
+    "DaemonSetupStepProgressNotificationParamsSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSetupStepProgressNotificationParamsSchema"
+    },
+    "DaemonSetupStepProgressNotificationSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSetupStepProgressNotificationSchema"
+    },
+    "DaemonSfCreateWorkstreamRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSfCreateWorkstreamRequestSchema"
+    },
+    "DaemonSfCreateWorkstreamResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSfCreateWorkstreamResponseSchema"
+    },
+    "DaemonSfCreateWorkstreamResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSfCreateWorkstreamResultSchema"
+    },
+    "DaemonSfDeleteWorkstreamRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSfDeleteWorkstreamRequestSchema"
+    },
+    "DaemonSfDeleteWorkstreamResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSfDeleteWorkstreamResponseSchema"
+    },
+    "DaemonSfDeleteWorkstreamResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSfDeleteWorkstreamResultSchema"
+    },
+    "DaemonSfGetWorkstreamRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSfGetWorkstreamRequestSchema"
+    },
+    "DaemonSfGetWorkstreamResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSfGetWorkstreamResponseSchema"
+    },
+    "DaemonSfGetWorkstreamResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSfGetWorkstreamResultSchema"
+    },
+    "DaemonSfHydrateWorkstreamContentRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSfHydrateWorkstreamContentRequestSchema"
+    },
+    "DaemonSfHydrateWorkstreamContentResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSfHydrateWorkstreamContentResponseSchema"
+    },
+    "DaemonSfHydrateWorkstreamContentResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSfHydrateWorkstreamContentResultSchema"
+    },
+    "DaemonSfListActivitiesRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSfListActivitiesRequestSchema"
+    },
+    "DaemonSfListActivitiesResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSfListActivitiesResponseSchema"
+    },
+    "DaemonSfListActivitiesResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSfListActivitiesResultSchema"
+    },
+    "DaemonSfListChangesRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSfListChangesRequestSchema"
+    },
+    "DaemonSfListChangesResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSfListChangesResponseSchema"
+    },
+    "DaemonSfListChangesResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSfListChangesResultSchema"
+    },
+    "DaemonSfListEventsRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSfListEventsRequestSchema"
+    },
+    "DaemonSfListEventsResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSfListEventsResponseSchema"
+    },
+    "DaemonSfListEventsResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSfListEventsResultSchema"
+    },
+    "DaemonSfListSignalsRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSfListSignalsRequestSchema"
+    },
+    "DaemonSfListSignalsResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSfListSignalsResponseSchema"
+    },
+    "DaemonSfListSignalsResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSfListSignalsResultSchema"
+    },
+    "DaemonSfListWorkstreamsRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSfListWorkstreamsRequestSchema"
+    },
+    "DaemonSfListWorkstreamsResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSfListWorkstreamsResponseSchema"
+    },
+    "DaemonSfListWorkstreamsResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSfListWorkstreamsResultSchema"
+    },
+    "DaemonSfMarkEventsReadRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSfMarkEventsReadRequestSchema"
+    },
+    "DaemonSfMarkEventsReadResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSfMarkEventsReadResponseSchema"
+    },
+    "DaemonSfMarkEventsReadResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSfMarkEventsReadResultSchema"
+    },
+    "DaemonSfMarkEventsUnreadRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSfMarkEventsUnreadRequestSchema"
+    },
+    "DaemonSfMarkEventsUnreadResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSfMarkEventsUnreadResponseSchema"
+    },
+    "DaemonSfMarkEventsUnreadResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSfMarkEventsUnreadResultSchema"
+    },
+    "DaemonSfPublishWorkstreamContentRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSfPublishWorkstreamContentRequestSchema"
+    },
+    "DaemonSfPublishWorkstreamContentResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSfPublishWorkstreamContentResponseSchema"
+    },
+    "DaemonSfPublishWorkstreamContentResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSfPublishWorkstreamContentResultSchema"
+    },
+    "DaemonSfResolveActivityReviewRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSfResolveActivityReviewRequestSchema"
+    },
+    "DaemonSfResolveActivityReviewResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSfResolveActivityReviewResponseSchema"
+    },
+    "DaemonSfResolveActivityReviewResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSfResolveActivityReviewResultSchema"
+    },
+    "DaemonSfUpdateWorkstreamRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSfUpdateWorkstreamRequestSchema"
+    },
+    "DaemonSubmitBugReportRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSubmitBugReportRequestSchema"
+    },
+    "DaemonSubmitBugReportResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSubmitBugReportResponseSchema"
+    },
+    "DaemonSubmitBugReportResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSubmitBugReportResultSchema"
+    },
+    "DaemonSubmitMcpAuthCodeRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSubmitMcpAuthCodeRequestSchema"
+    },
+    "DaemonSubmitMcpAuthErrorRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonSubmitMcpAuthErrorRequestSchema"
+    },
+    "DaemonToggleMcpServerRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonToggleMcpServerRequestSchema"
+    },
+    "DaemonToggleMcpToolRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonToggleMcpToolRequestSchema"
+    },
+    "DaemonTriggerUpdateRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonTriggerUpdateRequestSchema"
+    },
+    "DaemonTriggerUpdateResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonTriggerUpdateResponseSchema"
+    },
+    "DaemonTriggerUpdateResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonTriggerUpdateResultSchema"
+    },
+    "DaemonTrustFolderRequestParamsSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonTrustFolderRequestParamsSchema"
+    },
+    "DaemonTrustFolderRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonTrustFolderRequestSchema"
+    },
+    "DaemonTrustFolderResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonTrustFolderResponseSchema"
+    },
+    "DaemonTrustFolderResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonTrustFolderResultSchema"
+    },
+    "DaemonUnarchiveSessionRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonUnarchiveSessionRequestSchema"
+    },
+    "DaemonUninstallPluginRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonUninstallPluginRequestSchema"
+    },
+    "DaemonUpdateAutomationModelRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonUpdateAutomationModelRequestSchema"
+    },
+    "DaemonUpdateAutomationPrivacyRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonUpdateAutomationPrivacyRequestSchema"
+    },
+    "DaemonUpdateAutomationPromptRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonUpdateAutomationPromptRequestSchema"
+    },
+    "DaemonUpdateAutomationRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonUpdateAutomationRequestSchema"
+    },
+    "DaemonUpdateAutomationScheduleRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonUpdateAutomationScheduleRequestSchema"
+    },
+    "DaemonUpdateCronRequestParamsSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonUpdateCronRequestParamsSchema"
+    },
+    "DaemonUpdateCronRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonUpdateCronRequestSchema"
+    },
+    "DaemonUpdateCronResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonUpdateCronResponseSchema"
+    },
+    "DaemonUpdateCronResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonUpdateCronResultSchema"
+    },
+    "DaemonUpdateMarketplaceRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonUpdateMarketplaceRequestSchema"
+    },
+    "DaemonUpdateMarketplaceResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonUpdateMarketplaceResponseSchema"
+    },
+    "DaemonUpdateMarketplaceResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonUpdateMarketplaceResultSchema"
+    },
+    "DaemonUpdateMcpConfigRequestParamsSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonUpdateMcpConfigRequestParamsSchema"
+    },
+    "DaemonUpdateMcpConfigRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonUpdateMcpConfigRequestSchema"
+    },
+    "DaemonUpdateMcpConfigResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonUpdateMcpConfigResponseSchema"
+    },
+    "DaemonUpdateMcpConfigResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonUpdateMcpConfigResultSchema"
+    },
+    "DaemonUpdatePluginRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonUpdatePluginRequestSchema"
+    },
+    "DaemonUpdatePluginResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonUpdatePluginResponseSchema"
+    },
+    "DaemonUpdatePluginResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonUpdatePluginResultSchema"
+    },
+    "DaemonUpdateSessionDefaultsRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonUpdateSessionDefaultsRequestSchema"
+    },
+    "DaemonUpdateSessionDefaultsResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonUpdateSessionDefaultsResponseSchema"
+    },
+    "DaemonUpdateSessionDefaultsResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonUpdateSessionDefaultsResultSchema"
+    },
+    "DaemonUpdateSessionSettingsRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonUpdateSessionSettingsRequestSchema"
+    },
+    "DaemonUpdateSessionSettingsResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonUpdateSessionSettingsResponseSchema"
+    },
+    "DaemonUpsertCustomModelRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonUpsertCustomModelRequestSchema"
+    },
+    "DaemonUpsertCustomModelResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonUpsertCustomModelResultSchema"
+    },
+    "DaemonValidateWorkingDirectoryRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonValidateWorkingDirectoryRequestSchema"
+    },
+    "DaemonValidateWorkingDirectoryResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonValidateWorkingDirectoryResponseSchema"
+    },
+    "DaemonWarmupCacheRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonWarmupCacheRequestSchema"
+    },
+    "DaemonWorktreeBranchChangedNotificationParamsSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonWorktreeBranchChangedNotificationParamsSchema"
+    },
+    "DaemonWorktreeBranchChangedNotificationSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonWorktreeBranchChangedNotificationSchema"
+    },
+    "DaemonWorktreeBranchPullRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonWorktreeBranchPullRequestSchema"
+    },
+    "DaemonWorktreePreservedReasonSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonWorktreePreservedReasonSchema"
+    },
+    "DaemonWorktreeRemovedNotificationParamsSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonWorktreeRemovedNotificationParamsSchema"
+    },
+    "DaemonWorktreeRemovedNotificationSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonWorktreeRemovedNotificationSchema"
+    },
+    "DaemonWriteDataRequestParamsSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonWriteDataRequestParamsSchema"
+    },
+    "DaemonWriteDataRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonWriteDataRequestSchema"
+    },
+    "DaemonWriteWorkspaceFileContentRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonWriteWorkspaceFileContentRequestSchema"
+    },
+    "DaemonWriteWorkspaceFileContentResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonWriteWorkspaceFileContentResponseSchema"
+    },
+    "DaemonWriteWorkspaceFileContentResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/DaemonWriteWorkspaceFileContentResultSchema"
+    },
+    "DecompSessionTypeSchema": {
+      "$ref": "droid.schema.json#/definitions/DecompSessionTypeSchema"
+    },
+    "DiffLineSchema": {
+      "$ref": "shared.schema.json#/definitions/DiffLineSchema"
+    },
+    "DiscoveredIssueSchema": {
+      "$ref": "droid.schema.json#/definitions/DiscoveredIssueSchema"
+    },
+    "DismissalRecordSchema": {
+      "$ref": "droid.schema.json#/definitions/DismissalRecordSchema"
+    },
+    "DocumentBlockSchema": {
+      "$ref": "shared.schema.json#/definitions/DocumentBlockSchema"
+    },
+    "DocumentSourceSchema": {
+      "$ref": "shared.schema.json#/definitions/DocumentSourceSchema"
+    },
+    "droid.McpServerConfigSchema": {
+      "$ref": "droid.schema.json#/definitions/droid.McpServerConfigSchema"
+    },
+    "DroidHookEventSchema": {
+      "$ref": "droid.schema.json#/definitions/DroidHookEventSchema"
+    },
+    "DroidInteractionModeSchema": {
+      "$ref": "shared.schema.json#/definitions/DroidInteractionModeSchema"
+    },
+    "DroidWorkingStateChangedNotificationSchema": {
+      "$ref": "droid.schema.json#/definitions/DroidWorkingStateChangedNotificationSchema"
+    },
+    "DroidWorkingStateSchema": {
+      "$ref": "droid.schema.json#/definitions/DroidWorkingStateSchema"
+    },
+    "EditableSkillSettingsLevelSchema": {
+      "$ref": "droid.schema.json#/definitions/EditableSkillSettingsLevelSchema"
+    },
+    "EditToolInputSchema": {
+      "$ref": "shared.schema.json#/definitions/EditToolInputSchema"
+    },
+    "EmptyObjectResponseSchema": {
+      "$ref": "shared.schema.json#/definitions/EmptyObjectResponseSchema"
+    },
+    "EmptyObjectSchema": {
+      "$ref": "shared.schema.json#/definitions/EmptyObjectSchema"
+    },
+    "ErrorNotificationSchema": {
+      "$ref": "droid.schema.json#/definitions/ErrorNotificationSchema"
+    },
+    "ExecToolInfoSchema": {
+      "$ref": "droid.schema.json#/definitions/ExecToolInfoSchema"
+    },
+    "ExecuteRewindRequestParamsSchema": {
+      "$ref": "droid.schema.json#/definitions/ExecuteRewindRequestParamsSchema"
+    },
+    "ExecuteRewindRequestSchema": {
+      "$ref": "droid.schema.json#/definitions/ExecuteRewindRequestSchema"
+    },
+    "ExecuteRewindResponseSchema": {
+      "$ref": "droid.schema.json#/definitions/ExecuteRewindResponseSchema"
+    },
+    "ExecuteRewindResultSchema": {
+      "$ref": "droid.schema.json#/definitions/ExecuteRewindResultSchema"
+    },
+    "ExecuteToolInputSchema": {
+      "$ref": "shared.schema.json#/definitions/ExecuteToolInputSchema"
+    },
+    "ExitSpecModeToolInputSchema": {
+      "$ref": "shared.schema.json#/definitions/ExitSpecModeToolInputSchema"
+    },
+    "FactoryDroidMessageSchema": {
+      "$ref": "shared.schema.json#/definitions/FactoryDroidMessageSchema"
+    },
+    "FactoryDroidMessageWithCachingSchema": {
+      "$ref": "shared.schema.json#/definitions/FactoryDroidMessageWithCachingSchema"
+    },
+    "FeatureSuccessStateSchema": {
+      "$ref": "droid.schema.json#/definitions/FeatureSuccessStateSchema"
+    },
+    "FetchUrlToolInputSchema": {
+      "$ref": "shared.schema.json#/definitions/FetchUrlToolInputSchema"
+    },
+    "FileEditToolProfileSchema": {
+      "$ref": "shared.schema.json#/definitions/FileEditToolProfileSchema"
+    },
+    "FileOperationResultSchema": {
+      "$ref": "shared.schema.json#/definitions/FileOperationResultSchema"
+    },
+    "ForkSessionRequestParamsSchema": {
+      "$ref": "droid.schema.json#/definitions/ForkSessionRequestParamsSchema"
+    },
+    "ForkSessionRequestSchema": {
+      "$ref": "droid.schema.json#/definitions/ForkSessionRequestSchema"
+    },
+    "ForkSessionResponseSchema": {
+      "$ref": "droid.schema.json#/definitions/ForkSessionResponseSchema"
+    },
+    "ForkSessionResultSchema": {
+      "$ref": "droid.schema.json#/definitions/ForkSessionResultSchema"
+    },
+    "GetContextBreakdownRequestSchema": {
+      "$ref": "droid.schema.json#/definitions/GetContextBreakdownRequestSchema"
+    },
+    "GetContextBreakdownResponseSchema": {
+      "$ref": "droid.schema.json#/definitions/GetContextBreakdownResponseSchema"
+    },
+    "GetContextBreakdownResultSchema": {
+      "$ref": "droid.schema.json#/definitions/GetContextBreakdownResultSchema"
+    },
+    "GetContextStatsRequestSchema": {
+      "$ref": "droid.schema.json#/definitions/GetContextStatsRequestSchema"
+    },
+    "GetContextStatsResponseSchema": {
+      "$ref": "droid.schema.json#/definitions/GetContextStatsResponseSchema"
+    },
+    "GetRewindInfoRequestParamsSchema": {
+      "$ref": "droid.schema.json#/definitions/GetRewindInfoRequestParamsSchema"
+    },
+    "GetRewindInfoRequestSchema": {
+      "$ref": "droid.schema.json#/definitions/GetRewindInfoRequestSchema"
+    },
+    "GetRewindInfoResponseSchema": {
+      "$ref": "droid.schema.json#/definitions/GetRewindInfoResponseSchema"
+    },
+    "GetRewindInfoResultSchema": {
+      "$ref": "droid.schema.json#/definitions/GetRewindInfoResultSchema"
+    },
+    "GetUserInfoResultSchema": {
+      "$ref": "droid.schema.json#/definitions/GetUserInfoResultSchema"
+    },
+    "GitRepoInfoSchema": {
+      "$ref": "droid.schema.json#/definitions/GitRepoInfoSchema"
+    },
+    "GlobToolInputSchema": {
+      "$ref": "shared.schema.json#/definitions/GlobToolInputSchema"
+    },
+    "GrepToolInputSchema": {
+      "$ref": "shared.schema.json#/definitions/GrepToolInputSchema"
+    },
+    "HandoffItemsDismissedEntrySchema": {
+      "$ref": "droid.schema.json#/definitions/HandoffItemsDismissedEntrySchema"
+    },
+    "HandoffSchema": {
+      "$ref": "droid.schema.json#/definitions/HandoffSchema"
+    },
+    "HookCommandSchema": {
+      "$ref": "droid.schema.json#/definitions/HookCommandSchema"
+    },
+    "HookExecutionCompletedNotificationSchema": {
+      "$ref": "droid.schema.json#/definitions/HookExecutionCompletedNotificationSchema"
+    },
+    "HookExecutionStartedNotificationSchema": {
+      "$ref": "droid.schema.json#/definitions/HookExecutionStartedNotificationSchema"
+    },
+    "HookResultSchema": {
+      "$ref": "droid.schema.json#/definitions/HookResultSchema"
+    },
+    "HostConfigSchema": {
+      "$ref": "shared.schema.json#/definitions/HostConfigSchema"
+    },
+    "HostIdSchema": {
+      "$ref": "shared.schema.json#/definitions/HostIdSchema"
+    },
+    "HttpHeaderSchema": {
+      "$ref": "droid.schema.json#/definitions/HttpHeaderSchema"
+    },
+    "HttpMcpSchema": {
+      "$ref": "droid.schema.json#/definitions/HttpMcpSchema"
+    },
+    "ImageBlockSchema": {
+      "$ref": "shared.schema.json#/definitions/ImageBlockSchema"
+    },
+    "InitializeSessionRequestParamsSchema": {
+      "$ref": "droid.schema.json#/definitions/InitializeSessionRequestParamsSchema"
+    },
+    "InitializeSessionRequestSchema": {
+      "$ref": "droid.schema.json#/definitions/InitializeSessionRequestSchema"
+    },
+    "InitializeSessionResponseSchema": {
+      "$ref": "droid.schema.json#/definitions/InitializeSessionResponseSchema"
+    },
+    "InitializeSessionResultSchema": {
+      "$ref": "droid.schema.json#/definitions/InitializeSessionResultSchema"
+    },
+    "InteractiveCheckSchema": {
+      "$ref": "droid.schema.json#/definitions/InteractiveCheckSchema"
+    },
+    "InterruptSessionRequestSchema": {
+      "$ref": "droid.schema.json#/definitions/InterruptSessionRequestSchema"
+    },
+    "JsonRpcBaseNotificationSchema": {
+      "$ref": "shared.schema.json#/definitions/JsonRpcBaseNotificationSchema"
+    },
+    "JsonRpcBaseRequestSchema": {
+      "$ref": "shared.schema.json#/definitions/JsonRpcBaseRequestSchema"
+    },
+    "JsonRpcBaseResponseFailureSchema": {
+      "$ref": "shared.schema.json#/definitions/JsonRpcBaseResponseFailureSchema"
+    },
+    "JsonRpcBaseResponseSchema": {
+      "$ref": "shared.schema.json#/definitions/JsonRpcBaseResponseSchema"
+    },
+    "JsonRpcBaseResponseSuccessSchema": {
+      "$ref": "shared.schema.json#/definitions/JsonRpcBaseResponseSuccessSchema"
+    },
+    "JsonRpcEnvelopeSchema": {
+      "$ref": "shared.schema.json#/definitions/JsonRpcEnvelopeSchema"
+    },
+    "JsonRpcErrorSchema": {
+      "$ref": "shared.schema.json#/definitions/JsonRpcErrorSchema"
+    },
+    "JsonRpcMessageSchema": {
+      "$ref": "shared.schema.json#/definitions/JsonRpcMessageSchema"
+    },
+    "JsonRpcProtocolVersionMismatchErrorDataSchema": {
+      "$ref": "shared.schema.json#/definitions/JsonRpcProtocolVersionMismatchErrorDataSchema"
+    },
+    "KillWorkerSessionRequestParamsSchema": {
+      "$ref": "droid.schema.json#/definitions/KillWorkerSessionRequestParamsSchema"
+    },
+    "KillWorkerSessionRequestSchema": {
+      "$ref": "droid.schema.json#/definitions/KillWorkerSessionRequestSchema"
+    },
+    "LegacyComputerConfigSchema": {
+      "$ref": "shared.schema.json#/definitions/LegacyComputerConfigSchema"
+    },
+    "ListCommandsRequestSchema": {
+      "$ref": "droid.schema.json#/definitions/ListCommandsRequestSchema"
+    },
+    "ListCommandsResponseSchema": {
+      "$ref": "droid.schema.json#/definitions/ListCommandsResponseSchema"
+    },
+    "ListMcpRegistryRequestSchema": {
+      "$ref": "droid.schema.json#/definitions/ListMcpRegistryRequestSchema"
+    },
+    "ListMcpRegistryResponseSchema": {
+      "$ref": "droid.schema.json#/definitions/ListMcpRegistryResponseSchema"
+    },
+    "ListMcpRegistryResultSchema": {
+      "$ref": "droid.schema.json#/definitions/ListMcpRegistryResultSchema"
+    },
+    "ListMcpServersRequestSchema": {
+      "$ref": "droid.schema.json#/definitions/ListMcpServersRequestSchema"
+    },
+    "ListMcpServersResponseSchema": {
+      "$ref": "droid.schema.json#/definitions/ListMcpServersResponseSchema"
+    },
+    "ListMcpServersResultSchema": {
+      "$ref": "droid.schema.json#/definitions/ListMcpServersResultSchema"
+    },
+    "ListMcpToolsRequestSchema": {
+      "$ref": "droid.schema.json#/definitions/ListMcpToolsRequestSchema"
+    },
+    "ListMcpToolsResponseSchema": {
+      "$ref": "droid.schema.json#/definitions/ListMcpToolsResponseSchema"
+    },
+    "ListMcpToolsResultSchema": {
+      "$ref": "droid.schema.json#/definitions/ListMcpToolsResultSchema"
+    },
+    "ListModelsOptionsSchema": {
+      "$ref": "shared.schema.json#/definitions/ListModelsOptionsSchema"
+    },
+    "ListModelsRequestSchema": {
+      "$ref": "droid.schema.json#/definitions/ListModelsRequestSchema"
+    },
+    "ListModelsResponseSchema": {
+      "$ref": "droid.schema.json#/definitions/ListModelsResponseSchema"
+    },
+    "ListModelsResultSchema": {
+      "$ref": "shared.schema.json#/definitions/ListModelsResultSchema"
+    },
+    "ListSkillsRequestSchema": {
+      "$ref": "droid.schema.json#/definitions/ListSkillsRequestSchema"
+    },
+    "ListSkillsResponseSchema": {
+      "$ref": "droid.schema.json#/definitions/ListSkillsResponseSchema"
+    },
+    "ListSkillsResultSchema": {
+      "$ref": "droid.schema.json#/definitions/ListSkillsResultSchema"
+    },
+    "ListTerminalsRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/ListTerminalsRequestSchema"
+    },
+    "ListTerminalsResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/ListTerminalsResponseSchema"
+    },
+    "ListTerminalsResultSchema": {
+      "$ref": "daemon.schema.json#/definitions/ListTerminalsResultSchema"
+    },
+    "ListToolsRequestParamsSchema": {
+      "$ref": "droid.schema.json#/definitions/ListToolsRequestParamsSchema"
+    },
+    "ListToolsRequestSchema": {
+      "$ref": "droid.schema.json#/definitions/ListToolsRequestSchema"
+    },
+    "ListToolsResponseSchema": {
+      "$ref": "droid.schema.json#/definitions/ListToolsResponseSchema"
+    },
+    "ListToolsResultSchema": {
+      "$ref": "droid.schema.json#/definitions/ListToolsResultSchema"
+    },
+    "LlmRetryNotificationSchema": {
+      "$ref": "droid.schema.json#/definitions/LlmRetryNotificationSchema"
+    },
+    "LoadSessionRequestParamsSchema": {
+      "$ref": "droid.schema.json#/definitions/LoadSessionRequestParamsSchema"
+    },
+    "LoadSessionRequestSchema": {
+      "$ref": "droid.schema.json#/definitions/LoadSessionRequestSchema"
+    },
+    "LoadSessionResponseSchema": {
+      "$ref": "droid.schema.json#/definitions/LoadSessionResponseSchema"
+    },
+    "LoadSessionResultSchema": {
+      "$ref": "droid.schema.json#/definitions/LoadSessionResultSchema"
+    },
+    "LoopStateChangedNotificationSchema": {
+      "$ref": "droid.schema.json#/definitions/LoopStateChangedNotificationSchema"
+    },
+    "LoopStateSchema": {
+      "$ref": "droid.schema.json#/definitions/LoopStateSchema"
+    },
+    "LoopToolInputSchema": {
+      "$ref": "droid.schema.json#/definitions/LoopToolInputSchema"
+    },
+    "LSToolInputSchema": {
+      "$ref": "shared.schema.json#/definitions/LSToolInputSchema"
+    },
+    "ManagedCustomModelSchema": {
+      "$ref": "shared.schema.json#/definitions/ManagedCustomModelSchema"
+    },
+    "McpAuthCompletedNotificationSchema": {
+      "$ref": "droid.schema.json#/definitions/McpAuthCompletedNotificationSchema"
+    },
+    "McpAuthRequiredNotificationSchema": {
+      "$ref": "droid.schema.json#/definitions/McpAuthRequiredNotificationSchema"
+    },
+    "McpHttpServerConfigFieldsSchema": {
+      "$ref": "droid.schema.json#/definitions/McpHttpServerConfigFieldsSchema"
+    },
+    "McpOAuthConfigSchema": {
+      "$ref": "shared.schema.json#/definitions/McpOAuthConfigSchema"
+    },
+    "McpOAuthOptionsSchema": {
+      "$ref": "shared.schema.json#/definitions/McpOAuthOptionsSchema"
+    },
+    "McpRegistryServerSchema": {
+      "$ref": "droid.schema.json#/definitions/McpRegistryServerSchema"
+    },
+    "McpServerInfoSchema": {
+      "$ref": "daemon.schema.json#/definitions/McpServerInfoSchema"
+    },
+    "McpServerNameParamsSchema": {
+      "$ref": "droid.schema.json#/definitions/McpServerNameParamsSchema"
+    },
+    "McpServerNameSchema": {
+      "$ref": "droid.schema.json#/definitions/McpServerNameSchema"
+    },
+    "McpServersSchema": {
+      "$ref": "droid.schema.json#/definitions/McpServersSchema"
+    },
+    "McpServerStatusInfoSchema": {
+      "$ref": "droid.schema.json#/definitions/McpServerStatusInfoSchema"
+    },
+    "McpServerStatusSchema": {
+      "$ref": "droid.schema.json#/definitions/McpServerStatusSchema"
+    },
+    "McpServerTypeSchema": {
+      "$ref": "droid.schema.json#/definitions/McpServerTypeSchema"
+    },
+    "McpSettingsLevelSchema": {
+      "$ref": "droid.schema.json#/definitions/McpSettingsLevelSchema"
+    },
+    "McpStatusChangedNotificationSchema": {
+      "$ref": "droid.schema.json#/definitions/McpStatusChangedNotificationSchema"
+    },
+    "McpStatusSummarySchema": {
+      "$ref": "droid.schema.json#/definitions/McpStatusSummarySchema"
+    },
+    "McpStdioServerConfigFieldsSchema": {
+      "$ref": "droid.schema.json#/definitions/McpStdioServerConfigFieldsSchema"
+    },
+    "McpStdioServerConfigSchema": {
+      "$ref": "daemon.schema.json#/definitions/McpStdioServerConfigSchema"
+    },
+    "McpToolInfoSchema": {
+      "$ref": "droid.schema.json#/definitions/McpToolInfoSchema"
+    },
+    "MessageRoleSchema": {
+      "$ref": "shared.schema.json#/definitions/MessageRoleSchema"
+    },
+    "MessageVisibilitySchema": {
+      "$ref": "shared.schema.json#/definitions/MessageVisibilitySchema"
+    },
+    "MilestoneValidationTriggeredEntrySchema": {
+      "$ref": "droid.schema.json#/definitions/MilestoneValidationTriggeredEntrySchema"
+    },
+    "MissionAcceptedEntrySchema": {
+      "$ref": "droid.schema.json#/definitions/MissionAcceptedEntrySchema"
+    },
+    "MissionFeaturesChangedNotificationSchema": {
+      "$ref": "droid.schema.json#/definitions/MissionFeaturesChangedNotificationSchema"
+    },
+    "MissionFeatureSchema": {
+      "$ref": "droid.schema.json#/definitions/MissionFeatureSchema"
+    },
+    "MissionHeartbeatNotificationSchema": {
+      "$ref": "droid.schema.json#/definitions/MissionHeartbeatNotificationSchema"
+    },
+    "MissionModelSettingsSchema": {
+      "$ref": "shared.schema.json#/definitions/MissionModelSettingsSchema"
+    },
+    "MissionPausedEntrySchema": {
+      "$ref": "droid.schema.json#/definitions/MissionPausedEntrySchema"
+    },
+    "MissionProgressEntryNotificationSchema": {
+      "$ref": "droid.schema.json#/definitions/MissionProgressEntryNotificationSchema"
+    },
+    "MissionResumedEntrySchema": {
+      "$ref": "droid.schema.json#/definitions/MissionResumedEntrySchema"
+    },
+    "MissionRunStartedEntrySchema": {
+      "$ref": "droid.schema.json#/definitions/MissionRunStartedEntrySchema"
+    },
+    "MissionStateChangedNotificationSchema": {
+      "$ref": "droid.schema.json#/definitions/MissionStateChangedNotificationSchema"
+    },
+    "MissionStateEnumSchema": {
+      "$ref": "droid.schema.json#/definitions/MissionStateEnumSchema"
+    },
+    "MissionStateSchema": {
+      "$ref": "droid.schema.json#/definitions/MissionStateSchema"
+    },
+    "MissionWorkerCompletedNotificationSchema": {
+      "$ref": "droid.schema.json#/definitions/MissionWorkerCompletedNotificationSchema"
+    },
+    "MissionWorkerStartedNotificationSchema": {
+      "$ref": "droid.schema.json#/definitions/MissionWorkerStartedNotificationSchema"
+    },
+    "ModelFallbackReasonSchema": {
+      "$ref": "shared.schema.json#/definitions/ModelFallbackReasonSchema"
+    },
+    "ModelFallbackSchema": {
+      "$ref": "shared.schema.json#/definitions/ModelFallbackSchema"
+    },
+    "ModelInfoSchema": {
+      "$ref": "shared.schema.json#/definitions/ModelInfoSchema"
+    },
+    "ModelMetadataSchema": {
+      "$ref": "shared.schema.json#/definitions/ModelMetadataSchema"
+    },
+    "ModelProviderSchema": {
+      "$ref": "shared.schema.json#/definitions/ModelProviderSchema"
+    },
+    "NewSessionPromptPayloadSchema": {
+      "$ref": "daemon.schema.json#/definitions/NewSessionPromptPayloadSchema"
+    },
+    "OutputFormatSchema": {
+      "$ref": "droid.schema.json#/definitions/OutputFormatSchema"
+    },
+    "PermissionResolvedNotificationSchema": {
+      "$ref": "droid.schema.json#/definitions/PermissionResolvedNotificationSchema"
+    },
+    "PlainTextSourceSchema": {
+      "$ref": "shared.schema.json#/definitions/PlainTextSourceSchema"
+    },
+    "ProgressLogEntrySchema": {
+      "$ref": "droid.schema.json#/definitions/ProgressLogEntrySchema"
+    },
+    "ProposeMissionToolInputSchema": {
+      "$ref": "shared.schema.json#/definitions/ProposeMissionToolInputSchema"
+    },
+    "QueuedMessagesDiscardedNotificationSchema": {
+      "$ref": "droid.schema.json#/definitions/QueuedMessagesDiscardedNotificationSchema"
+    },
+    "QueuePlacementSchema": {
+      "$ref": "droid.schema.json#/definitions/QueuePlacementSchema"
+    },
+    "ReadToolInputSchema": {
+      "$ref": "shared.schema.json#/definitions/ReadToolInputSchema"
+    },
+    "ReasoningEffortSchema": {
+      "$ref": "shared.schema.json#/definitions/ReasoningEffortSchema"
+    },
+    "RedactedThinkingBlockSchema": {
+      "$ref": "shared.schema.json#/definitions/RedactedThinkingBlockSchema"
+    },
+    "RelayAuthenticateResponseSchema": {
+      "$ref": "daemon.schema.json#/definitions/RelayAuthenticateResponseSchema"
+    },
+    "RemoveMcpServerRequestParamsSchema": {
+      "$ref": "droid.schema.json#/definitions/RemoveMcpServerRequestParamsSchema"
+    },
+    "RemoveMcpServerRequestSchema": {
+      "$ref": "droid.schema.json#/definitions/RemoveMcpServerRequestSchema"
+    },
+    "RenameSessionRequestParamsSchema": {
+      "$ref": "droid.schema.json#/definitions/RenameSessionRequestParamsSchema"
+    },
+    "RenameSessionRequestSchema": {
+      "$ref": "droid.schema.json#/definitions/RenameSessionRequestSchema"
+    },
+    "RequestPermissionRequestParamsSchema": {
+      "$ref": "droid.schema.json#/definitions/RequestPermissionRequestParamsSchema"
+    },
+    "RequestPermissionRequestSchema": {
+      "$ref": "droid.schema.json#/definitions/RequestPermissionRequestSchema"
+    },
+    "RequestPermissionResponseSchema": {
+      "$ref": "droid.schema.json#/definitions/RequestPermissionResponseSchema"
+    },
+    "RequestPermissionResultSchema": {
+      "$ref": "droid.schema.json#/definitions/RequestPermissionResultSchema"
+    },
+    "ResizeRequestParamsSchema": {
+      "$ref": "daemon.schema.json#/definitions/ResizeRequestParamsSchema"
+    },
+    "ResizeRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/ResizeRequestSchema"
+    },
+    "ResolveQueuedUserMessageRequestParamsSchema": {
+      "$ref": "droid.schema.json#/definitions/ResolveQueuedUserMessageRequestParamsSchema"
+    },
+    "ResolveQueuedUserMessageRequestSchema": {
+      "$ref": "droid.schema.json#/definitions/ResolveQueuedUserMessageRequestSchema"
+    },
+    "RewindEvictedFileSchema": {
+      "$ref": "droid.schema.json#/definitions/RewindEvictedFileSchema"
+    },
+    "RewindFileCreationSchema": {
+      "$ref": "droid.schema.json#/definitions/RewindFileCreationSchema"
+    },
+    "RewindFileSnapshotSchema": {
+      "$ref": "droid.schema.json#/definitions/RewindFileSnapshotSchema"
+    },
+    "SameSessionPromptPayloadSchema": {
+      "$ref": "daemon.schema.json#/definitions/SameSessionPromptPayloadSchema"
+    },
+    "SandboxModeSchema": {
+      "$ref": "shared.schema.json#/definitions/SandboxModeSchema"
+    },
+    "SandboxStatusSchema": {
+      "$ref": "droid.schema.json#/definitions/SandboxStatusSchema"
+    },
+    "ScriptRunResultSchema": {
+      "$ref": "shared.schema.json#/definitions/ScriptRunResultSchema"
+    },
+    "ScriptRunResultValueSchema": {
+      "$ref": "shared.schema.json#/definitions/ScriptRunResultValueSchema"
+    },
+    "SdkClientMetadataSchema": {
+      "$ref": "shared.schema.json#/definitions/SdkClientMetadataSchema"
+    },
+    "SessionCompactedNotificationSchema": {
+      "$ref": "droid.schema.json#/definitions/SessionCompactedNotificationSchema"
+    },
+    "SessionIdParamsSchema": {
+      "$ref": "shared.schema.json#/definitions/SessionIdParamsSchema"
+    },
+    "SessionNotificationSchema": {
+      "$ref": "droid.schema.json#/definitions/SessionNotificationSchema"
+    },
+    "SessionOriginSchema": {
+      "$ref": "shared.schema.json#/definitions/SessionOriginSchema"
+    },
+    "SessionSchema": {
+      "$ref": "droid.schema.json#/definitions/SessionSchema"
+    },
+    "SessionSettingsSchema": {
+      "$ref": "droid.schema.json#/definitions/SessionSettingsSchema"
+    },
+    "SessionSourceSchema": {
+      "$ref": "shared.schema.json#/definitions/SessionSourceSchema"
+    },
+    "SessionTagSchema": {
+      "$ref": "shared.schema.json#/definitions/SessionTagSchema"
+    },
+    "SessionTitleUpdatedNotificationSchema": {
+      "$ref": "droid.schema.json#/definitions/SessionTitleUpdatedNotificationSchema"
+    },
+    "SessionTokenUsageChangedNotificationSchema": {
+      "$ref": "droid.schema.json#/definitions/SessionTokenUsageChangedNotificationSchema"
+    },
+    "SessionWorkingDirectoryChangedNotificationSchema": {
+      "$ref": "droid.schema.json#/definitions/SessionWorkingDirectoryChangedNotificationSchema"
+    },
+    "SessionWorktreeMetadataSchema": {
+      "$ref": "shared.schema.json#/definitions/SessionWorktreeMetadataSchema"
+    },
+    "SetSkillDisabledRequestParamsSchema": {
+      "$ref": "droid.schema.json#/definitions/SetSkillDisabledRequestParamsSchema"
+    },
+    "SetSkillDisabledRequestSchema": {
+      "$ref": "droid.schema.json#/definitions/SetSkillDisabledRequestSchema"
+    },
+    "SettingsLevelSchema": {
+      "$ref": "shared.schema.json#/definitions/SettingsLevelSchema"
+    },
+    "SettingsUpdatedNotificationSchema": {
+      "$ref": "droid.schema.json#/definitions/SettingsUpdatedNotificationSchema"
+    },
+    "SfActivityEntrySchema": {
+      "$ref": "daemon.schema.json#/definitions/SfActivityEntrySchema"
+    },
+    "SfChangeEntrySchema": {
+      "$ref": "daemon.schema.json#/definitions/SfChangeEntrySchema"
+    },
+    "SfEventEntrySchema": {
+      "$ref": "daemon.schema.json#/definitions/SfEventEntrySchema"
+    },
+    "SfSignalEntrySchema": {
+      "$ref": "daemon.schema.json#/definitions/SfSignalEntrySchema"
+    },
+    "SfWorkstreamEntrySchema": {
+      "$ref": "daemon.schema.json#/definitions/SfWorkstreamEntrySchema"
+    },
+    "SkillDeviationSchema": {
+      "$ref": "droid.schema.json#/definitions/SkillDeviationSchema"
+    },
+    "SkillFeedbackSchema": {
+      "$ref": "droid.schema.json#/definitions/SkillFeedbackSchema"
+    },
+    "SkillInfoSchema": {
+      "$ref": "droid.schema.json#/definitions/SkillInfoSchema"
+    },
+    "SkillLocationSchema": {
+      "$ref": "shared.schema.json#/definitions/SkillLocationSchema"
+    },
+    "SkillResourceSchema": {
+      "$ref": "droid.schema.json#/definitions/SkillResourceSchema"
+    },
+    "SkillToolInputSchema": {
+      "$ref": "shared.schema.json#/definitions/SkillToolInputSchema"
+    },
+    "SlackAutomationSessionPrivacySchema": {
+      "$ref": "daemon.schema.json#/definitions/SlackAutomationSessionPrivacySchema"
+    },
+    "SseMcpSchema": {
+      "$ref": "droid.schema.json#/definitions/SseMcpSchema"
+    },
+    "StdioMcpSchema": {
+      "$ref": "droid.schema.json#/definitions/StdioMcpSchema"
+    },
+    "StructuredOutputNotificationSchema": {
+      "$ref": "droid.schema.json#/definitions/StructuredOutputNotificationSchema"
+    },
+    "SubagentInvocationSummarySchema": {
+      "$ref": "droid.schema.json#/definitions/SubagentInvocationSummarySchema"
+    },
+    "SubagentModelSettingsSchema": {
+      "$ref": "daemon.schema.json#/definitions/SubagentModelSettingsSchema"
+    },
+    "SubmitBugReportRequestParamsSchema": {
+      "$ref": "droid.schema.json#/definitions/SubmitBugReportRequestParamsSchema"
+    },
+    "SubmitBugReportRequestSchema": {
+      "$ref": "droid.schema.json#/definitions/SubmitBugReportRequestSchema"
+    },
+    "SubmitBugReportResponseSchema": {
+      "$ref": "droid.schema.json#/definitions/SubmitBugReportResponseSchema"
+    },
+    "SubmitBugReportResultSchema": {
+      "$ref": "droid.schema.json#/definitions/SubmitBugReportResultSchema"
+    },
+    "SubmitMcpAuthCodeRequestParamsSchema": {
+      "$ref": "droid.schema.json#/definitions/SubmitMcpAuthCodeRequestParamsSchema"
+    },
+    "SubmitMcpAuthCodeRequestSchema": {
+      "$ref": "droid.schema.json#/definitions/SubmitMcpAuthCodeRequestSchema"
+    },
+    "SubmitMcpAuthErrorRequestParamsSchema": {
+      "$ref": "droid.schema.json#/definitions/SubmitMcpAuthErrorRequestParamsSchema"
+    },
+    "SubmitMcpAuthErrorRequestSchema": {
+      "$ref": "droid.schema.json#/definitions/SubmitMcpAuthErrorRequestSchema"
+    },
+    "SuccessOrErrorResultResponseSchema": {
+      "$ref": "shared.schema.json#/definitions/SuccessOrErrorResultResponseSchema"
+    },
+    "SuccessOrErrorResultSchema": {
+      "$ref": "shared.schema.json#/definitions/SuccessOrErrorResultSchema"
+    },
+    "SuccessResultResponseSchema": {
+      "$ref": "shared.schema.json#/definitions/SuccessResultResponseSchema"
+    },
+    "SuccessResultSchema": {
+      "$ref": "shared.schema.json#/definitions/SuccessResultSchema"
+    },
+    "SystemPromptConfigSchema": {
+      "$ref": "shared.schema.json#/definitions/SystemPromptConfigSchema"
+    },
+    "TaskToolInputSchema": {
+      "$ref": "shared.schema.json#/definitions/TaskToolInputSchema"
+    },
+    "TerminalDataNotificationSchema": {
+      "$ref": "daemon.schema.json#/definitions/TerminalDataNotificationSchema"
+    },
+    "TerminalExitNotificationSchema": {
+      "$ref": "daemon.schema.json#/definitions/TerminalExitNotificationSchema"
+    },
+    "TerminalInfoSchema": {
+      "$ref": "daemon.schema.json#/definitions/TerminalInfoSchema"
+    },
+    "TerminalNotificationSchema": {
+      "$ref": "daemon.schema.json#/definitions/TerminalNotificationSchema"
+    },
+    "TerminalRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/TerminalRequestSchema"
+    },
+    "TestCaseSchema": {
+      "$ref": "droid.schema.json#/definitions/TestCaseSchema"
+    },
+    "TestFileSchema": {
+      "$ref": "droid.schema.json#/definitions/TestFileSchema"
+    },
+    "TestsSchema": {
+      "$ref": "droid.schema.json#/definitions/TestsSchema"
+    },
+    "TextBlockSchema": {
+      "$ref": "shared.schema.json#/definitions/TextBlockSchema"
+    },
+    "ThinkingBlockSchema": {
+      "$ref": "shared.schema.json#/definitions/ThinkingBlockSchema"
+    },
+    "ThinkingTextCompleteNotificationSchema": {
+      "$ref": "droid.schema.json#/definitions/ThinkingTextCompleteNotificationSchema"
+    },
+    "ThinkingTextDeltaNotificationSchema": {
+      "$ref": "droid.schema.json#/definitions/ThinkingTextDeltaNotificationSchema"
+    },
+    "TodoWriteToolInputSchema": {
+      "$ref": "shared.schema.json#/definitions/TodoWriteToolInputSchema"
+    },
+    "ToggleMcpServerRequestParamsSchema": {
+      "$ref": "droid.schema.json#/definitions/ToggleMcpServerRequestParamsSchema"
+    },
+    "ToggleMcpServerRequestSchema": {
+      "$ref": "droid.schema.json#/definitions/ToggleMcpServerRequestSchema"
+    },
+    "ToggleMcpToolRequestParamsSchema": {
+      "$ref": "droid.schema.json#/definitions/ToggleMcpToolRequestParamsSchema"
+    },
+    "ToggleMcpToolRequestSchema": {
+      "$ref": "droid.schema.json#/definitions/ToggleMcpToolRequestSchema"
+    },
+    "TokenUsageSchema": {
+      "$ref": "shared.schema.json#/definitions/TokenUsageSchema"
+    },
+    "ToolCallNotificationSchema": {
+      "$ref": "droid.schema.json#/definitions/ToolCallNotificationSchema"
+    },
+    "ToolConfirmationDetailsSchema": {
+      "$ref": "droid.schema.json#/definitions/ToolConfirmationDetailsSchema"
+    },
+    "ToolConfirmationInfoSchema": {
+      "$ref": "droid.schema.json#/definitions/ToolConfirmationInfoSchema"
+    },
+    "ToolConfirmationListItemSchema": {
+      "$ref": "droid.schema.json#/definitions/ToolConfirmationListItemSchema"
+    },
+    "ToolConfirmationOutcomeSchema": {
+      "$ref": "droid.schema.json#/definitions/ToolConfirmationOutcomeSchema"
+    },
+    "ToolExecutionHeartbeatNotificationSchema": {
+      "$ref": "droid.schema.json#/definitions/ToolExecutionHeartbeatNotificationSchema"
+    },
+    "ToolExecutionModeSchema": {
+      "$ref": "shared.schema.json#/definitions/ToolExecutionModeSchema"
+    },
+    "ToolExecutionPhaseChangedNotificationSchema": {
+      "$ref": "droid.schema.json#/definitions/ToolExecutionPhaseChangedNotificationSchema"
+    },
+    "ToolOverrideParamsSchema": {
+      "$ref": "droid.schema.json#/definitions/ToolOverrideParamsSchema"
+    },
+    "ToolProgressUpdateNotificationSchema": {
+      "$ref": "droid.schema.json#/definitions/ToolProgressUpdateNotificationSchema"
+    },
+    "ToolProgressUpdateSchema": {
+      "$ref": "droid.schema.json#/definitions/ToolProgressUpdateSchema"
+    },
+    "ToolResultNotificationSchema": {
+      "$ref": "droid.schema.json#/definitions/ToolResultNotificationSchema"
+    },
+    "ToolResultSchema": {
+      "$ref": "shared.schema.json#/definitions/ToolResultSchema"
+    },
+    "ToolUseSchema": {
+      "$ref": "shared.schema.json#/definitions/ToolUseSchema"
+    },
+    "TraceContextMetaSchema": {
+      "$ref": "shared.schema.json#/definitions/TraceContextMetaSchema"
+    },
+    "UpdateSessionSettingsRequestParamsSchema": {
+      "$ref": "droid.schema.json#/definitions/UpdateSessionSettingsRequestParamsSchema"
+    },
+    "UpdateSessionSettingsRequestSchema": {
+      "$ref": "droid.schema.json#/definitions/UpdateSessionSettingsRequestSchema"
+    },
+    "ValidateWorkingDirectoryResultSchema": {
+      "$ref": "droid.schema.json#/definitions/ValidateWorkingDirectoryResultSchema"
+    },
+    "VerificationCommandSchema": {
+      "$ref": "droid.schema.json#/definitions/VerificationCommandSchema"
+    },
+    "VerificationSchema": {
+      "$ref": "droid.schema.json#/definitions/VerificationSchema"
+    },
+    "WarmupCacheRequestSchema": {
+      "$ref": "droid.schema.json#/definitions/WarmupCacheRequestSchema"
+    },
+    "WebSearchToolInputSchema": {
+      "$ref": "shared.schema.json#/definitions/WebSearchToolInputSchema"
+    },
+    "WorkerCompletedEntrySchema": {
+      "$ref": "droid.schema.json#/definitions/WorkerCompletedEntrySchema"
+    },
+    "WorkerFailedEntrySchema": {
+      "$ref": "droid.schema.json#/definitions/WorkerFailedEntrySchema"
+    },
+    "WorkerPausedEntrySchema": {
+      "$ref": "droid.schema.json#/definitions/WorkerPausedEntrySchema"
+    },
+    "WorkerSelectedFeatureEntrySchema": {
+      "$ref": "droid.schema.json#/definitions/WorkerSelectedFeatureEntrySchema"
+    },
+    "WorkerStartedEntrySchema": {
+      "$ref": "droid.schema.json#/definitions/WorkerStartedEntrySchema"
+    },
+    "WorkerStateInfoSchema": {
+      "$ref": "droid.schema.json#/definitions/WorkerStateInfoSchema"
+    },
+    "WorktreeGitRefSchema": {
+      "$ref": "droid.schema.json#/definitions/WorktreeGitRefSchema"
+    },
+    "WorktreeLifecycleSchema": {
+      "$ref": "shared.schema.json#/definitions/WorktreeLifecycleSchema"
+    },
+    "WorktreeSetupProfileFileContentsSchema": {
+      "$ref": "daemon.schema.json#/definitions/WorktreeSetupProfileFileContentsSchema"
+    },
+    "WorktreeSetupProfileFileSchema": {
+      "$ref": "daemon.schema.json#/definitions/WorktreeSetupProfileFileSchema"
+    },
+    "WorktreeSetupProfileSourceSchema": {
+      "$ref": "daemon.schema.json#/definitions/WorktreeSetupProfileSourceSchema"
+    },
+    "WorktreeSetupScriptSchema": {
+      "$ref": "daemon.schema.json#/definitions/WorktreeSetupScriptSchema"
+    },
+    "WriteDataRequestParamsSchema": {
+      "$ref": "daemon.schema.json#/definitions/WriteDataRequestParamsSchema"
+    },
+    "WriteDataRequestSchema": {
+      "$ref": "daemon.schema.json#/definitions/WriteDataRequestSchema"
+    }
+  }
+}
