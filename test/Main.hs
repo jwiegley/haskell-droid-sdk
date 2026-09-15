@@ -91,6 +91,8 @@ import RESTSpec (restTests)
 import RPCSpec (rpcTests)
 import RelaySpec (relayTests)
 import RetrySpec (retryTests)
+import SavedSessionSelectionSpec (runSavedSelectionPeer, savedSelectionTests)
+import SavedSessionSpec (savedSessionTests)
 import ScriptSpec (scriptTests)
 import SessionSpec (sessionTests)
 import SessionStateSpec (sessionStateTests)
@@ -123,6 +125,7 @@ main =
       -- The peer's argv contract is UTF-8 even under an empty child environment.
       setFileSystemEncoding utf8
       getArgs >>= runOwnedIpcPeer . drop 1
+    "--saved-selection-peer" : arguments -> runSavedSelectionPeer arguments
     ["--jsonl-peer", mode] -> runProcessPeer mode
     ["--initialization-peer"] -> runInitializationPeer
     ["--load-policy-peer"] -> runLoadPolicyPeer
@@ -243,6 +246,8 @@ suiteMain = do
         inputTests,
         submissionTests,
         sessionStateTests,
+        savedSessionTests,
+        savedSelectionTests,
         loggingTests,
         validatorTests,
         ownedIpcTests,

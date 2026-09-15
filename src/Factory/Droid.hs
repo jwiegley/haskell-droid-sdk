@@ -55,6 +55,12 @@ module Factory.Droid
     interruptDroidSession,
     runDroid,
     streamDroid,
+    DroidSessionFile (..),
+    DroidSavedSession (..),
+    ListDroidSessionsOptions (..),
+    defaultListDroidSessionsOptions,
+    listDroidSessions,
+    sessionFileCreatedAt,
     listDroidModels,
     listDroidTools,
     listDroidCommands,
@@ -88,4 +94,5 @@ module Factory.Droid
   )
 where
 
+import Factory.Droid.Discovery (DroidSavedSession (..), DroidSessionFile (..), ListDroidSessionsOptions (..), defaultListDroidSessionsOptions, listDroidSessions, sessionFileCreatedAt)
 import Factory.Droid.Internal.Session

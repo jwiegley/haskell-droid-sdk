@@ -57,6 +57,7 @@ library
   import:          warnings
   hs-source-dirs:  src
   c-sources:
+    cbits/file-birth-time.c
     cbits/process-ipc.c
   include-dirs:    cbits
   cc-options:      -std=c11 -Wall -Wextra -Werror
@@ -65,6 +66,7 @@ library
     Factory.Droid.Client
     Factory.Droid.Connection
     Factory.Droid.Daemon
+    Factory.Droid.Discovery
     Factory.Droid.Input
     Factory.Droid.Interaction
     Factory.Droid.MCP.Server
@@ -125,6 +127,7 @@ library
     Factory.Droid.Transport.WebSocket
   other-modules:
     Factory.Droid.Internal.Exception
+    Factory.Droid.Internal.FileTime
     Factory.Droid.Internal.JSON
     Factory.Droid.Internal.McpSchema
     Factory.Droid.Internal.MessageChannel
@@ -171,6 +174,10 @@ test-suite droid-sdk-test
   type:            exitcode-stdio-1.0
   hs-source-dirs:   test
   main-is:         Main.hs
+  c-sources:       test/FilePosition.c
+  cc-options:      -std=c11 -Wall -Wextra -Werror
+  if os(darwin)
+    extra-libraries: proc
   build-tool-depends:
     droid-sdk:factory-droid-launcher,
     droid-sdk:droid-ipc-test-peer
@@ -246,6 +253,8 @@ test-suite droid-sdk-test
     RESTSpec
     RelaySpec
     RetrySpec
+    SavedSessionSelectionSpec
+    SavedSessionSpec
     SchemaTest
     ScriptSpec
     SessionSpec
