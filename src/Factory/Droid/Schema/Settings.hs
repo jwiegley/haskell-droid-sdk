@@ -7,6 +7,9 @@ module Factory.Droid.Schema.Settings
   ( LegacyAutonomyMode (..),
     ToolPolicy (..),
     emptyToolPolicy,
+    parseToolPolicy,
+    toolPolicyFields,
+    toolPolicyKeys,
     UpdateSessionSettingsParams (..),
     emptySettingsUpdate,
     ListToolsOptions (..),
@@ -15,12 +18,14 @@ module Factory.Droid.Schema.Settings
     emptySettingsChange,
     SettingsUpdated (..),
     SessionSettings (..),
+    hasDecoupledInteractionSettings,
   )
 where
 
 import Control.Applicative ((<|>))
 import Data.Aeson (FromJSON (..), Object, ToJSON (..), Value (String), withObject, withText, (.:), (.:!), (.=))
 import Data.Aeson.Key (Key)
+import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types (Pair, Parser)
 import Data.Scientific (Scientific)
 import Data.Text (Text)
@@ -30,6 +35,11 @@ import Factory.Droid.Schema.Models (MissionModelSettings)
 import Factory.Droid.Schema.Session (SandboxStatus, SessionTag)
 import Factory.Droid.Schema.SystemPrompt (SystemPromptConfig)
 import Numeric.Natural (Natural)
+
+-- | Raw presence inspection, including explicit null or otherwise invalid values.
+-- Parsed settings and update/reset validation are separate contracts.
+hasDecoupledInteractionSettings :: Object -> Bool
+hasDecoupledInteractionSettings fields = KeyMap.member "interactionMode" fields || KeyMap.member "autonomyLevel" fields
 
 -- | Deprecated wire mode; prefer interaction mode and autonomy level.
 data LegacyAutonomyMode = LegacyNormal | LegacySpec | LegacyAutoLow | LegacyAutoMedium | LegacyAutoHigh

@@ -24,6 +24,11 @@ module Factory.Droid.Schema.Content
     ToolResultItem (..),
     ToolResultContent (..),
     ToolResultBlock (..),
+    isPendingToolResult,
+    inspectToolResultId,
+    UserContentOptions (..),
+    defaultUserContentOptions,
+    buildUserMessageContent,
     ContentBlock (..),
     contentBlockObject,
     CacheTTL (..),
@@ -50,9 +55,11 @@ import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types (Pair, Parser)
 import Data.Scientific (Scientific)
 import Data.Text (Text)
+import Data.Text qualified as Text
 import Factory.Droid.Internal.JSON
   ( additionalFields,
     fieldsWithAdditionalFields,
+    isEcmaWhitespace,
     objectWithAdditionalFields,
     optionalField,
     requireLiteral,
@@ -394,6 +401,18 @@ instance FromJSON ToolResultBlock where
 instance ToJSON ToolResultBlock where
   toJSON = Object . contentBlockObject . ContentToolResult
 
+-- | The exact scalar marker; a text block inside an array is not this marker.
+isPendingToolResult :: ToolResultBlock -> Bool
+isPendingToolResult result = toolResultContent result == Just (ResultText "__TOOL_RESULT_PENDING__")
+
+-- | Tolerant inspection only. Preserve empty/non-string values; use the legacy
+-- key only when the canonical key is absent or null. Wire decoding is unchanged.
+inspectToolResultId :: Object -> Maybe Value
+inspectToolResultId fields = case KeyMap.lookup "toolUseId" fields of
+  Nothing -> KeyMap.lookup "tool_use_id" fields
+  Just Null -> KeyMap.lookup "tool_use_id" fields
+  value -> value
+
 -- | The complete seven-variant content-block union. Unknown discriminants
 -- fail decoding rather than being mistaken for a known block.
 data ContentBlock
@@ -405,6 +424,26 @@ data ContentBlock
   | ContentToolResult !ToolResultBlock
   | ContentDocument !DocumentBlock
   deriving stock (Eq, Show)
+
+data UserContentOptions = UserContentOptions
+  { contentTrimText :: !Bool,
+    contentIncludeEmptyText :: !Bool
+  }
+  deriving stock (Eq, Show)
+
+defaultUserContentOptions :: UserContentOptions
+defaultUserContentOptions = UserContentOptions False True
+
+-- | Assemble supplied sources in image/document/text order. This performs no
+-- file I/O, base64 validation or attachment-limit checks; normal Input does.
+buildUserMessageContent :: UserContentOptions -> Maybe Text -> [Base64ImageSource] -> [DocumentSource] -> [ContentBlock]
+buildUserMessageContent options text images documents =
+  map (\source -> ContentImage (ImageBlock source Nothing base)) images
+    <> map (\source -> ContentDocument (DocumentBlock source base)) documents
+    <> [ContentText (TextBlock value base) | Just value <- [prepared], contentIncludeEmptyText options || not (Text.null value)]
+  where
+    base = BaseContentBlock Nothing mempty
+    prepared = if contentTrimText options then Text.dropAround isEcmaWhitespace <$> text else text
 
 instance FromJSON ContentBlock where
   parseJSON = withObject "ContentBlock" $ \fields -> do

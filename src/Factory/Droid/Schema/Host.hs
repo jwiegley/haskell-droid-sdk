@@ -8,6 +8,7 @@ module Factory.Droid.Schema.Host
     ComputerRegistration (..),
     HostConfig (..),
     LegacyComputerConfig (..),
+    machineConnectionType,
   )
 where
 
@@ -23,6 +24,7 @@ import Data.Aeson
   )
 import Data.Aeson.Key (Key)
 import Data.Scientific (Scientific)
+import Data.Text (Text)
 import Factory.Droid.Internal.JSON
   ( additionalFields,
     objectWithAdditionalFields,
@@ -33,6 +35,15 @@ import Factory.Droid.Schema.Primitives (NonEmptyText, UUIDText)
 
 -- | HostIdSchema is the UUID string format, retaining its wire spelling.
 type HostId = UUIDText
+
+-- | Descriptive source-to-connection kind mapping. Unknown names have no mapping;
+-- a label establishes neither transport ownership, locality nor authentication.
+machineConnectionType :: Text -> Maybe Text
+machineConnectionType = \case
+  "computer" -> Just "computer"
+  "local" -> Just "tui"
+  "ephemeral" -> Just "workspace"
+  _ -> Nothing
 
 -- | A registered computer's identities and registration timestamp. IDs other
 -- than computerId require nonempty text, without an added UUID constraint.

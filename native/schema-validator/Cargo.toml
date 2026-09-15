@@ -1,0 +1,13 @@
+[package]
+name = "factory-droid-validator"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+jsonschema = { version = "=0.55.1", default-features = false, features = ["arbitrary-precision"] }
+serde_json = { version = "1", features = ["arbitrary_precision", "raw_value"] }
+
+[patch.crates-io]
+jsonschema = { path = "vendor/jsonschema" }

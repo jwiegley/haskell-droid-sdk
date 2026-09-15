@@ -28,8 +28,10 @@ timestampTests =
         case values of
           [Just utc, Just lower, Just offset, Just unknown] -> (utc /= lower && utc /= offset && offset /= unknown) @?= True
           _ -> assertFailure "Valid timestamp rejected",
+      testCase "leap-second syntax does not assert an occurrence or forecast" $
+        validTimestamp "9999-12-31T23:59:60Z",
       testCase "non-string JSON is rejected, not coerced to an epoch" $
-        forM_ [Null, Bool True, Number 0, Object mempty, Array mempty] $
+        forM_ [Null, Bool False, Bool True, Number 0, Number 1.9, Object mempty, Array mempty] $
           rejects (Proxy @Rfc3339Timestamp)
     ]
   where

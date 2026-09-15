@@ -1,9 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module McpPeer (handleMcpRequest, earlyMcpEvents, invokeHosted) where
+module McpPeer (handleMcpRequest, earlyMcpEvents, invokeHosted, hostedEchoTools) where
 
 import Control.Monad (forM_, unless, when)
-import Data.Aeson (Object, Value (..), eitherDecode, encode, object, (.=))
+import Data.Aeson (FromJSON (..), Object, ToJSON (..), Value (..), eitherDecode, encode, object, withObject, (.:), (.=))
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types (Pair)
 import Data.Foldable (toList)
@@ -11,9 +11,31 @@ import Data.String (fromString)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
+import Factory.Droid.MCP.Tool
 import Network.HTTP.Client qualified as HTTP
 import Network.HTTP.Types (hAccept, hContentType, statusCode)
 import Test.Tasty.HUnit (assertFailure, (@?=))
+
+newtype HostedEcho = HostedEcho Text
+
+instance FromJSON HostedEcho where
+  parseJSON = withObject "HostedEcho" (fmap HostedEcho . (.: "source"))
+
+instance ToJSON HostedEcho where
+  toJSON = Object . echoObject
+
+echoObject :: HostedEcho -> Object
+echoObject (HostedEcho source) = KeyMap.singleton "source" (String source)
+
+hostedEchoTools :: IO () -> IO [McpTool]
+hostedEchoTools tick = do
+  schema <- either (const (assertFailure "Hosted schema construction failed")) pure (mkMcpSchema (KeyMap.fromList ["type" .= String "object", "properties" .= object ["source" .= object ["type" .= String "string", "pattern" .= String "(?<=offline-)peer"]], "required" .= [String "source"], "additionalProperties" .= False]))
+  traverse
+    (either (const (assertFailure "Hosted tool construction failed")) pure)
+    [ withToolOutputSchema schema <$> rawTool "echo" "Raw echo" schema (\arguments -> tick >> pure (structuredResult arguments)),
+      withToolOutputSchema schema <$> typedTool "echo" "Typed echo" schema (\arguments -> tick >> pure (structuredResult (echoObject arguments))),
+      structuredTool "echo" "Structured echo" schema schema (\arguments -> tick >> pure (arguments :: HostedEcho))
+    ]
 
 -- A native offline CLI/daemon peer consumes the advertised endpoint and calls
 -- the Haskell handler over real HTTP before acknowledging startup/loading.

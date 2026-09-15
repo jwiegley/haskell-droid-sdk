@@ -10,13 +10,14 @@ import Control.Monad (forM_, replicateM_, void)
 import Data.Aeson (Object, Value (..), toJSON, (.=))
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Text (Text)
+import Data.Time.Clock (getCurrentTime)
 import Factory.Droid.Protocol
 import Factory.Droid.Schema.RPC
 import Factory.Droid.Transport.Process (receiveObject, sendObject)
 import GHC.Conc (BlockReason (BlockedOnMVar), ThreadStatus (ThreadBlocked, ThreadDied, ThreadFinished), threadStatus)
 import ProcessSpec (bounded, withPeer)
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertFailure, testCase, (@?=))
+import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
 protocolTests :: TestTree
 protocolTests =
@@ -58,6 +59,22 @@ protocolTests =
           feed incoming (toRpcObject barrier)
           wait second >>= expectResult (Number 2)
           receiveRpcEvent channel >>= (@?= barrier),
+      testCase "timed observations retain the accepted receive timestamp across delayed consumption" $ bounded $ withMemory $ \channel incoming sent -> do
+        observed <- newTQueueIO
+        before <- getCurrentTime
+        withAsync (requestReplyObservedAt channel Nothing (request "timed") (curry (writeTQueue observed))) $ \worker -> do
+          void (atomically (readTQueue sent))
+          feed incoming (reply "timed" (Number 1))
+          result <- wait worker
+          acceptedBefore <- getCurrentTime
+          threadDelay 20000
+          feed incoming (reply "timed" (Number 99))
+          feed incoming (toRpcObject barrier)
+          receiveRpcEvent channel >>= (@?= barrier)
+          (received, actual) <- atomically (readTQueue observed)
+          actual @?= result
+          assertBool "timestamp was sampled before correlation, not deferred observation" (received >= before && received <= acceptedBefore)
+          atomically (tryReadTQueue observed) >>= (@?= Nothing),
       testCase "reply observations keep receive order without delaying correlation" $ bounded $ withMemory $ \channel incoming sent -> do
         observed <- newTQueueIO
         withAsync (requestReplyObserved channel Nothing (request "snapshot") (writeTQueue observed)) $ \worker -> do
@@ -216,6 +233,11 @@ protocolTests =
             atomically (writeTQueue incoming (Left PeerEnded))
             wait first >>= (@?= Left RpcChannelReadFailure)
             wait second >>= (@?= Left RpcChannelReadFailure)
+            cause <- atomically (rpcChannelFailureCause channel)
+            (cause >>= fromException) @?= Just PeerEnded
+            closeRpcChannel channel
+            retained <- atomically (rpcChannelFailureCause channel)
+            (retained >>= fromException) @?= Just PeerEnded
             expectError RpcChannelReadFailure (requestReply channel Nothing (request "c"))
             atomically (tryReadTQueue sent) >>= (@?= Nothing),
       testCase "completed responses survive immediately following EOF" $ bounded $ replicateM_ 50 $ withMemory $ \channel incoming sent ->
@@ -297,6 +319,11 @@ protocolTests =
         input <- newEmptyMVar
         withRpcChannel (\_ -> throwIO PeerSendFailed) (takeMVar input) $ \channel -> do
           expectError RpcChannelWriteFailure (requestReply channel Nothing (request "a"))
+          cause <- atomically (rpcChannelFailureCause channel)
+          (cause >>= fromException) @?= Just PeerSendFailed
+          closeRpcChannel channel
+          retained <- atomically (rpcChannelFailureCause channel)
+          (retained >>= fromException) @?= Just PeerSendFailed
           expectError RpcChannelWriteFailure (requestReply channel Nothing (request "b")),
       testCase "raw sends preserve their originating exception" $ bounded $ do
         input <- newEmptyMVar

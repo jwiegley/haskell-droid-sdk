@@ -33,7 +33,14 @@ usageTests :: Value -> Value -> TestTree
 usageTests shared droid =
   testGroup
     "Token usage"
-    [ numericRecordTests "TokenUsage" cumulativeSchema cumulative cumulativeObject,
+    [ testCase "standalone aggregation gives explicit zero counters and credits for no usage" $
+        sumTokenUsage [] @?= TokenUsage 0 0 0 0 0 (Just 0) mempty,
+      testCase "aggregation preserves exact signed fractions, treats absent credits as zero and does not sum extensions" $ do
+        let left = TokenUsage 9007199254740993 2 3 4 5 Nothing (KeyMap.singleton "future" (Number 7))
+            right = TokenUsage 0.5 (-2) 7 (-4) (-5) (Just 1.25) (KeyMap.singleton "future" (Number 8))
+        sumTokenUsage [left, right] @?= TokenUsage 9007199254740993.5 0 10 0 0 (Just 1.25) mempty
+        sumTokenUsage [left] @?= left {usageFactoryCredits = Just 0, usageAdditionalFields = mempty},
+      numericRecordTests "TokenUsage" cumulativeSchema cumulative cumulativeObject,
       numericRecordTests "LastCallTokenUsage" lastCallSchema lastCall lastCallObject,
       testCase "both inline last-call definitions describe the same shape" $
         lastCallSchema @?= schemaAt ["definitions", "SessionTokenUsageChangedNotificationSchema", "properties", "lastCallTokenUsage"] droid,

@@ -18,6 +18,7 @@ module Factory.Droid.Schema.Interaction
     ConfirmationDetails (..),
     ToolConfirmationDetails (..),
     ToolConfirmationInfo (..),
+    permissionToolInputForDisplay,
     ToolConfirmationListItem (..),
     RequestPermissionParams (..),
     RequestPermissionResult,
@@ -35,6 +36,7 @@ import Data.Aeson
     Object,
     Options,
     ToJSON (..),
+    Value (String),
     camelTo2,
     genericParseJSON,
     genericToEncoding,
@@ -45,11 +47,13 @@ import Data.Aeson
     (.=),
   )
 import Data.Aeson.Key (Key)
+import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types (Pair)
 import Data.Scientific (Scientific)
 import Data.Text (Text)
+import Data.Text qualified as Text
 import Factory.Droid.Internal.JSON (additionalFields, enumOptions, objectWithAdditionalFields, optionalField)
-import Factory.Droid.Schema.Content (ToolUseBlock)
+import Factory.Droid.Schema.Content (ToolUseBlock (toolUseInput))
 import Factory.Droid.Schema.Notifications (ToolConfirmationOutcome (..))
 import Factory.Droid.Schema.Tools (PatchOperation)
 import GHC.Generics (Generic)
@@ -374,6 +378,23 @@ instance FromJSON ToolConfirmationInfo where
 
 instance ToJSON ToolConfirmationInfo where
   toJSON info = objectWithAdditionalFields confirmationInfoKeys (confirmationInfoAdditionalFields info) ["toolUse" .= confirmationInfoToolUse info, "confirmationType" .= confirmationInfoType info, "details" .= confirmationInfoDetails info]
+
+-- | A display-only copy. Matching spec/mission details fill missing, empty or
+-- non-string fields; nonempty input strings, including whitespace, win.
+-- No permission decision or stored input is changed.
+permissionToolInputForDisplay :: ToolConfirmationInfo -> Object
+permissionToolInputForDisplay info = foldl' fill original fallbacks
+  where
+    original = toolUseInput (confirmationInfoToolUse info)
+    fallbacks = case (confirmationInfoType info, confirmationDetails (confirmationInfoDetails info)) of
+      (ConfirmationTypeExitSpecMode, ConfirmationExitSpecMode plan title) -> [("plan", Just plan), ("title", title)]
+      (ConfirmationTypeProposeMission, ConfirmationProposeMission proposal title) -> [("proposal", Just proposal), ("title", title)]
+      _ -> []
+    fill fields (_, Nothing) = fields
+    fill fields (key, Just value)
+      | Text.null value = fields
+      | Just (String current) <- KeyMap.lookup key fields, not (Text.null current) = fields
+      | otherwise = KeyMap.insert key (String value) fields
 
 -- | An offered permission choice. Labels are not interpreted as decisions.
 data ToolConfirmationListItem = ToolConfirmationListItem

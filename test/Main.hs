@@ -3,12 +3,36 @@
 module Main (main) where
 
 import AutomationSpec (automationTests)
+import ChildSessionSpec (childSessionTests)
 import ClientSpec (clientTests)
+import ConnectionHooksSpec (connectionHookTests)
+import ConnectionReadinessSpec (connectionReadinessTests)
 import ContentSpec (contentTests)
 import ContextSpec (contextTests)
 import Control.Monad (forM_)
 import ControlSpec (controlTests)
+import CwdStateSpec (cwdStateTests)
+import DaemonAttachmentSpec (attachmentTests)
+import DaemonAutomationConfigSpec (automationConfigTests)
+import DaemonAutomationSpec (daemonAutomationTests)
+import DaemonCatalogSpec (catalogTests)
+import DaemonCronSpec (cronTests)
+import DaemonCustomModelSpec (customModelTests)
+import DaemonDefaultsSpec (defaultsTests)
+import DaemonDiscoveryClientSpec (discoveryClientTests)
+import DaemonGitResourceSpec (gitResourceTests)
+import DaemonGitSpec (gitTests)
+import DaemonLifecycleSpec (lifecycleTests)
+import DaemonLoadCoordinationSpec (loadCoordinationTests)
+import DaemonLoadSpec (loadTests)
+import DaemonManagementSpec (managementTests)
+import DaemonPluginSpec (pluginTests)
+import DaemonQueueSpec (queueTests)
+import DaemonSettingsClientSpec (settingsClientTests)
+import DaemonSoftwareFactorySpec (softwareFactoryTests)
 import DaemonSpec (daemonTests)
+import DaemonTerminalClientSpec (terminalClientTests)
+import DaemonWorkspaceClientSpec (workspaceClientTests)
 import DaemonWorkspaceSpec (workspaceTests)
 import Data.Aeson
   ( FromJSON,
@@ -26,50 +50,84 @@ import Data.Aeson
 import Data.Aeson.Types (parseEither)
 import Data.Proxy (Proxy (..))
 import Data.String (fromString)
+import DeferredInteractionSpec (deferredInteractionTests)
+import DiagnosticSpec (diagnosticTests)
 import DiscoverySpec (discoveryTests)
 import DispatchSpec (dispatchTests)
 import DroidSpec (droidTests, runDroidPeer)
 import EnvelopeSpec (envelopeTests)
 import Factory.Droid.Schema.Enums
+import GHC.IO.Encoding (setFileSystemEncoding, utf8)
 import HandlerSpec (handlerTests)
 import HostSpec (hostTests)
 import HostedMcpSpec (hostedMcpTests)
+import InProcessSpec (inProcessTests)
+import InitializationSpec (initializationTests, runInitializationPeer)
+import InjectedSessionSpec (injectedSessionTests)
 import InputSpec (inputTests)
 import InteractionSpec (interactionTests)
+import IpcSpec (ipcTests)
+import LoadPolicySpec (loadPolicyTests, runLoadPolicyPeer)
+import LoggingSpec (loggingTests)
 import LoopSpec (loopTests)
 import MCPSpec (mcpTests)
 import McpConfigSpec (mcpConfigTests)
 import MessagesSpec (messageTests)
 import MetadataSpec (metadataTests)
+import MissionEventSpec (missionEventTests)
+import MissionObservationSpec (missionObservationTests)
+import MissionRegistrySpec (missionRegistryTests)
 import MissionSpec (missionTests)
+import MissionStateSpec (missionStateTests)
 import ModelsSpec (modelTests)
 import NotificationsSpec (notificationTests)
+import OwnedIpcSpec (ownedIpcTests, runOwnedIpcPeer)
 import Paths_droid_sdk (getDataFileName)
+import PendingInteractionSpec (pendingInteractionTests)
 import ProcessSpec (processTests, runProcessPeer)
 import ProtocolSpec (protocolTests)
+import QueueStateSpec (queueStateTests)
 import RPCSpec (rpcTests)
+import RelaySpec (relayTests)
+import RetrySpec (retryTests)
 import ScriptSpec (scriptTests)
 import SessionSpec (sessionTests)
+import SessionStateSpec (sessionStateTests)
 import SettingsSpec (settingsTests)
 import SourcesSpec (sourceTests)
+import StreamSpec (legacyStreamTests, streamTests)
+import SubmissionSpec (submissionTests)
 import System.Environment (getArgs)
 import SystemPromptSpec (systemPromptTests)
+import TerminalRuntimeSpec (terminalRuntimeTests)
 import TerminalSpec (terminalTests)
+import TerminalStateSpec (terminalStateTests)
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (assertFailure, testCase, (@?=))
 import Test.Tasty.QuickCheck (elements, forAll, testProperty, (===))
 import TimestampSpec (timestampTests)
 import ToolNotificationsSpec (toolNotificationTests)
 import ToolsSpec (toolTests)
+import TunnelSpec (tunnelTests)
 import UsageSpec (usageTests)
+import UtilitySpec (utilityTests)
+import ValidatorSpec (validatorTests)
 import WebSocketSpec (webSocketTests)
 import WorktreeSpec (worktreeTests)
 
 main :: IO ()
 main =
   getArgs >>= \case
+    "--owned-ipc-peer" : _ -> do
+      -- The peer's argv contract is UTF-8 even under an empty child environment.
+      setFileSystemEncoding utf8
+      getArgs >>= runOwnedIpcPeer . drop 1
     ["--jsonl-peer", mode] -> runProcessPeer mode
+    ["--initialization-peer"] -> runInitializationPeer
+    ["--load-policy-peer"] -> runLoadPolicyPeer
+    ["exec", "--output-format", "acp"] -> runProcessPeer "acp"
     ["exec", "--input-format", "stream-jsonrpc", "--output-format", "stream-jsonrpc"] -> runDroidPeer
+    ["--fixture-launch-prefix", "exec", "--input-format", "stream-jsonrpc", "--output-format", "stream-jsonrpc", "--fixture-launch-extra", ""] -> runDroidPeer
     _ -> suiteMain
 
 suiteMain :: IO ()
@@ -100,6 +158,7 @@ suiteMain = do
         enumTests schema "WorktreeLifecycleSchema" (Proxy @WorktreeLifecycle),
         modelTests schema,
         usageTests schema droidSchema,
+        utilityTests,
         contentTests schema,
         sessionTests schema droidSchema,
         messageTests schema,
@@ -124,19 +183,68 @@ suiteMain = do
         mcpConfigTests,
         hostedMcpTests,
         missionTests droidSchema,
+        missionEventTests droidSchema,
+        missionObservationTests,
+        missionRegistryTests,
+        missionStateTests droidSchema,
         automationTests droidSchema,
         workspaceTests droidSchema daemonSchema,
+        cwdStateTests,
         terminalTests schema daemonSchema,
+        terminalStateTests,
+        terminalRuntimeTests,
         timestampTests,
         worktreeTests daemonSchema,
+        pendingInteractionTests,
+        injectedSessionTests,
+        inProcessTests,
+        ipcTests,
+        relayTests,
+        tunnelTests,
+        retryTests,
+        connectionReadinessTests,
         processTests,
         protocolTests,
+        connectionHookTests,
+        initializationTests,
+        loadPolicyTests,
         dispatchTests,
         clientTests schema droidSchema,
         droidTests,
+        streamTests,
+        legacyStreamTests,
         webSocketTests,
         daemonTests,
-        inputTests
+        automationConfigTests daemonSchema,
+        daemonAutomationTests daemonSchema,
+        catalogTests daemonSchema,
+        customModelTests,
+        defaultsTests daemonSchema,
+        discoveryClientTests,
+        gitResourceTests daemonSchema,
+        gitTests,
+        lifecycleTests,
+        loadTests,
+        managementTests,
+        attachmentTests,
+        loadCoordinationTests,
+        childSessionTests,
+        cronTests daemonSchema,
+        softwareFactoryTests daemonSchema,
+        pluginTests,
+        queueTests,
+        queueStateTests,
+        settingsClientTests,
+        workspaceClientTests,
+        terminalClientTests,
+        deferredInteractionTests,
+        diagnosticTests,
+        inputTests,
+        submissionTests,
+        sessionStateTests,
+        loggingTests,
+        validatorTests,
+        ownedIpcTests
       ]
 
 enumTests ::

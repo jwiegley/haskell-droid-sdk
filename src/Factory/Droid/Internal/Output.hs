@@ -8,6 +8,7 @@ module Factory.Droid.Internal.Output
     jsonDroidOutput,
     outputWireFormat,
     adaptOutput,
+    adaptOutputData,
   )
 where
 
@@ -68,9 +69,14 @@ outputWireFormat :: DroidOutput a -> OutputFormat
 outputWireFormat (DroidOutput format _) = format
 
 adaptOutput :: DroidOutput a -> DroidResult -> DroidOutputResult a
-adaptOutput (DroidOutput _ parser) result =
-  let raw = resultStructuredOutput result <|> decodeStrict' (Text.encodeUtf8 (resultText result))
+adaptOutput output result =
+  let (raw, decoded) = adaptOutputData output (resultStructuredOutput result) (resultText result)
+   in DroidOutputResult (result {resultStructuredOutput = raw}) decoded
+
+adaptOutputData :: DroidOutput a -> Maybe Object -> Text -> (Maybe Object, Either DroidOutputError a)
+adaptOutputData (DroidOutput _ parser) reported text =
+  let raw = reported <|> decodeStrict' (Text.encodeUtf8 text)
       decoded = case raw of
         Nothing -> Left DroidOutputMissing
         Just fields -> either (Left . DroidOutputInvalid . Text.pack) Right (parseEither parser fields)
-   in DroidOutputResult (result {resultStructuredOutput = raw}) decoded
+   in (raw, decoded)

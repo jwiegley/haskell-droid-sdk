@@ -29,9 +29,14 @@ import Data.Text qualified as Text
 import Factory.Droid.Schema.Enums (SandboxMode (..), WorktreeLifecycle (..))
 import Factory.Droid.Schema.Session
 import Factory.Droid.Schema.Tools (ToolOverrideParams (..))
-import SchemaTest (nonNullableRecordTests, schemaAt)
+import SchemaTest (nonNullableRecordTests, redactedRecordTests, schemaAt)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertEqual, assertFailure, testCase, (@?=))
+
+tagFixture :: Text.Text -> Maybe (KeyMap.KeyMap Text.Text) -> IO SessionTag
+tagFixture name metadata = case mkSessionTagName name of
+  Nothing -> assertFailure "Invalid test tag name"
+  Just validated -> pure (SessionTag validated metadata mempty)
 
 sessionTests :: Value -> Value -> TestTree
 sessionTests schema local =
@@ -92,6 +97,37 @@ sessionTests schema local =
             eitherDecode (encode tag) @?= Right tag
             forM_ ["name", "metadata"] $ \key ->
               toJSON (tag {sessionTagAdditionalFields = KeyMap.singleton key Null}) @?= object ["name" .= String "team"],
+      testCase "subagent tag presence uses exact names and does not require metadata" $ do
+        others <- mapM (`tagFixture` Nothing) ["Subagent", "subagent ", " subagent", "other"]
+        exact <- tagFixture "subagent" Nothing
+        findSubagentSessionTag [] @?= Nothing
+        findSubagentSessionTag others @?= Nothing
+        findSubagentSessionTag (others <> [exact]) @?= Just exact
+        isJust (findSubagentSessionTag [exact]) @?= True,
+      testCase "first subagent tag wins even with absent or empty metadata" $ do
+        missing <- tagFixture "subagent" Nothing
+        empty <- tagFixture "subagent" (Just mempty)
+        later <- tagFixture "subagent" (Just (KeyMap.singleton "callingSessionId" "later"))
+        findSubagentSessionTag [missing, later] @?= Just missing
+        findSubagentSessionTag [empty, later] @?= Just empty
+        (sessionTagMetadata =<< findSubagentSessionTag [missing, later]) @?= Nothing
+        (sessionTagMetadata =<< findSubagentSessionTag [empty, later]) @?= Just mempty,
+      testCase "subagent tag extraction preserves raw empty calling IDs and exact extensions" $ do
+        let metadata = KeyMap.fromList [("callingSessionId", ""), ("callingToolUseId", " tool "), ("future", "")]
+        base <- tagFixture "subagent" (Just metadata)
+        let tag = base {sessionTagAdditionalFields = KeyMap.fromList [("future", Number 9007199254740993), ("flag", Bool False), ("null", Null)]}
+            selected = findSubagentSessionTag [tag]
+            values = sessionTagMetadata =<< selected
+        selected @?= Just tag
+        (values >>= KeyMap.lookup "callingSessionId") @?= Just ""
+        (values >>= KeyMap.lookup "callingToolUseId") @?= Just " tool "
+        values @?= Just metadata,
+      testCase "calling metadata is never merged across matching tags" $ do
+        first <- tagFixture "subagent" (Just (KeyMap.singleton "callingSessionId" "first"))
+        later <- tagFixture "subagent" (Just (KeyMap.fromList [("callingSessionId", "later"), ("callingToolUseId", "later-tool")]))
+        let values = sessionTagMetadata =<< findSubagentSessionTag [first, later]
+        (values >>= KeyMap.lookup "callingSessionId") @?= Just "first"
+        (values >>= KeyMap.lookup "callingToolUseId") @?= Nothing,
       testCase "worktree metadata golden covers every selector" $ do
         fromJSON (Object worktreeJSON) @?= Success worktree
         toJSON worktree @?= Object worktreeJSON
@@ -115,6 +151,9 @@ sessionTests schema local =
           rejects (Proxy @SessionIdParams) value
           rejects (Proxy @SessionTag) value
           rejects (Proxy @SessionWorktreeMetadata) value,
+      redactedRecordTests "SessionWorktreeInfo" (schemaAt ["definitions", "InitializeSessionResultSchema", "properties", "worktree"] local) initialWorktree (SessionWorktreeInfo "" "" False Nothing Nothing Nothing mempty) initialWorktreeJSON (KeyMap.fromList ["branch" .= String "", "path" .= String "", "isNewlyCreated" .= False]) (\extras value -> value {initialWorktreeAdditionalFields = extras}),
+      testCase "initial worktree lifecycle uses the declared enum" $
+        rejects (Proxy @SessionWorktreeInfo) (Object (KeyMap.insert "lifecycle" (String "future") initialWorktreeJSON)),
       records "SessionSchema" (SessionSnapshot [] (Just "") mempty) (SessionSnapshot [] Nothing mempty) (KeyMap.fromList ["messages" .= ([] :: [Value]), "title" .= String ""]) (KeyMap.singleton "messages" (Array mempty)) (\extras value -> value {sessionSnapshotAdditionalFields = extras}),
       records "SandboxStatusSchema" (SandboxStatus False (Just SandboxWholeProcess) mempty) (SandboxStatus False Nothing mempty) (KeyMap.fromList ["enabled" .= False, "mode" .= String "whole-process"]) (KeyMap.singleton "enabled" (Bool False)) (\extras value -> value {sandboxStatusAdditionalFields = extras}),
       records "ToolOverrideParamsSchema" overrides (ToolOverrideParams Nothing Nothing Nothing Nothing mempty) overridesJSON mempty (\extras value -> value {overrideAdditionalFields = extras}),
@@ -163,6 +202,12 @@ sessionTests schema local =
   where
     records :: (Eq a, Show a, FromJSON a, ToJSON a) => Key -> a -> a -> Object -> Object -> (Object -> a -> a) -> TestTree
     records name = nonNullableRecordTests name (schemaAt ["definitions", name] local)
+
+initialWorktree :: SessionWorktreeInfo
+initialWorktree = SessionWorktreeInfo "topic" "/fixture/tree" False (Just "/fixture/repo") (Just WorktreePersistent) (Just "/fixture/parent") mempty
+
+initialWorktreeJSON :: Object
+initialWorktreeJSON = KeyMap.fromList ["branch" .= String "topic", "path" .= String "/fixture/tree", "isNewlyCreated" .= False, "repoRoot" .= String "/fixture/repo", "lifecycle" .= String "persistent", "parentWorktreePath" .= String "/fixture/parent"]
 
 overrides :: ToolOverrideParams
 overrides = ToolOverrideParams (Just ["extra", "extra"]) (Just ["shared"]) (Just ["shared"]) (Just []) mempty

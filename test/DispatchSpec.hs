@@ -5,7 +5,7 @@ module DispatchSpec (dispatchTests) where
 import Control.Concurrent (newEmptyMVar, putMVar, readMVar, takeMVar, tryTakeMVar)
 import Control.Concurrent.Async (AsyncCancelled (..), cancel, wait, waitCatch, withAsync, withAsyncOn)
 import Control.Concurrent.STM (TQueue, atomically, newTQueueIO, readTQueue, tryReadTQueue, writeTQueue)
-import Control.Exception (bracket_, fromException, throwIO, try)
+import Control.Exception (bracket_, finally, fromException, throwIO, try)
 import Control.Monad (forM_, replicateM, replicateM_, void)
 import Data.Aeson (Object, Result (..), Value (..), fromJSON)
 import Data.Aeson.KeyMap qualified as KeyMap
@@ -104,6 +104,40 @@ dispatchTests =
           readResult sent >>= (@?= Number 2)
           putMVar release ()
           readResult sent >>= (@?= Number 1),
+      testCase "prepared cleanup remains owned until it finishes or is cancelled" $ bounded $ withMemory $ \channel incoming sent -> do
+        started <- newEmptyMVar
+        release <- newEmptyMVar
+        ended <- newEmptyMVar
+        let cleanup = (putMVar started () >> takeMVar release) `finally` putMVar ended ()
+        withRpcDispatcher channel context $ \dispatcher -> do
+          void (registerPreparedRpcHandler dispatcher "prepared" (\_ _ -> pure (RpcPreparedRequest (pure Nothing) cleanup)))
+          feed incoming (toRpcObject (call "prepared-id" "prepared"))
+          takeMVar started
+        finished <- tryTakeMVar ended
+        case finished of Nothing -> putMVar release () >> takeMVar ended; Just () -> pure ()
+        finished @?= Just ()
+        atomically (tryReadTQueue sent) >>= (@?= Nothing),
+      testCase "request preparation precedes following intake even while its worker is held" $ bounded $ withMemory $ \channel incoming sent -> do
+        prepared <- newIORef False
+        release <- newEmptyMVar
+        observed <- newEmptyMVar
+        withRpcDispatcher channel context $ \dispatcher -> do
+          void
+            ( registerPreparedRpcHandler
+                dispatcher
+                "prepared"
+                ( \origin _ -> do
+                    origin @?= RpcLiveRequest
+                    atomicModifyIORef' prepared (const (True, ()))
+                    pure (RpcPreparedRequest (takeMVar release >> pure (Just (Right Null))) (pure ()))
+                )
+            )
+          void (onRpcNotification dispatcher (\_ -> readIORef prepared >>= putMVar observed))
+          feed incoming (toRpcObject (call "prepared-id" "prepared"))
+          feed incoming (toRpcObject notice)
+          takeMVar observed >>= (@?= True)
+          putMVar release ()
+          readResult sent >>= (@?= Null),
       testCase "duplicate active IDs do not run a second handler" $ bounded $ withMemory $ \channel incoming sent ->
         withRpcDispatcher channel context $ \dispatcher -> do
           count <- newIORef (0 :: Int)
@@ -121,6 +155,15 @@ dispatchTests =
           putMVar release ()
           readResult sent >>= (@?= Null)
           atomically (tryReadTQueue sent) >>= (@?= Nothing),
+      testCase "restored request admission respects a revoked generation without reserving the request ID" $ bounded $ withMemory $ \channel _ sent ->
+        withRpcDispatcher channel context $ \dispatcher -> do
+          never <- newEmptyMVar @()
+          void (registerRpcHandler dispatcher "restore" (\restored -> case baseRequestParams (envelopeBody restored) of Just (String "stale") -> takeMVar never >> pure (Right Null); _ -> pure (Right (Number 7))))
+          let stale = context {envelopeBody = BaseRequest "same" "restore" (Just (String "stale")) mempty}
+              current = context {envelopeBody = BaseRequest "same" "restore" (Just (String "current")) mempty}
+          dispatchRpcRequestWhen dispatcher (pure False) stale
+          dispatchRpcRequestWhen dispatcher (pure True) current
+          readResult sent >>= (@?= Number 7),
       testCase "concurrent restored and live admission keeps exactly one cleanup owner" $ bounded $ replicateM_ 20 $ withMemory $ \channel incoming _ -> do
         counts <- newIORef (0 :: Int, 0 :: Int)
         entered <- newTQueueIO

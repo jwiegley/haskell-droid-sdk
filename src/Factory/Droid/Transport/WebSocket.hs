@@ -1,21 +1,30 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Scoped WebSocket JSON-object transport. TLS validates certificates by
+-- | Scoped WebSocket messages and JSON objects. TLS validates certificates by
 -- default; authentication belongs to the protocol carried over the connection.
 module Factory.Droid.Transport.WebSocket
   ( WebSocketTarget (..),
     WebSocketOptions (..),
     defaultWebSocketOptions,
     ObjectWebSocket,
+    MessageWebSocket,
+    WebSocketMessage (..),
+    WebSocketClose (..),
     WebSocketError (..),
     withWebSocket,
+    withMessageWebSocket,
     sendObject,
     receiveObject,
+    receiveObjectWithClose,
+    sendMessage,
+    receiveMessage,
+    closeMessageWebSocket,
+    isMessageWebSocketOpen,
   )
 where
 
-import Control.Concurrent.MVar (MVar, newMVar, withMVar)
-import Control.Exception (Exception, Handler (..), IOException, bracket, catches, finally, onException, throwIO, try)
+import Control.Concurrent.MVar (MVar, newMVar, putMVar, takeMVar, withMVar)
+import Control.Exception (Exception, Handler (..), IOException, allowInterrupt, bracket, catch, catches, finally, mask_, onException, throwIO, try, uninterruptibleMask_)
 import Control.Monad (forM_, forever, unless, void, when)
 import Data.Aeson (Object, eitherDecode, encode)
 import Data.ByteString qualified as BS
@@ -23,7 +32,10 @@ import Data.ByteString.Lazy qualified as BL
 import Data.Char (isAsciiLower, isAsciiUpper, isDigit)
 import Data.Default (def)
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
+import Data.Text (Text)
+import Data.Text.Encoding qualified as Text
 import Data.Word (Word16)
+import Factory.Droid.Internal.Exception (finallyPreserving)
 import GHC.Clock (getMonotonicTimeNSec)
 import Network.Connection qualified as Connection
 import Network.Socket qualified as Socket
@@ -66,6 +78,7 @@ defaultWebSocketOptions = WebSocketOptions (Just def) (10 * 1024 * 1024) 6000000
 data WebSocketError
   = InvalidWebSocketTarget
   | InvalidWebSocketLimit
+  | InvalidWebSocketCloseReason
   | InvalidWebSocketTimeout
   | WebSocketConnectFailure
   | WebSocketConnectTimeout
@@ -81,13 +94,34 @@ instance Exception WebSocketError
 
 -- | Borrowed only inside withWebSocket. Finish caller-owned I/O threads before
 -- leaving its callback. Failed/cancelled I/O makes subsequent operations fail.
-data ObjectWebSocket = ObjectWebSocket !Int !WS.Connection !(MVar ()) !(MVar ()) !(IORef Bool)
+newtype ObjectWebSocket = ObjectWebSocket MessageWebSocket
+
+-- | The same physical owner, before selecting an object or binary protocol.
+-- A receive loop is required to observe peer closure; openness is last-known.
+data MessageWebSocket = MessageWebSocket !Int !WS.Connection !(MVar ()) !(MVar ()) !(IORef Bool) !(Text -> IO ())
+
+data WebSocketMessage = WebSocketText !BL.ByteString | WebSocketBinary !BL.ByteString deriving stock (Eq)
+
+instance Show WebSocketMessage where show _ = "WebSocketMessage <redacted>"
+
+data WebSocketClose = WebSocketClose
+  { webSocketCloseCode :: !Word16,
+    webSocketCloseReason :: !Text
+  }
+  deriving stock (Eq)
+
+instance Show WebSocketClose where show _ = "WebSocketClose <redacted>"
+
+instance Exception WebSocketClose
 
 -- | One socket owner spans TCP/TLS/HTTP setup, user work and bounded graceful
 -- closure. Setup shares one deadline; the user callback is outside it. The HTTP
 -- response header is limited to 64 KiB. Compression is not negotiated.
 withWebSocket :: WebSocketOptions -> WebSocketTarget -> (ObjectWebSocket -> IO a) -> IO a
-withWebSocket options target action = do
+withWebSocket options target action = withMessageWebSocket options target (action . ObjectWebSocket)
+
+withMessageWebSocket :: WebSocketOptions -> WebSocketTarget -> (MessageWebSocket -> IO a) -> IO a
+withMessageWebSocket options target action = do
   let limit = webSocketMessageLimitBytes options
       connectMicros = webSocketConnectTimeoutMicros options
   when (limit <= 0) (throwIO InvalidWebSocketLimit)
@@ -113,24 +147,73 @@ withWebSocket options target action = do
             Right () -> do
               (stream, connection, closeTLS) <- connectBoundary (beforeDeadline deadline (openWebSocket socket target options settings))
               healthy <- newIORef True
-              channel <- ObjectWebSocket limit connection <$> newMVar () <*> newMVar () <*> pure healthy
-              let close = do
-                    graceful <- readIORef healthy
-                    writeIORef healthy False
-                    when (graceful && webSocketCloseTimeoutMicros options > 0) $
-                      void (timeout (webSocketCloseTimeoutMicros options) (finish connection >> closeTLS))
-                  release = Socket.close socket `finally` Stream.close stream
-              Just <$> (action channel `finally` (close `finally` release))
+              writer <- newMVar ()
+              reader <- newMVar ()
+              cleanupLock <- newMVar ()
+              closed <- newIORef False
+              let release = Socket.close socket `finally` Stream.close stream
+                  close reason = mask_ $ do
+                    when (BS.length (Text.encodeUtf8 reason) > 123) (throwIO InvalidWebSocketCloseReason)
+                    uninterruptibleMask_ (takeMVar cleanupLock)
+                    ( do
+                        done <- readIORef closed
+                        unless done $ do
+                          writeIORef closed True
+                          graceful <- readIORef healthy
+                          writeIORef healthy False
+                          when
+                            (graceful && webSocketCloseTimeoutMicros options > 0)
+                            (void (timeout (webSocketCloseTimeoutMicros options) (finish connection writer reader reason >> closeTLS)))
+                            `finally` release
+                      )
+                      `finally` putMVar cleanupLock ()
+                    allowInterrupt
+                  channel = MessageWebSocket limit connection writer reader healthy close
+              Just <$> finallyPreserving (action channel) (close "Client disconnect")
         maybe (attempt rest) pure outcome
   attempt addresses
 
 sendObject :: ObjectWebSocket -> Object -> IO ()
-sendObject (ObjectWebSocket limit connection writer _ healthy) value = withMVar writer $ \() ->
+sendObject (ObjectWebSocket socket) value = sendBytes socket WS.sendTextData (encode value)
+
+receiveObject :: ObjectWebSocket -> IO Object
+receiveObject socket = receiveObjectWithClose socket `catch` \(WebSocketClose code _) -> throwIO (WebSocketPeerClosed code)
+
+-- | Object projection retaining full peer close metadata in WebSocketClose.
+-- The legacy receiveObject projection keeps its code-only exception contract.
+receiveObjectWithClose :: ObjectWebSocket -> IO Object
+receiveObjectWithClose (ObjectWebSocket socket) = receiveWith socket decode
+  where
+    decode = \case
+      WebSocketBinary _ -> throwIO WebSocketBinaryMessage
+      WebSocketText bytes -> either (const (throwIO WebSocketInvalidObject)) pure (eitherDecode bytes)
+
+sendMessage :: MessageWebSocket -> WebSocketMessage -> IO ()
+sendMessage socket = \case
+  WebSocketBinary bytes -> sendBytes socket WS.sendBinaryData bytes
+  WebSocketText bytes -> sendBytes socket (\connection payload -> validateText payload >> WS.sendTextData connection payload) bytes
+
+receiveMessage :: MessageWebSocket -> IO WebSocketMessage
+receiveMessage socket = receiveWith socket $ \message -> do
+  case message of
+    WebSocketText bytes -> validateText bytes
+    WebSocketBinary _ -> pure ()
+  pure message
+
+-- | Normal close (1000), with at most 123 UTF-8 bytes of reason. The same
+-- bounded cleanup owner is used by explicit close and final scope exit.
+closeMessageWebSocket :: MessageWebSocket -> Text -> IO ()
+closeMessageWebSocket (MessageWebSocket _ _ _ _ _ close) = close
+
+isMessageWebSocketOpen :: MessageWebSocket -> IO Bool
+isMessageWebSocketOpen (MessageWebSocket _ _ _ _ healthy _) = readIORef healthy
+
+sendBytes :: MessageWebSocket -> (WS.Connection -> BL.ByteString -> IO ()) -> BL.ByteString -> IO ()
+sendBytes (MessageWebSocket limit connection writer _ healthy _) send bytes = withMVar writer $ \() ->
   ( do
       readIORef healthy >>= (`unless` throwIO WebSocketWriteFailure)
-      let bytes = encode value
       when (BL.length bytes > fromIntegral limit) (throwIO WebSocketMessageTooLarge)
-      WS.sendTextData connection bytes
+      send connection bytes
         `catches` [ Handler (\(_ :: IOException) -> throwIO WebSocketWriteFailure),
                     Handler (\(_ :: WS.ConnectionException) -> throwIO WebSocketWriteFailure),
                     Handler (\(_ :: TLS.TLSException) -> throwIO WebSocketWriteFailure)
@@ -138,8 +221,8 @@ sendObject (ObjectWebSocket limit connection writer _ healthy) value = withMVar 
   )
     `onException` writeIORef healthy False
 
-receiveObject :: ObjectWebSocket -> IO Object
-receiveObject (ObjectWebSocket _ connection _ reader healthy) = withMVar reader $ \() ->
+receiveWith :: MessageWebSocket -> (WebSocketMessage -> IO a) -> IO a
+receiveWith (MessageWebSocket _ connection _ reader healthy _) decode = withMVar reader $ \() ->
   ( do
       readIORef healthy >>= (`unless` throwIO WebSocketReadFailure)
       message <-
@@ -148,16 +231,21 @@ receiveObject (ObjectWebSocket _ connection _ reader healthy) = withMVar reader 
                       Handler (\(_ :: TLS.TLSException) -> throwIO WebSocketReadFailure),
                       Handler
                         ( \case
-                            WS.CloseRequest code _ -> throwIO (WebSocketPeerClosed code)
+                            WS.CloseRequest code reason -> case Text.decodeUtf8' (BL.toStrict reason) of
+                              Left _ -> throwIO WebSocketInvalidObject
+                              Right text -> throwIO (WebSocketClose code text)
                             WS.UnicodeException _ -> throwIO WebSocketInvalidObject
                             _ -> throwIO WebSocketReadFailure
                         )
                     ]
-      case message of
-        WS.Binary _ -> throwIO WebSocketBinaryMessage
-        WS.Text bytes _ -> either (const (throwIO WebSocketInvalidObject)) pure (eitherDecode bytes)
+      decode $ case message of
+        WS.Binary bytes -> WebSocketBinary bytes
+        WS.Text bytes _ -> WebSocketText bytes
   )
     `onException` writeIORef healthy False
+
+validateText :: BL.ByteString -> IO ()
+validateText bytes = either (const (throwIO WebSocketInvalidObject)) (const (pure ())) (Text.decodeUtf8' (BL.toStrict bytes))
 
 validTarget :: WebSocketTarget -> Bool
 validTarget (WebSocketTarget host port path) =
@@ -217,7 +305,7 @@ connectBoundary action =
 ignoreClose :: IO () -> IO ()
 ignoreClose action = action `catches` [Handler (\(_ :: IOException) -> pure ()), Handler (\(_ :: TLS.TLSException) -> pure ())]
 
-finish :: WS.Connection -> IO ()
-finish connection =
-  ignoreClose (WS.sendClose connection ("Client disconnect" :: BL.ByteString) >> forever (void (WS.receiveDataMessage connection)))
+finish :: WS.Connection -> MVar () -> MVar () -> Text -> IO ()
+finish connection writer reader reason =
+  ignoreClose (withMVar writer (\() -> WS.sendCloseCode connection 1000 (Text.encodeUtf8 reason)) >> withMVar reader (\() -> forever (void (WS.receiveDataMessage connection))))
     `catches` [Handler (\(_ :: WS.ConnectionException) -> pure ())]

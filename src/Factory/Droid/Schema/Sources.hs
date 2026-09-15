@@ -15,9 +15,12 @@ module Factory.Droid.Schema.Sources
     BugReportSurface (..),
     BugReportRuntime (..),
     BugReportSource (..),
+    BugReportSourceError (..),
+    validateBugReportSource,
   )
 where
 
+import Control.Exception (Exception)
 import Data.Aeson
   ( FromJSON (..),
     Object,
@@ -31,9 +34,14 @@ import Data.Aeson
   )
 import Data.Aeson.Key (Key)
 import Data.Aeson.Types (Pair, Parser)
+import Data.ByteString qualified as ByteString
+import Data.Proxy (Proxy (..))
 import Data.Text (Text)
+import Data.Text.Encoding qualified as TextEncoding
 import Factory.Droid.Internal.JSON (additionalFields, objectWithAdditionalFields, optionalField)
-import Factory.Droid.Schema.Primitives (BoundedText)
+import Factory.Droid.Schema.Primitives (BoundedText, boundedTextValue)
+import GHC.TypeNats (KnownNat, natVal)
+import Numeric.Natural (Natural)
 
 -- | Slack delegation and optional routing identifiers. Nothing omits a
 -- nullable field; Just Nothing represents its explicit null value.
@@ -335,6 +343,29 @@ instance ToJSON BugReportSource where
         <> optionalField "platform" (bugReportPlatform source)
         <> optionalField "arch" (bugReportArch source)
         <> optionalField "osVersion" (bugReportOsVersion source)
+
+-- | The field and allowed UTF-16 unit count, never the supplied field value.
+data BugReportSourceError = BugReportSourceTooLong !Text !Natural
+  deriving stock (Eq, Show)
+
+instance Exception BugReportSourceError
+
+-- | Apply the baselined CLI/TypeScript runtime's UTF-16 limits before
+-- submission. The canonical code-point codec remains lossless and unchanged.
+validateBugReportSource :: BugReportSource -> Either BugReportSourceError BugReportSource
+validateBugReportSource source = do
+  check "version" (bugReportVersion source)
+  check "cliVersion" (bugReportCliVersion source)
+  check "platform" (bugReportPlatform source)
+  check "arch" (bugReportArch source)
+  check "osVersion" (bugReportOsVersion source)
+  pure source
+  where
+    check :: forall limit. (KnownNat limit) => Text -> Maybe (BoundedText limit) -> Either BugReportSourceError ()
+    check field value = case value of
+      Just supplied
+        | fromIntegral (ByteString.length (TextEncoding.encodeUtf16LE (boundedTextValue supplied))) > 2 * natVal (Proxy @limit) -> Left (BugReportSourceTooLong field (natVal (Proxy @limit)))
+      _ -> Right ()
 
 bugReportKeys :: [Key]
 bugReportKeys = ["surface", "runtime", "version", "cliVersion", "platform", "arch", "osVersion"]

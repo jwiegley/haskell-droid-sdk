@@ -13,6 +13,7 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BSC
 import Data.ByteString.Lazy qualified as BL
 import Data.IORef (newIORef, readIORef, writeIORef)
+import Data.Map.Strict qualified as Map
 import Data.Text qualified as Text
 import Factory.Droid.Schema.Notifications (AgentTurnCompleted (..), AgentTurnCompletionReason (..), AssistantTextDelta (..))
 import Factory.Droid.Schema.RPC (BaseNotification (..), BaseResponseSuccess (..), CommandAck (..), WithEnvelope (..))
@@ -21,12 +22,12 @@ import Factory.Droid.Transport.Process
 import GHC.Clock (getMonotonicTimeNSec)
 import System.Environment (getExecutablePath, lookupEnv)
 import System.Exit (ExitCode (ExitSuccess))
-import System.IO (hClose, hFlush, hSetBinaryMode, openBinaryTempFile, stderr, stdin, stdout)
+import System.IO (IOMode (WriteMode), hClose, hFlush, hSetBinaryMode, openBinaryTempFile, stderr, stdin, stdout, withBinaryFile)
 import System.IO.Error (isDoesNotExistError)
 import System.Posix.Files (removeLink)
 import System.Posix.Process (exitImmediately, getProcessID)
 import System.Posix.Signals (Handler (Catch, Ignore), installHandler, nullSignal, sigKILL, sigTERM, signalProcess)
-import System.Process (CreateProcess (env))
+import System.Process (CmdSpec (RawCommand), CreateProcess (cmdspec, env, std_err), StdStream (CreatePipe, UseHandle))
 import System.Timeout (timeout)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
@@ -35,7 +36,56 @@ processTests :: TestTree
 processTests =
   testGroup
     "Local JSONL process exchange"
-    [ testCase "current-version request, acknowledgement, deltas and completion" $ bounded $ withPeer "exchange" 4096 $ \channel -> do
+    [ testCase "Droid modes select exact shell-free commands without starting a process" $
+        forM_ [(Acp, ["exec", "--output-format", "acp"]), (StreamJsonRpc, ["exec", "--input-format", "stream-jsonrpc", "--output-format", "stream-jsonrpc"])] $ \(mode, expected) ->
+          case cmdspec (droidProcess "/fixture/droid with spaces" mode) of
+            RawCommand executable arguments -> do
+              executable @?= "/fixture/droid with spaces"
+              arguments @?= expected
+            _ -> assertFailure "Droid command used a shell",
+      testCase "launch environment merges ordinary values before sanitization and trusted values after" $ do
+        let options = defaultDroidLaunchOptions {launchEnvironment = Map.fromList [("value", "override"), ("drop", "ordinary")], launchTrustedEnvironment = Map.fromList [("drop", "trusted"), ("empty", "")]}
+            sanitize = Map.map (<> "-clean") . Map.delete "drop"
+            configured = prepareDroidProcess "fixture" Acp options [("value", "inherited"), ("keep", "inherited"), ("Case", "upper"), ("case", "lower")] sanitize
+        env configured @?= Just (Map.toList (Map.fromList [("value", "override-clean"), ("keep", "inherited-clean"), ("Case", "upper-clean"), ("case", "lower-clean"), ("drop", "trusted"), ("empty", "")])),
+      testCase "launch prefix replacement and extra arguments preserve empty arrays and strings" $
+        forM_ [(Nothing, ["exec", "--output-format", "acp"]), (Just [], []), (Just ["custom", ""], ["custom", ""])] $ \(replacement, arguments) -> do
+          let options = defaultDroidLaunchOptions {launchPrefixArguments = ["prefix with spaces"], launchArguments = replacement, launchExtraArguments = ["extra", ""]}
+              configured = prepareDroidProcess "fixture" Acp options [] id
+          case cmdspec configured of
+            RawCommand executable actual -> do
+              executable @?= "fixture"
+              actual @?= ["prefix with spaces"] <> arguments <> ["extra", ""]
+            _ -> assertFailure "Launch configuration used a shell",
+      testCase "launch option displays do not expose arguments or environment values" $ do
+        let options = defaultDroidLaunchOptions {launchExtraArguments = ["private argument"], launchEnvironment = Map.singleton "TOKEN" "private value", launchTrustedEnvironment = Map.singleton "TOKEN" "trusted value"}
+        show options @?= "DroidLaunchOptions <redacted>",
+      testCase "ACP mode preserves raw requests replies notifications and errors without Factory envelopes" $ bounded $ withAcpPeer 4096 $ \channel ->
+        forM_
+          [ KeyMap.fromList ["jsonrpc" .= String "2.0", "id" .= Number 9007199254740993, "method" .= String "fixture/echo", "params" .= ([] :: [Value])],
+            KeyMap.fromList ["jsonrpc" .= String "2.0", "id" .= Number 1, "result" .= KeyMap.fromList ["empty" .= String "", "flag" .= False, "future" .= Null]],
+            KeyMap.fromList ["jsonrpc" .= String "2.0", "method" .= String "fixture/notice", "params" .= String "سلام\n😀"],
+            KeyMap.fromList ["jsonrpc" .= String "2.0", "id" .= String "request", "error" .= KeyMap.fromList ["code" .= Number (-32000), "message" .= String "fixture", "data" .= Null]]
+          ]
+          (\value -> sendObject channel value >> receiveObject channel >>= (@?= value)),
+      testCase "ACP framing failures retain shared bounds and payload-free errors" $
+        bounded $
+          forM_ [("malformed", InvalidJsonObject), ("eof", EndOfStream), ("partial", TruncatedFrame), ("oversized", FrameTooLarge)] $ \(mode, expected) -> do
+            result <- try @JsonLinesError $ withAcpPeer 128 $ \channel -> sendObject channel (KeyMap.singleton "fixtureControl" (String mode)) >> receiveObject channel
+            result @?= Left expected,
+      testCase "ACP callback exceptions retain identity and reap the child" $ bounded $ promptCleanup $ do
+        result <- try @TestAbort (withAcpPeer 4096 (\_ -> throwIO TestAbort) :: IO ())
+        result @?= Left TestAbort,
+      testCase "ACP cancellation kills and reaps a SIGTERM-resistant child" $ bounded $ promptCleanup $ do
+        ready <- newEmptyMVar
+        withAsync (withAcpPeer 4096 $ \channel -> stallAcp channel >> putMVar ready () >> receiveObject channel) $ \worker -> do
+          takeMVar ready
+          cancelAndCheck worker,
+      testCase "ACP normal scope exit kills and reaps a SIGTERM-resistant child" $
+        bounded $
+          promptCleanup $
+            withAcpPeer 4096 stallAcp,
+      testCase "current-version request, acknowledgement, deltas and completion" $ bounded $ withPeer "exchange" 4096 $ \channel -> do
         sendObject channel request
         ackMessage <- decode . Object =<< receiveObject channel
         envelopeProtocolVersion ackMessage @?= Just "1.205.0"
@@ -49,6 +99,35 @@ processTests =
         completed <- notification channel :: IO AgentTurnCompleted
         turnCompletionReason completed @?= TurnCompleted
         usageOutputTokens (turnTokenUsage completed) @?= 2,
+      testCase "explicit stderr pipes drain alongside stdout and retain owned cleanup" $ bounded $ do
+        executable <- getExecutablePath
+        let configured = (proc executable ["--jsonl-peer", "stderr"]) {env = Just [("JSONL_FIXTURE", "native")], std_err = CreatePipe}
+        (pid, diagnostic) <- withJsonLinesProcessStderr 4096 50000 configured $ \channel errors -> do
+          pipe <- maybe (assertFailure "Missing owned stderr pipe") pure errors
+          withAsync (BS.hGetContents pipe) $ \draining -> do
+            ready <- receiveObject channel
+            pid <- maybe (assertFailure "Missing peer PID") decode (KeyMap.lookup "pid" ready)
+            sendObject channel request
+            receiveObject channel >>= (@?= request)
+            bytes <- wait draining
+            pure (pid, bytes)
+        assertReaped pid
+        diagnostic @?= BS.replicate (256 * 1024) 120,
+      testCase "explicit stderr handles remain borrowed after process scope exit" $ bounded $ withMarker $ \path -> do
+        executable <- getExecutablePath
+        withBinaryFile path WriteMode $ \sink -> do
+          let configured = (proc executable ["--jsonl-peer", "stderr"]) {env = Just [("JSONL_FIXTURE", "native")], std_err = UseHandle sink}
+          pid <- withJsonLinesProcessStderr 4096 50000 configured $ \channel errors -> do
+            errors @?= Nothing
+            ready <- receiveObject channel
+            pid <- maybe (assertFailure "Missing peer PID") decode (KeyMap.lookup "pid" ready)
+            sendObject channel request
+            receiveObject channel >>= (@?= request)
+            pure pid
+          assertReaped pid
+          BS.hPut sink "tail"
+          hFlush sink
+        BS.readFile path >>= (@?= BS.replicate (256 * 1024) 120 <> "tail"),
       testCase "stderr cannot block an exchange and CRLF is accepted" $ bounded $ withPeer "stderr" 4096 $ \channel -> do
         sendObject channel request
         received <- receiveObject channel
@@ -154,11 +233,22 @@ withPeer :: String -> Int -> (JsonLinesProcess -> IO a) -> IO a
 withPeer mode limit = withPeerSettings mode limit 50000 Nothing
 
 withPeerSettings :: String -> Int -> Int -> Maybe FilePath -> (JsonLinesProcess -> IO a) -> IO a
-withPeerSettings mode limit grace marker action = do
+withPeerSettings mode = withPeerCommand (\executable -> proc executable ["--jsonl-peer", mode])
+
+withAcpPeer :: Int -> (JsonLinesProcess -> IO a) -> IO a
+withAcpPeer limit = withPeerCommand (`droidProcess` Acp) limit 50000 Nothing
+
+stallAcp :: JsonLinesProcess -> IO ()
+stallAcp channel = do
+  sendObject channel (KeyMap.singleton "fixtureControl" (String "stubborn"))
+  receiveObject channel >>= (@?= KeyMap.singleton "ready" (Bool True))
+
+withPeerCommand :: (FilePath -> CreateProcess) -> Int -> Int -> Maybe FilePath -> (JsonLinesProcess -> IO a) -> IO a
+withPeerCommand command limit grace marker action = do
   executable <- getExecutablePath
   pidRef <- newIORef Nothing
   let environment = [("JSONL_FIXTURE", "native")] <> maybe [] (\path -> [("JSONL_MARKER", path)]) marker
-      config = (proc executable ["--jsonl-peer", mode]) {env = Just environment}
+      config = (command executable) {env = Just environment}
   result <- try @SomeException $ withJsonLinesProcess limit grace config $ \channel -> do
     ready <- receiveObject channel
     pid <- maybe (assertFailure "Missing peer PID") decode (KeyMap.lookup "pid" ready) :: IO Integer
@@ -191,7 +281,7 @@ data TestAbort = TestAbort deriving stock (Eq, Show)
 instance Exception TestAbort
 
 -- Test-only control handshake identifies the exact child for cleanup checks.
--- The exchange after it uses protocol 1.205.0 frames; no Factory process runs.
+-- Later exchanges use Factory or raw JSONL fixture frames; no Factory process runs.
 runProcessPeer :: String -> IO ()
 runProcessPeer mode = do
   hSetBinaryMode stdin True
@@ -212,6 +302,19 @@ runProcessPeer mode = do
     void (forkIO (threadDelay (5 * 1000000) >> signalProcess sigKILL pid))
   writeLine (KeyMap.singleton "pid" (toJSON (fromIntegral pid :: Integer)))
   case mode of
+    "acp" -> forever $ do
+      received <- readObject
+      case KeyMap.lookup "fixtureControl" received of
+        Just (String "malformed") -> BS.hPut stdout "[]\n" >> hFlush stdout
+        Just (String "eof") -> hClose stdout >> forever (threadDelay 1000000)
+        Just (String "partial") -> BS.hPut stdout "{}" >> hClose stdout >> forever (threadDelay 1000000)
+        Just (String "oversized") -> BS.hPut stdout (BS.replicate 1024 120) >> hFlush stdout
+        Just (String "stubborn") -> do
+          void (installHandler sigTERM Ignore Nothing)
+          void (forkIO (threadDelay (5 * 1000000) >> signalProcess sigKILL pid))
+          writeLine (KeyMap.singleton "ready" (Bool True))
+          forever (threadDelay 1000000)
+        _ -> writeLine received
     "exchange" -> do
       received <- readObject
       unless (received == request) (throwIO TestAbort)

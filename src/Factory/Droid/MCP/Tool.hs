@@ -8,6 +8,7 @@ module Factory.Droid.MCP.Tool
     McpSchema,
     McpSchemaError (..),
     mkMcpSchema,
+    validateMcpSchema,
     openObjectSchema,
     mcpSchemaObject,
     McpContent,
@@ -20,23 +21,25 @@ module Factory.Droid.MCP.Tool
     rawTool,
     typedTool,
     structuredTool,
+    withToolOutputSchema,
     toolName,
     toolDescription,
     toolInputSchema,
     toolOutputSchema,
     invokeTool,
+    invokeToolWithValidator,
+    validateToolSchemas,
   )
 where
 
 import Control.DeepSeq (force)
-import Control.Exception (evaluate)
+import Control.Exception (evaluate, try)
 import Control.Monad (forM_, unless, void)
 import Data.Aeson (FromJSON (..), Object, ToJSON (..), Value (..), encode, withObject, (.:), (.:!), (.=))
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types (Parser, parseEither)
 import Data.ByteString.Lazy qualified as BL
 import Data.Char (isAsciiLower, isAsciiUpper, isDigit)
-import Data.Either (fromRight)
 import Data.Maybe (isJust)
 import Data.Scientific (Scientific)
 import Data.Text (Text)
@@ -45,10 +48,11 @@ import Data.Text.Encoding qualified as Text
 import Factory.Droid.Internal.Exception (trySync)
 import Factory.Droid.Internal.JSON (additionalFields, objectWithAdditionalFields, optionalField)
 import Factory.Droid.Internal.McpSchema
+import Factory.Droid.MCP.Validator (SchemaValidatorError, SchemaValidatorOptions, defaultSchemaValidatorOptions)
 import Factory.Droid.Schema.Primitives (mkRfc3339Timestamp)
 
 -- | Failures do not contain schemas, arguments or handler exception text.
-data McpToolError = InvalidMcpToolName | InvalidMcpToolResult
+data McpToolError = InvalidMcpToolName | InvalidMcpToolResult | McpSchemaValidationFailed !SchemaValidatorError
   deriving stock (Eq, Show)
 
 newtype McpContent = McpContent Object
@@ -186,8 +190,13 @@ structuredTool name description input output action = do
     case toJSON result of
       Object fields -> pure (structuredResult fields)
       _ -> pure (errorResult "Invalid structured tool output")
-  case tool of
-    McpTool label summary schema _ invoke -> pure (McpTool label summary schema (Just output) invoke)
+  pure (withToolOutputSchema output tool)
+
+-- | Attach an output schema without changing the handler or its rich result.
+-- Successful results require matching structured content; explicit tool errors
+-- are not checked against the output schema.
+withToolOutputSchema :: McpSchema -> McpTool -> McpTool
+withToolOutputSchema output (McpTool name description input _ action) = McpTool name description input (Just output) action
 
 toolName :: McpTool -> Text
 toolName (McpTool name _ _ _ _) = name
@@ -201,27 +210,45 @@ toolInputSchema (McpTool _ _ input _ _) = mcpSchemaObject input
 toolOutputSchema :: McpTool -> Maybe Object
 toolOutputSchema (McpTool _ _ _ output _) = mcpSchemaObject <$> output
 
--- | Argument/schema/handler failures become tool errors. An invalid result
--- envelope remains a protocol-level failure. Async exceptions are preserved.
+-- | Compile all definitions before server publication. No handler is invoked.
+validateToolSchemas :: SchemaValidatorOptions -> McpTool -> IO ()
+validateToolSchemas options (McpTool _ _ input output _) = do
+  validateMcpSchema options input
+  mapM_ (validateMcpSchema options) output
+
+-- | Invalid arguments/results become tool errors; validator infrastructure
+-- failures remain explicit protocol-level failures. Async exceptions propagate.
 invokeTool :: McpTool -> Object -> IO (Either McpToolError McpToolResult)
-invokeTool (McpTool _ _ input output action) arguments = do
-  attempted <- trySync $ do
-    validInput <- evaluate (matchesMcpSchema input (Object arguments))
-    if not validInput
-      then pure (Right (errorResult "Invalid tool arguments"))
-      else do
+invokeTool = invokeToolWithValidator defaultSchemaValidatorOptions
+
+invokeToolWithValidator :: SchemaValidatorOptions -> McpTool -> Object -> IO (Either McpToolError McpToolResult)
+invokeToolWithValidator options (McpTool _ _ input output action) arguments = do
+  checked <- validate input (Object arguments)
+  case checked of
+    Left failure -> pure (Left failure)
+    Right False -> pure (Right (errorResult "Invalid tool arguments"))
+    Right True -> do
+      attempted <- trySync $ do
         response <- action arguments
         encoded <- evaluate (force (toJSON response))
-        case parseEither parseJSON encoded of
-          Left _ -> pure (Left InvalidMcpToolResult)
-          Right result -> case (output, toolResultIsError result, toolResultStructuredContent result) of
-            (_, Just True, _) -> pure (Right result)
-            (Nothing, _, _) -> pure (Right result)
-            (Just schema, _, Just fields) -> do
-              validOutput <- evaluate (matchesMcpSchema schema (Object fields))
-              pure (Right (if validOutput then result else errorResult "Invalid structured tool output"))
-            (Just _, _, Nothing) -> pure (Right (errorResult "Missing structured tool output"))
-  pure (fromRight (Right (errorResult "Tool handler failed")) attempted)
+        pure (either (const (Left InvalidMcpToolResult)) Right (parseEither parseJSON encoded))
+      case attempted of
+        Left _ -> pure (Right (errorResult "Tool handler failed"))
+        Right (Left failure) -> pure (Left failure)
+        Right (Right result) -> case (output, toolResultIsError result, toolResultStructuredContent result) of
+          (_, Just True, _) -> pure (Right result)
+          (Nothing, _, _) -> pure (Right result)
+          (Just schema, _, Just fields) -> do
+            valid <- validate schema (Object fields)
+            pure $ case valid of
+              Left failure -> Left failure
+              Right True -> Right result
+              Right False -> Right (errorResult "Invalid structured tool output")
+          (Just _, _, Nothing) -> pure (Right (errorResult "Missing structured tool output"))
+  where
+    validate schema value = do
+      result <- try @SchemaValidatorError (matchesMcpSchema options schema value)
+      pure (either (Left . McpSchemaValidationFailed) Right result)
 
 validName :: Text -> Bool
 validName name = not (Text.null name) && Text.length name <= 128 && Text.all (\char -> isAsciiLower char || isAsciiUpper char || isDigit char || char `elem` ("._-" :: String)) name

@@ -6,6 +6,8 @@ module Factory.Droid.Schema.Control
   ( OutputFormat (..),
     UserMessageContent (..),
     AddUserMessageParams (..),
+    defaultUserMessageParams,
+    QueuedUserMessage (..),
     UserOnlyMessage,
     mkUserOnlyMessage,
     userOnlyMessageValue,
@@ -54,11 +56,12 @@ import Data.Aeson
   )
 import Data.Aeson.Key (Key)
 import Data.Aeson.KeyMap (KeyMap)
+import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types (Parser)
 import Data.List.NonEmpty (NonEmpty)
 import Data.Scientific (Scientific)
 import Data.Text (Text)
-import Factory.Droid.Internal.JSON (additionalFields, enumOptions, objectWithAdditionalFields, optionalField, requireLiteral)
+import Factory.Droid.Internal.JSON (additionalFields, enumOptions, fieldsWithAdditionalFields, objectWithAdditionalFields, optionalField, requireLiteral)
 import Factory.Droid.Schema.Content (Base64ImageSource, DocumentSource, ImageBlock, TextBlock)
 import Factory.Droid.Schema.Enums (MessageRole, MessageVisibility (VisibilityUserOnly), SessionOrigin)
 import Factory.Droid.Schema.Messages (FactoryDroidMessage, Message (messageVisibility))
@@ -118,6 +121,10 @@ data AddUserMessageParams = AddUserMessageParams
   }
   deriving stock (Eq, Show)
 
+-- | Required text only; optional values remain omitted, including message ID.
+defaultUserMessageParams :: Text -> AddUserMessageParams
+defaultUserMessageParams text = AddUserMessageParams text Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing mempty
+
 instance FromJSON AddUserMessageParams where
   parseJSON = withObject "AddUserMessageParams" $ \fields ->
     AddUserMessageParams
@@ -136,20 +143,40 @@ instance FromJSON AddUserMessageParams where
       <*> pure (additionalFields userMessageKeys fields)
 
 instance ToJSON AddUserMessageParams where
-  toJSON params =
-    objectWithAdditionalFields userMessageKeys (userMessageAdditionalFields params) $
-      ["text" .= userMessageText params]
-        <> optionalField "messageId" (userMessageId params)
-        <> optionalField "content" (userMessageContent params)
-        <> optionalField "images" (userMessageImages params)
-        <> optionalField "imagePaths" (userMessageImagePaths params)
-        <> optionalField "files" (userMessageFiles params)
-        <> optionalField "outputFormat" (userMessageOutputFormat params)
-        <> optionalField "skipAgentLoop" (userMessageSkipAgentLoop params)
-        <> optionalField "queuePlacement" (userMessageQueuePlacement params)
-        <> optionalField "role" (userMessageRole params)
-        <> optionalField "visibility" (userMessageVisibility params)
-        <> optionalField "userMessageSource" (userMessageSource params)
+  toJSON = Object . addUserMessageObject
+
+addUserMessageObject :: AddUserMessageParams -> Object
+addUserMessageObject params =
+  fieldsWithAdditionalFields userMessageKeys (userMessageAdditionalFields params) $
+    ["text" .= userMessageText params]
+      <> optionalField "messageId" (userMessageId params)
+      <> optionalField "content" (userMessageContent params)
+      <> optionalField "images" (userMessageImages params)
+      <> optionalField "imagePaths" (userMessageImagePaths params)
+      <> optionalField "files" (userMessageFiles params)
+      <> optionalField "outputFormat" (userMessageOutputFormat params)
+      <> optionalField "skipAgentLoop" (userMessageSkipAgentLoop params)
+      <> optionalField "queuePlacement" (userMessageQueuePlacement params)
+      <> optionalField "role" (userMessageRole params)
+      <> optionalField "visibility" (userMessageVisibility params)
+      <> optionalField "userMessageSource" (userMessageSource params)
+
+-- | A queued submission reported by load_session, not a local queue entry.
+data QueuedUserMessage = QueuedUserMessage
+  { queuedMessageRequestId :: !Text,
+    queuedMessageInput :: !AddUserMessageParams
+  }
+  deriving stock (Eq)
+
+instance Show QueuedUserMessage where
+  show _ = "QueuedUserMessage <redacted>"
+
+instance FromJSON QueuedUserMessage where
+  parseJSON = withObject "QueuedUserMessage" $ \fields ->
+    QueuedUserMessage <$> fields .: "requestId" <*> parseJSON (Object (KeyMap.delete "requestId" fields))
+
+instance ToJSON QueuedUserMessage where
+  toJSON value = Object (KeyMap.insert "requestId" (String (queuedMessageRequestId value)) (addUserMessageObject (queuedMessageInput value)))
 
 -- | A complete message whose explicit visibility is user_only. The private
 -- constructor prevents other visibility states from entering append payloads.

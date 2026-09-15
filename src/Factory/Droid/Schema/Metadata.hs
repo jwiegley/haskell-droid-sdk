@@ -1,9 +1,10 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Protocol 1.205.0 trace and attribution data, not an identity policy.
--- The supplied language enum has no Haskell member. These codecs neither
--- select another SDK's identity nor authorize omission of attribution.
+-- | Protocol 1.205.0 trace and attribution data. The supplied language enum
+-- has no Haskell member; native sessions omit optional SDK attribution rather
+-- than impersonating another SDK. These codecs retain declared identities
+-- for decoding and explicit caller-owned messages.
 module Factory.Droid.Schema.Metadata
   ( SdkLanguage (..),
     SdkVersion,

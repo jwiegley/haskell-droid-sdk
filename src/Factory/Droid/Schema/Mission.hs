@@ -30,14 +30,27 @@ module Factory.Droid.Schema.Mission
     MissionHeartbeat (..),
     MissionWorkerStarted (..),
     MissionWorkerCompleted (..),
+    MissionPauseReason (..),
+    WorkerFailureReason (..),
+    ProgressLogEntry (..),
+    ProgressLogDetails (..),
+    WorkerStartDetails (..),
+    WorkerCompletionDetails (..),
+    WorkerFailureDetails (..),
+    MissionProgressEntry (..),
+    MissionSnapshot (..),
   )
 where
 
-import Data.Aeson (FromJSON (..), Object, Options, ToJSON (..), Value (String), camelTo2, genericParseJSON, genericToEncoding, genericToJSON, withObject, (.:), (.:!), (.=))
+import Data.Aeson (FromJSON (..), Object, Options, ToJSON (..), Value (String), camelTo2, genericParseJSON, genericToEncoding, genericToJSON, withObject, withText, (.:), (.:!), (.=))
 import Data.Aeson.Key (Key)
+import Data.Aeson.Types (Pair, Parser)
+import Data.Map.Strict (Map)
 import Data.Scientific (Scientific)
 import Data.Text (Text)
-import Factory.Droid.Internal.JSON (additionalFields, enumOptions, objectWithAdditionalFields, optionalField, requireLiteral)
+import Data.Text qualified as Text
+import Factory.Droid.Internal.JSON (additionalFields, enumOptions, isEcmaWhitespace, objectWithAdditionalFields, optionalField, requireLiteral)
+import Factory.Droid.Schema.Usage (TokenUsage)
 import GHC.Generics (Generic)
 
 -- | The session's reported role in mission decomposition.
@@ -449,6 +462,186 @@ instance FromJSON MissionWorkerCompleted where
 
 instance ToJSON MissionWorkerCompleted where
   toJSON event = objectWithAdditionalFields ["type", "workerSessionId", "exitCode"] (completedMissionWorkerAdditionalFields event) ["type" .= String "mission_worker_completed", "workerSessionId" .= completedMissionWorkerId event, "exitCode" .= completedMissionWorkerExitCode event]
+
+data MissionPauseReason = PauseUsage402 | PauseFeatureRetryLimit | PauseScopeGrowthLimit
+  deriving stock (Eq, Ord, Show, Enum, Bounded)
+
+instance FromJSON MissionPauseReason where
+  parseJSON = withText "MissionPauseReason" $ \case
+    "unrecoverable_usage_402" -> pure PauseUsage402
+    "feature_retry_limit_exceeded" -> pure PauseFeatureRetryLimit
+    "scope_growth_limit_exceeded" -> pure PauseScopeGrowthLimit
+    _ -> fail "Unknown mission pause reason"
+
+instance ToJSON MissionPauseReason where
+  toJSON PauseUsage402 = String "unrecoverable_usage_402"
+  toJSON PauseFeatureRetryLimit = String "feature_retry_limit_exceeded"
+  toJSON PauseScopeGrowthLimit = String "scope_growth_limit_exceeded"
+
+data WorkerFailureReason = WorkerUsage402 | WorkerExitedWithoutHandoff
+  deriving stock (Eq, Ord, Show, Enum, Bounded)
+
+instance FromJSON WorkerFailureReason where
+  parseJSON = withText "WorkerFailureReason" $ \case
+    "unrecoverable_usage_402" -> pure WorkerUsage402
+    "worker_exited_without_handoff" -> pure WorkerExitedWithoutHandoff
+    _ -> fail "Unknown worker failure reason"
+
+instance ToJSON WorkerFailureReason where
+  toJSON WorkerUsage402 = String "unrecoverable_usage_402"
+  toJSON WorkerExitedWithoutHandoff = String "worker_exited_without_handoff"
+
+data WorkerStartDetails = WorkerStartDetails
+  { progressStartedWorkerId :: !Text,
+    progressStartedSpawnId :: !Text,
+    progressStartedFeatureId :: !(Maybe Text),
+    progressStartedModelId :: !(Maybe Text),
+    progressStartedSubstitutedModelId :: !(Maybe Text)
+  }
+  deriving stock (Eq, Show)
+
+data WorkerCompletionDetails = WorkerCompletionDetails
+  { progressCompletedWorkerId :: !Text,
+    progressCompletedFeatureId :: !Text,
+    progressCompletedSuccess :: !FeatureSuccessState,
+    progressReturnToOrchestrator :: !Bool,
+    progressCompletedExitCode :: !Scientific,
+    progressCompletedCommitId :: !(Maybe Text),
+    progressCompletedRepoPath :: !(Maybe Text),
+    progressValidatorsPassed :: !(Maybe Bool),
+    progressCompletedHandoff :: !(Maybe Handoff)
+  }
+  deriving stock (Eq, Show)
+
+data WorkerFailureDetails = WorkerFailureDetails
+  { progressFailedSpawnId :: !Text,
+    progressFailureMessage :: !Text,
+    progressFailedWorkerId :: !(Maybe Text),
+    progressFailedExitCode :: !(Maybe Scientific),
+    progressFailureReason :: !(Maybe WorkerFailureReason)
+  }
+  deriving stock (Eq, Show)
+
+-- | The payload of one timestamped entry. Optional values are not inferred
+-- from another entry or from the notification that contains the log.
+data ProgressLogDetails
+  = MissionAcceptedProgress !Text
+  | MissionPausedProgress !(Maybe MissionPauseReason)
+  | MissionResumedProgress !(Maybe Text)
+  | MissionRunStartedProgress !(Maybe Text)
+  | WorkerStartedProgress !WorkerStartDetails
+  | WorkerSelectedFeatureProgress !Text !Text
+  | WorkerCompletedProgress !WorkerCompletionDetails
+  | WorkerFailedProgress !WorkerFailureDetails
+  | WorkerPausedProgress !Text !(Maybe Text)
+  | HandoffItemsDismissedProgress !(Maybe [DismissalRecord])
+  | MilestoneValidationTriggeredProgress !Text !Text
+  deriving stock (Eq, Show)
+
+-- | Opaque timestamp and typed payload, with one owner for flat extensions.
+data ProgressLogEntry = ProgressLogEntry
+  { progressEntryTimestamp :: !Text,
+    progressEntryDetails :: !ProgressLogDetails,
+    progressEntryAdditionalFields :: !Object
+  }
+  deriving stock (Eq)
+
+instance Show ProgressLogEntry where
+  show _ = "ProgressLogEntry <redacted>"
+
+instance FromJSON ProgressLogEntry where
+  parseJSON = withObject "ProgressLogEntry" $ \fields -> do
+    timestamp <- fields .: "timestamp"
+    kind <- fields .: "type" :: Parser Text
+    details <- case kind of
+      "mission_accepted" -> MissionAcceptedProgress <$> fields .: "title"
+      "mission_paused" -> MissionPausedProgress <$> fields .:! "pauseReason"
+      "mission_resumed" -> MissionResumedProgress <$> fields .:! "resumeWorkerSessionId"
+      "mission_run_started" -> MissionRunStartedProgress <$> fields .:! "message"
+      "worker_started" -> WorkerStartedProgress <$> (WorkerStartDetails <$> fields .: "workerSessionId" <*> fields .: "spawnId" <*> fields .:! "featureId" <*> fields .:! "modelId" <*> fields .:! "substitutedFromModelId")
+      "worker_selected_feature" -> WorkerSelectedFeatureProgress <$> fields .: "workerSessionId" <*> fields .: "featureId"
+      "worker_completed" -> WorkerCompletedProgress <$> (WorkerCompletionDetails <$> fields .: "workerSessionId" <*> fields .: "featureId" <*> fields .: "successState" <*> fields .: "returnToOrchestrator" <*> fields .: "exitCode" <*> nonBlankField "commitId" fields <*> nonBlankField "repoPath" fields <*> fields .:! "validatorsPassed" <*> fields .:! "handoff")
+      "worker_failed" -> WorkerFailedProgress <$> (WorkerFailureDetails <$> fields .: "spawnId" <*> fields .: "reason" <*> fields .:! "workerSessionId" <*> fields .:! "exitCode" <*> fields .:! "failureReason")
+      "worker_paused" -> WorkerPausedProgress <$> fields .: "workerSessionId" <*> fields .:! "featureId"
+      "handoff_items_dismissed" -> HandoffItemsDismissedProgress <$> fields .:! "dismissals"
+      "milestone_validation_triggered" -> MilestoneValidationTriggeredProgress <$> fields .: "milestone" <*> fields .: "featureId"
+      _ -> fail "Unknown mission progress entry"
+    let (_, keys, _) = progressFields details
+    pure (ProgressLogEntry timestamp details (additionalFields ("type" : "timestamp" : keys) fields))
+
+instance ToJSON ProgressLogEntry where
+  toJSON entry =
+    let (kind, keys, fields) = progressFields (progressEntryDetails entry)
+     in objectWithAdditionalFields ("type" : "timestamp" : keys) (progressEntryAdditionalFields entry) (["type" .= kind, "timestamp" .= progressEntryTimestamp entry] <> fields)
+
+-- | These two report fields discard all-ECMAScript-whitespace strings only.
+-- Nonblank strings retain their spelling; null and nonstrings remain invalid.
+nonBlankField :: Key -> Object -> Parser (Maybe Text)
+nonBlankField key fields = do
+  value <- fields .:! key
+  pure (value >>= \text -> if Text.all isEcmaWhitespace text then Nothing else Just text)
+
+progressFields :: ProgressLogDetails -> (Text, [Key], [Pair])
+progressFields = \case
+  MissionAcceptedProgress title -> ("mission_accepted", ["title"], ["title" .= title])
+  MissionPausedProgress reason -> ("mission_paused", ["pauseReason"], optionalField "pauseReason" reason)
+  MissionResumedProgress worker -> ("mission_resumed", ["resumeWorkerSessionId"], optionalField "resumeWorkerSessionId" worker)
+  MissionRunStartedProgress message -> ("mission_run_started", ["message"], optionalField "message" message)
+  WorkerStartedProgress worker -> ("worker_started", ["workerSessionId", "spawnId", "featureId", "modelId", "substitutedFromModelId"], ["workerSessionId" .= progressStartedWorkerId worker, "spawnId" .= progressStartedSpawnId worker] <> optionalField "featureId" (progressStartedFeatureId worker) <> optionalField "modelId" (progressStartedModelId worker) <> optionalField "substitutedFromModelId" (progressStartedSubstitutedModelId worker))
+  WorkerSelectedFeatureProgress worker feature -> ("worker_selected_feature", ["workerSessionId", "featureId"], ["workerSessionId" .= worker, "featureId" .= feature])
+  WorkerCompletedProgress worker -> ("worker_completed", ["workerSessionId", "featureId", "successState", "returnToOrchestrator", "exitCode", "commitId", "repoPath", "validatorsPassed", "handoff"], ["workerSessionId" .= progressCompletedWorkerId worker, "featureId" .= progressCompletedFeatureId worker, "successState" .= progressCompletedSuccess worker, "returnToOrchestrator" .= progressReturnToOrchestrator worker, "exitCode" .= progressCompletedExitCode worker] <> optionalField "commitId" (progressCompletedCommitId worker) <> optionalField "repoPath" (progressCompletedRepoPath worker) <> optionalField "validatorsPassed" (progressValidatorsPassed worker) <> optionalField "handoff" (progressCompletedHandoff worker))
+  WorkerFailedProgress worker -> ("worker_failed", ["spawnId", "reason", "workerSessionId", "exitCode", "failureReason"], ["spawnId" .= progressFailedSpawnId worker, "reason" .= progressFailureMessage worker] <> optionalField "workerSessionId" (progressFailedWorkerId worker) <> optionalField "exitCode" (progressFailedExitCode worker) <> optionalField "failureReason" (progressFailureReason worker))
+  WorkerPausedProgress worker feature -> ("worker_paused", ["workerSessionId", "featureId"], ["workerSessionId" .= worker] <> optionalField "featureId" feature)
+  HandoffItemsDismissedProgress dismissals -> ("handoff_items_dismissed", ["dismissals"], optionalField "dismissals" dismissals)
+  MilestoneValidationTriggeredProgress milestone feature -> ("milestone_validation_triggered", ["milestone", "featureId"], ["milestone" .= milestone, "featureId" .= feature])
+
+-- | A complete ordered progress-log snapshot, not an append-only delta.
+data MissionProgressEntry = MissionProgressEntry
+  { missionProgressLog :: ![ProgressLogEntry],
+    missionProgressAdditionalFields :: !Object
+  }
+  deriving stock (Eq)
+
+instance Show MissionProgressEntry where
+  show _ = "MissionProgressEntry <redacted>"
+
+instance FromJSON MissionProgressEntry where
+  parseJSON = withObject "MissionProgressEntry" $ \fields -> do
+    requireLiteral "type" "mission_progress_entry" fields
+    MissionProgressEntry <$> fields .: "progressLog" <*> pure (additionalFields ["type", "progressLog"] fields)
+
+instance ToJSON MissionProgressEntry where
+  toJSON event = objectWithAdditionalFields ["type", "progressLog"] (missionProgressAdditionalFields event) ["type" .= String "mission_progress_entry", "progressLog" .= missionProgressLog event]
+
+-- | Full reported mission state. Aggregate and per-session usage are separate
+-- reports here; decoding does not recompute totals or create a live store.
+data MissionSnapshot = MissionSnapshot
+  { missionSnapshotState :: !MissionPhase,
+    missionSnapshotFeatures :: ![MissionFeature],
+    missionSnapshotProgress :: ![ProgressLogEntry],
+    missionSnapshotWorkers :: ![Text],
+    missionSnapshotTitle :: !(Maybe Text),
+    missionSnapshotUpdatedAt :: !(Maybe Text),
+    missionSnapshotWorkingDirectory :: !(Maybe Text),
+    missionSnapshotWorkerStates :: !(Maybe (Map Text WorkerStateInfo)),
+    missionSnapshotTokenUsage :: !(Maybe TokenUsage),
+    missionSnapshotSessionUsage :: !(Maybe (Map Text TokenUsage)),
+    missionSnapshotAdditionalFields :: !Object
+  }
+  deriving stock (Eq)
+
+instance Show MissionSnapshot where
+  show _ = "MissionSnapshot <redacted>"
+
+instance FromJSON MissionSnapshot where
+  parseJSON = withObject "MissionSnapshot" $ \fields ->
+    MissionSnapshot <$> fields .: "state" <*> fields .: "features" <*> fields .: "progressLog" <*> fields .: "workerSessionIds" <*> fields .:! "title" <*> fields .:! "updatedAt" <*> fields .:! "workingDirectory" <*> fields .:! "workerStates" <*> fields .:! "tokenUsage" <*> fields .:! "tokenUsageBySessionId" <*> pure (additionalFields missionSnapshotKeys fields)
+
+instance ToJSON MissionSnapshot where
+  toJSON snapshot = objectWithAdditionalFields missionSnapshotKeys (missionSnapshotAdditionalFields snapshot) (["state" .= missionSnapshotState snapshot, "features" .= missionSnapshotFeatures snapshot, "progressLog" .= missionSnapshotProgress snapshot, "workerSessionIds" .= missionSnapshotWorkers snapshot] <> optionalField "title" (missionSnapshotTitle snapshot) <> optionalField "updatedAt" (missionSnapshotUpdatedAt snapshot) <> optionalField "workingDirectory" (missionSnapshotWorkingDirectory snapshot) <> optionalField "workerStates" (missionSnapshotWorkerStates snapshot) <> optionalField "tokenUsage" (missionSnapshotTokenUsage snapshot) <> optionalField "tokenUsageBySessionId" (missionSnapshotSessionUsage snapshot))
+
+missionSnapshotKeys :: [Key]
+missionSnapshotKeys = ["state", "features", "progressLog", "workerSessionIds", "title", "updatedAt", "workingDirectory", "workerStates", "tokenUsage", "tokenUsageBySessionId"]
 
 decompOptions, missionOptions, featureOptions, issueOptions, dismissalOptions, subagentOptions :: Options
 decompOptions = enumOptions "Decomp" (camelTo2 '_')

@@ -12,9 +12,14 @@ and fingerprints are recorded in schema/manifest.json and docs/parity.md.
 Hosted MCP transport contracts were also inspected in @modelcontextprotocol/sdk
 1.29.0, distributed under the MIT license. No JavaScript runtime is required.
 
-The jsonschema-0.3.0.1 package metadata and LICENSE declare MPL-2.0
-(DPella AB). Inspected JSONSchema.Validation and JSONSchema.URIFragment
-module headers instead declare LicenseRef-AllRightsReserved. This discrepancy
-requires authoritative clarification before distribution sign-off; it is tracked
-as hsdk-4po. The dependency is consumed separately, not vendored here.
-Source: https://hackage.haskell.org/package/jsonschema-0.3.0.1.
+Hosted schema validation uses the separately built native factory-droid-validator
+worker, based on jsonschema 0.55.1 (MIT), with serde_json preserving exact values.
+Its resolved dependency license and notice texts are included in
+native/schema-validator/THIRD_PARTY_LICENSES.txt and embedded in the worker's
+--licenses output. The source package and lockfile are shipped with this SDK.
+The worker-local jsonschema source modification and its archive provenance are
+documented in native/schema-validator/VENDOR.md; the original MIT notice is retained.
+
+The former Haskell jsonschema-0.3.0.1 dependency (DPella AB) has been removed.
+Its MPL metadata versus LicenseRef-AllRightsReserved source-header discrepancy
+is retained as historical evidence, not a license grant used by this release.

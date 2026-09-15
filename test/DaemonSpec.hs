@@ -1,22 +1,21 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module DaemonSpec (daemonTests) where
+module DaemonSpec (daemonTests, AckMode (..), runDaemonPeer) where
 
-import Control.Concurrent (newEmptyMVar, putMVar, readMVar, takeMVar, tryTakeMVar)
+import Control.Concurrent (newEmptyMVar, putMVar, readMVar, takeMVar, threadDelay, tryTakeMVar)
 import Control.Concurrent.Async (AsyncCancelled (..), cancel, wait, waitCatch, withAsync)
 import Control.Exception (Exception, catch, finally, fromException, throwIO, try)
 import Control.Monad (forM_, replicateM, replicateM_, unless, void, when)
 import Data.Aeson (Object, Value (..), eitherDecode, encode, object, toJSON, (.=))
 import Data.Aeson.Key (Key)
 import Data.Aeson.KeyMap qualified as KeyMap
-import Data.IORef (IORef, modifyIORef', newIORef, readIORef)
+import Data.IORef (IORef, modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Text (Text)
 import Factory.Droid (DroidError (..), DroidEvent (..), DroidHandlers (..), DroidOutputResult (..), DroidResult (..), DroidSessionStatus (..), DroidStreamMode (..), defaultDroidHandlers, rawDroidOutput)
 import Factory.Droid.Daemon qualified as Daemon
 import Factory.Droid.Input (DroidInput (..), documentFromText, droidDocumentSource, droidImageSource, droidInput, imageFromBytes)
 import Factory.Droid.Interaction (DroidMcpFailure (..), cancelDroidQuestions)
 import Factory.Droid.MCP.Server qualified as Hosted
-import Factory.Droid.MCP.Tool qualified as Hosted
 import Factory.Droid.Protocol (RpcChannelError (..), RpcResultError (..))
 import Factory.Droid.Schema.Content (ImageMediaType (ImagePNG))
 import Factory.Droid.Schema.Discovery (GetUserInfoResult (..))
@@ -25,9 +24,10 @@ import Factory.Droid.Schema.MCP
 import Factory.Droid.Schema.MCP.Config
 import Factory.Droid.Schema.Notifications (AgentTurnCompleted (..), AgentTurnCompletionReason (..))
 import Factory.Droid.Schema.RPC (JsonRpcError (..), JsonRpcErrorCode (..), SuccessResult (..))
+import Factory.Droid.Schema.Session (SessionWorktreeInfo (..))
 import Factory.Droid.Transport.WebSocket qualified as WebSocket
 import McpConfigSpec (fixtureMcpOptions, fixtureMcpWire, fixtureStoredServer)
-import McpPeer (earlyMcpEvents, handleMcpRequest, invokeHosted)
+import McpPeer (earlyMcpEvents, handleMcpRequest, hostedEchoTools, invokeHosted)
 import Network.WebSockets qualified as WS
 import ProcessSpec (bounded)
 import Test.Tasty (TestTree, testGroup)
@@ -38,7 +38,7 @@ data AckMode = BeforeAck | AfterAck | LegacyResponse
   deriving stock (Eq, Show)
 
 daemonTests :: TestTree
-daemonTests = testGroup "Existing daemon session path" (wireTests <> lifecycleTests <> [testGroup "External MCP management" mcpSessionTests, testGroup "MCP configuration lifecycle" mcpConfigurationTests])
+daemonTests = testGroup "Existing daemon session path" (wireTests <> lifecycleTests <> [testGroup "Worktree session options" worktreeSessionTests, testGroup "External MCP management" mcpSessionTests, testGroup "MCP configuration lifecycle" mcpConfigurationTests])
 
 wireTests :: [TestTree]
 wireTests =
@@ -48,6 +48,10 @@ wireTests =
         chunks <- newIORef []
         escaped <- Daemon.withSession (options target) $ \session -> do
           reportedUserId (Daemon.authenticatedUser session) @?= "offline-user"
+          Daemon.daemonLoadedState (Daemon.sessionInfo session) @?= Nothing
+          readiness <- Daemon.getSessionReadiness (Daemon.sessionConnection session) (Daemon.sessionId session)
+          Daemon.readinessKnown readiness @?= True
+          Daemon.readinessPhase readiness @?= Daemon.SessionLoaded
           first <- Daemon.sendPrompt session "hello" (\text -> modifyIORef' chunks (<> [text]))
           resultText first @?= "Hello سلام"
           resultSessionId first @?= Daemon.sessionId session
@@ -220,6 +224,30 @@ lifecycleTests =
           withAsync (Daemon.sendTurn session "pending-handler" (\_ -> pure ())) $ \_ -> takeMVar started >> throwIO CallbackAbort
         result @?= (Left CallbackAbort :: Either CallbackAbort ())
         takeMVar finished,
+    testCase "detach permits only the cancelled reply for its pending permission and joins the handler" $ bounded $ do
+      trace <- newIORef []
+      started <- newEmptyMVar
+      hold <- newEmptyMVar
+      finished <- newEmptyMVar
+      let handlers = defaultDroidHandlers {onDroidPermission = Just (\_ -> (putMVar started () >> takeMVar hold) `finally` putMVar finished ())}
+          waitForReply = do
+            frames <- readIORef trace
+            case [frame | frame <- frames, KeyMap.lookup "id" frame == Just (String "held-permission")] of
+              [reply] -> do
+                KeyMap.lookup "type" reply @?= Just (String "response")
+                KeyMap.lookup "result" reply @?= Just (object ["sessionId" .= String "execution-session", "selectedOption" .= String "cancel"])
+                KeyMap.lookup "error" reply @?= Nothing
+              [] -> threadDelay 1000 >> waitForReply
+              _ -> assertFailure "Duplicate permission cancellation reply"
+      withDaemonPeer AfterAck False "1.201.1" trace $ \target -> do
+        result <- try @CallbackAbort $ Daemon.withSessionHandlers (options target) handlers $ \session ->
+          withAsync (Daemon.sendTurn session "pending-handler" (\_ -> pure ())) $ \_ -> do
+            takeMVar started
+            Daemon.detachSession session
+            takeMVar finished
+            waitForReply
+            throwIO CallbackAbort
+        result @?= (Left CallbackAbort :: Either CallbackAbort ()),
     testCase "authentication failure is preserved and no session is initialized" $ bounded $ do
       trace <- newIORef []
       withDaemonPeer AfterAck True "1.201.1" trace $ \target -> do
@@ -247,6 +275,77 @@ lifecycleTests =
       show (Daemon.DaemonToken "private" (Just "grant")) @?= "DaemonCredential <redacted>"
   ]
 
+worktreeSessionTests :: [TestTree]
+worktreeSessionTests =
+  [ testCase "explicit false, omitted and empty fields survive initialization; effective path comes from the receipt" $
+      bounded $
+        forM_ [(Nothing, Nothing), (Just False, Just ""), (Just True, Just "/new"), (Just True, Just "/reuse"), (Just True, Just "/empty-path"), (Nothing, Just "/daemon-default")] $ \(enabled, directory) -> do
+          trace <- newIORef []
+          withDaemonPeer AfterAck True "1.201.1" trace $ \target -> do
+            info <- Daemon.withSession ((options target) {Daemon.daemonWorktree = enabled, Daemon.daemonWorktreeDirectory = directory}) $ \session -> pure (Daemon.sessionInfo session)
+            show info @?= "DaemonSessionInfo <redacted>"
+            reportedUserId (Daemon.daemonSessionUser info) @?= "offline-user"
+            if enabled == Just True || directory == Just "/daemon-default"
+              then case Daemon.daemonInitialWorktree info of
+                Nothing -> assertFailure "Missing worktree receipt"
+                Just tree -> do
+                  initialWorktreeBranch tree @?= "topic"
+                  initialWorktreeIsNew tree @?= (directory /= Just "/reuse")
+                  initialWorktreeRepoRoot tree @?= Just "/daemon-workspace"
+                  initialWorktreeAdditionalFields tree @?= KeyMap.singleton "future" (Bool True)
+                  let path = if directory == Just "/empty-path" then "" else "/daemon-tree"
+                  initialWorktreePath tree @?= path
+                  Daemon.daemonInitialWorkingDirectory info @?= Just path
+              else do
+                Daemon.daemonInitialWorktree info @?= Nothing
+                Daemon.daemonInitialWorkingDirectory info @?= Just "/daemon-workspace"
+          frames <- readIORef trace
+          methods frames @?= ["daemon.authenticate", "daemon.initialize_session"]
+          case drop 1 frames of
+            [frame] -> do
+              KeyMap.lookup "worktree" (parameters frame) @?= fmap Bool enabled
+              KeyMap.lookup "worktreeDir" (parameters frame) @?= fmap String directory
+            _ -> assertFailure "Missing worktree initialization",
+    testCase "malformed worktree metadata fails before publishing the session" $
+      bounded $
+        forM_ ["/bad-worktree", "/bad-lifecycle", "/null-worktree", "/missing-created"] $ \directory -> do
+          trace <- newIORef []
+          withDaemonPeer AfterAck True "1.201.1" trace $ \target ->
+            expectDroid DroidInvalidEvent (Daemon.withSession ((options target) {Daemon.daemonWorktree = Just True, Daemon.daemonWorktreeDirectory = Just directory}) (const (assertFailure "Invalid worktree accepted"))),
+    testCase "load location prefers reported cwd, retains a legacy path and does not invent a creation report" $
+      bounded $
+        forM_ [("saved-cwd", Just "/stored/cwd"), ("saved-empty", Just ""), ("legacy-cwd", Just "/legacy/tree"), ("plain-saved", Nothing)] $ \(identifier, expected) -> do
+          trace <- newIORef []
+          withDaemonPeer AfterAck True "1.201.1" trace $ \target ->
+            Daemon.withResumedSession (options target) identifier $ \session -> do
+              Daemon.daemonInitialWorkingDirectory (Daemon.sessionInfo session) @?= expected
+              Daemon.daemonInitialWorktree (Daemon.sessionInfo session) @?= Nothing
+          readIORef trace >>= (@?= ["daemon.authenticate", "daemon.load_session", "daemon.list_terminals"]) . methods,
+    testCase "invalid load cwd is an error rather than a fallback" $ bounded $ do
+      trace <- newIORef []
+      withDaemonPeer AfterAck True "1.201.1" trace $ \target ->
+        expectDroid DroidInvalidEvent (Daemon.withResumedSession (options target) "invalid-cwd" (const (assertFailure "Invalid cwd accepted"))),
+    testCase "all supplied worktree options require creation before network I/O" $
+      forM_ [(Just False, Nothing), (Just True, Nothing), (Nothing, Just "")] $ \(enabled, directory) -> do
+        let target = WebSocket.WebSocketTarget "127.0.0.1" 1 "/"
+            configured = (options target) {Daemon.daemonWorktree = enabled, Daemon.daemonWorktreeDirectory = directory}
+        result <- try @Daemon.DaemonError (Daemon.withResumedSession configured "saved" (const (pure ())))
+        result @?= Left Daemon.DaemonWorktreeRequiresNewSession,
+    testCase "connection-only scope ignores initialization worktree options" $ bounded $ do
+      trace <- newIORef []
+      withDaemonPeer AfterAck True "1.201.1" trace $ \target ->
+        Daemon.withConnection ((options target) {Daemon.daemonWorktree = Just False, Daemon.daemonWorktreeDirectory = Just ""}) (const (pure ()))
+      readIORef trace >>= (@?= ["daemon.authenticate"]) . methods,
+    testCase "worktree initialization RPC rejection is not a receipt or local cleanup" $ bounded $ do
+      trace <- newIORef []
+      withDaemonPeer AfterAck True "1.201.1" trace $ \target -> do
+        result <- try @RpcResultError (Daemon.withSession ((options target) {Daemon.daemonWorktree = Just True, Daemon.daemonWorktreeDirectory = Just "/rpc-error"}) (const (pure ())))
+        case result of
+          Left (RpcRemoteFailure err) -> rpcErrorCode err @?= RpcInvalidParams
+          _ -> assertFailure "Worktree RPC rejection was lost"
+      readIORef trace >>= (@?= ["daemon.authenticate", "daemon.initialize_session"]) . methods
+  ]
+
 options :: WebSocket.WebSocketTarget -> Daemon.DaemonOptions
 options target =
   (Daemon.defaultDaemonOptions target (Daemon.DaemonApiKey "OFFLINE_ONLY") "/daemon-workspace")
@@ -255,17 +354,19 @@ options target =
 
 mcpConfigurationTests :: [TestTree]
 mcpConfigurationTests =
-  [ testCase "daemon startup and resume invoke session-owned Haskell tools over HTTP" $ bounded $ do
+  [ testCase "daemon startup and resume invoke raw, typed and structured Haskell tools over HTTP" $ do
       calls <- newIORef (0 :: Int)
-      tool <- either (const (assertFailure "Hosted tool construction failed")) pure (Hosted.rawTool "echo" "Echo" Hosted.openObjectSchema (\arguments -> modifyIORef' calls (+ 1) >> pure (Hosted.structuredResult arguments)))
-      server <- Hosted.newMcpServer (Hosted.defaultMcpServerOptions "hosted-fixture") [tool]
-      trace <- newIORef []
-      withDaemonPeer AfterAck True "1.201.1" trace $ \target ->
-        Daemon.withSession ((options target) {Daemon.daemonHostedMcpServers = [server]}) $ \_ -> readIORef calls >>= (@?= 1)
-      Hosted.getMcpServerConfig server >>= (@?= Nothing)
-      withDaemonPeer AfterAck True "1.201.1" trace $ \target ->
-        Daemon.withResumedSession ((options target) {Daemon.daemonHostedMcpServers = [server]}) "saved" $ \_ -> readIORef calls >>= (@?= 2)
-      Hosted.getMcpServerConfig server >>= (@?= Nothing),
+      tools <- hostedEchoTools (modifyIORef' calls (+ 1))
+      forM_ tools $ \tool -> bounded $ do
+        writeIORef calls 0
+        server <- Hosted.newMcpServer (Hosted.defaultMcpServerOptions "hosted-fixture") [tool]
+        trace <- newIORef []
+        withDaemonPeer AfterAck True "1.201.1" trace $ \target ->
+          Daemon.withSession ((options target) {Daemon.daemonHostedMcpServers = [server]}) $ \_ -> readIORef calls >>= (@?= 1)
+        Hosted.getMcpServerConfig server >>= (@?= Nothing)
+        withDaemonPeer AfterAck True "1.201.1" trace $ \target ->
+          Daemon.withResumedSession ((options target) {Daemon.daemonHostedMcpServers = [server]}) "saved" $ \_ -> readIORef calls >>= (@?= 2)
+        Hosted.getMcpServerConfig server >>= (@?= Nothing),
     testCase "connection MCP observer receives pre-publication events with owned routing" $ bounded $ do
       trace <- newIORef []
       observed <- newIORef []
@@ -503,19 +604,34 @@ withDaemonPeer mode reject version trace = withSocketPeer serve
       daemonPeer mode reject version trace connection
 
 daemonPeer :: AckMode -> Bool -> Text -> IORef [Object] -> WS.Connection -> IO ()
-daemonPeer mode reject version trace connection = serve `catch` \(_ :: WS.ConnectionException) -> pure ()
+daemonPeer mode reject version trace connection =
+  runDaemonPeer
+    mode
+    reject
+    version
+    trace
+    False
+    (WS.receiveData connection >>= either (const (assertFailure "Invalid client JSON")) pure . eitherDecode)
+    (WS.sendTextData connection . encode)
+    (WS.sendClose connection ("fixture disconnect" :: Text))
+    `catch` \(_ :: WS.ConnectionException) -> pure ()
+
+-- The same protocol peer is usable over native object callbacks or WebSockets.
+runDaemonPeer :: AckMode -> Bool -> Text -> IORef [Object] -> Bool -> IO Object -> (Object -> IO ()) -> IO () -> IO ()
+runDaemonPeer mode reject version trace trusted receive write close = serve
   where
     readFrame = do
-      frame <- WS.receiveData connection >>= either (const (assertFailure "Invalid client JSON")) pure . eitherDecode
+      frame <- receive
       KeyMap.lookup "jsonrpc" frame @?= Just (String "2.0")
       KeyMap.lookup "factoryApiVersion" frame @?= Just (String "1.0.0")
       KeyMap.lookup "factoryProtocolVersion" frame @?= Just (String version)
       modifyIORef' trace (<> [frame])
       pure frame
-    writeFrame fields = WS.sendTextData connection (encode (KeyMap.fromList (["jsonrpc" .= String "2.0", "factoryApiVersion" .= String "1.0.0", "factoryProtocolVersion" .= version] <> fields)))
+    writeFrame fields = write (KeyMap.fromList (["jsonrpc" .= String "2.0", "factoryApiVersion" .= String "1.0.0", "factoryProtocolVersion" .= version] <> fields))
     respond request fields = writeFrame (["type" .= String "response", "id" .= KeyMap.lookup "id" request] <> fields)
     notify identifier payload = writeFrame ["type" .= String "notification", "method" .= String "daemon.session_notification", "params" .= object ["sessionId" .= identifier, "notification" .= payload]]
-    serve = do
+    serve = if trusted then readFrame >>= firstRequest else authenticate
+    authenticate = do
       auth <- readFrame
       KeyMap.lookup "method" auth @?= Just (String "daemon.authenticate")
       KeyMap.lookup "caller" (parameters auth) @?= Just (String "haskell-sdk")
@@ -526,10 +642,11 @@ daemonPeer mode reject version trace connection = serve `catch` \(_ :: WS.Connec
         else do
           unless (KeyMap.lookup "apiKey" (parameters auth) == Just (String "OFFLINE_ONLY") || KeyMap.lookup "token" (parameters auth) == Just (String "OFFLINE_ONLY")) (assertFailure "Incorrect authentication payload")
           respond auth ["result" .= object ["userId" .= String "offline-user", "orgId" .= String "offline-org"]]
-          first <- readFrame
-          if KeyMap.lookup "method" first `elem` [Just (String "daemon.get_mcp_config"), Just (String "daemon.update_mcp_config")]
-            then globalLoop first
-            else attach first
+          readFrame >>= firstRequest
+    firstRequest first =
+      if KeyMap.lookup "method" first `elem` [Just (String "daemon.get_mcp_config"), Just (String "daemon.update_mcp_config")]
+        then globalLoop first
+        else attach first
     globalLoop request = do
       let params = parameters request
       when (KeyMap.member "sessionId" params) (assertFailure "Global configuration acquired a session ID")
@@ -552,7 +669,7 @@ daemonPeer mode reject version trace connection = serve `catch` \(_ :: WS.Connec
       readFrame >>= globalLoop
     attach initialize = do
       let params = parameters initialize
-      KeyMap.lookup "token" params @?= Just (String "OFFLINE_ONLY")
+      KeyMap.lookup "token" params @?= Just (String (if trusted then "" else "OFFLINE_ONLY"))
       KeyMap.lookup "autoRejectPermissionRequests" params @?= Just (Bool reject)
       identifier <- textField "sessionId" params
       when (KeyMap.member "mcpServers" params) (notify "foreign-session" (object ["type" .= String "mcp_auth_required"]))
@@ -562,16 +679,32 @@ daemonPeer mode reject version trace connection = serve `catch` \(_ :: WS.Connec
         Just (String "daemon.initialize_session") -> do
           KeyMap.lookup "machineId" params @?= Just (String "local")
           KeyMap.lookup "cwd" params @?= Just (String "/daemon-workspace")
-          respond initialize ["result" .= object ["sessionId" .= identifier, "session" .= object ["messages" .= ([] :: [Value])], "settings" .= settings]]
+          let directory = KeyMap.lookup "worktreeDir" params
+              worktree = KeyMap.fromList ["branch" .= String "topic", "path" .= String (if directory == Just (String "/empty-path") then "" else "/daemon-tree"), "repoRoot" .= String "/daemon-workspace", "isNewlyCreated" .= (directory /= Just (String "/reuse")), "future" .= True]
+              report = case directory of
+                Just (String "/bad-worktree") -> Bool False
+                Just (String "/null-worktree") -> Null
+                Just (String "/missing-created") -> Object (KeyMap.delete "isNewlyCreated" worktree)
+                Just (String "/bad-lifecycle") -> Object (KeyMap.insert "lifecycle" (String "future") worktree)
+                _ -> Object worktree
+          if directory == Just (String "/rpc-error")
+            then respond initialize ["error" .= object ["code" .= (-32602 :: Int), "message" .= String "Worktree rejected"]]
+            else respond initialize ["result" .= object (["sessionId" .= identifier, "session" .= object ["messages" .= ([] :: [Value])], "settings" .= settings] <> ["worktree" .= report | KeyMap.lookup "worktree" params == Just (Bool True) || directory == Just (String "/daemon-default")])]
         Just (String "daemon.load_session") -> do
           KeyMap.lookup "loadAllMessages" params @?= Just (Bool True)
           let pending =
                 if identifier == "pending-saved"
                   then ["pendingPermissions" .= [object ["requestId" .= String "stored-permission", "toolUses" .= ([] :: [Value]), "options" .= [object ["label" .= String "Cancel", "value" .= String "cancel"]]]], "pendingAskUserRequests" .= [object ["requestId" .= String "stored-question", "toolCallId" .= String "stored-tool", "questions" .= ([] :: [Value])]]]
                   else []
-          respond initialize ["result" .= object (["session" .= object ["messages" .= ([] :: [Value])], "settings" .= settings] <> pending)]
+              location = case identifier of
+                "saved-cwd" -> ["cwd" .= String "/stored/cwd", "worktree" .= object ["path" .= String "/legacy/tree"]]
+                "saved-empty" -> ["cwd" .= String ""]
+                "legacy-cwd" -> ["worktree" .= object ["path" .= String "/legacy/tree"]]
+                "invalid-cwd" -> ["cwd" .= False]
+                _ -> []
+          respond initialize ["result" .= object (["session" .= object ["messages" .= ([] :: [Value])], "settings" .= settings] <> pending <> location)]
           when (identifier == "pending-saved") $ do
-            replies <- replicateM 2 readFrame
+            replies <- replicateM 2 (readSessionFrame identifier)
             forM_ replies $ \response -> do
               KeyMap.lookup "type" response @?= Just (String "response")
               case KeyMap.lookup "id" response of
@@ -580,10 +713,18 @@ daemonPeer mode reject version trace connection = serve `catch` \(_ :: WS.Connec
                 _ -> assertFailure "Unexpected restored interaction response"
             notify identifier (object ["type" .= String "pending_settled"])
         _ -> assertFailure "Unexpected session initialization"
-      loop identifier Nothing
+      loop identifier Nothing False
     settings = object ["modelId" .= String "offline-model", "reasoningEffort" .= String "low"]
-    loop identifier active = do
+    readSessionFrame identifier = do
       request <- readFrame
+      case KeyMap.lookup "method" request of
+        Just (String "daemon.list_terminals") -> do
+          parameters request @?= KeyMap.singleton "sessionId" (String identifier)
+          respond request ["result" .= object ["terminals" .= ([] :: [Value])]]
+          readSessionFrame identifier
+        _ -> pure request
+    loop identifier active pendingPermission = do
+      request <- readSessionFrame identifier
       let params = parameters request
       case KeyMap.lookup "method" request of
         Just (String "daemon.add_user_message") -> do
@@ -598,13 +739,14 @@ daemonPeer mode reject version trace connection = serve `catch` \(_ :: WS.Connec
           respond request ["result" .= if mode == LegacyResponse then object [] else object ["accepted" .= True]]
           when (mode == AfterAck) creation
           case prompt of
-            "invalid-creation" -> loop identifier Nothing
-            "missing-creation" -> loop identifier Nothing
-            "disconnect" -> WS.sendClose connection ("fixture disconnect" :: Text) >> void readFrame
+            "invalid-creation" -> loop identifier Nothing pendingPermission
+            "missing-creation" -> loop identifier Nothing pendingPermission
+            "disconnect" -> close >> void readFrame
             "pending-handler" -> do
+              when pendingPermission (assertFailure "Permission already pending in peer")
               writeFrame ["type" .= String "request", "id" .= String "held-permission", "method" .= String "daemon.request_permission", "params" .= permissionParams identifier]
-              loop identifier (Just turn)
-            "hang" -> notify identifier (delta "partial") >> loop identifier (Just turn)
+              loop identifier (Just turn) True
+            "hang" -> notify identifier (delta "partial") >> loop identifier (Just turn) pendingPermission
             _ -> do
               when (prompt == "interactions") $ do
                 interaction "permission" "daemon.request_permission" (permissionParams identifier) (object ["sessionId" .= String "execution-session", "selectedOption" .= String "cancel"])
@@ -622,15 +764,21 @@ daemonPeer mode reject version trace connection = serve `catch` \(_ :: WS.Connec
                 KeyMap.lookup "outputFormat" params @?= Just (object ["type" .= String "json_schema", "schema" .= object ["type" .= String "object"]])
                 notify identifier (object ["type" .= String "structured_output", "messageId" .= String "answer", "structuredOutput" .= object ["answer" .= Number 7]])
               notify identifier (completion (if prompt == "missing-turn" then Nothing else Just turn) "completed")
-              loop identifier Nothing
+              loop identifier Nothing pendingPermission
         Just (String "daemon.interrupt_session") -> do
           KeyMap.lookup "sessionId" params @?= Just (String identifier)
           respond request ["result" .= object []]
           forM_ active $ \turn -> notify identifier (completion (Just turn) "cancelled")
-          loop identifier Nothing
+          loop identifier Nothing pendingPermission
+        Nothing | pendingPermission -> do
+          KeyMap.lookup "type" request @?= Just (String "response")
+          KeyMap.lookup "id" request @?= Just (String "held-permission")
+          KeyMap.lookup "result" request @?= Just (object ["sessionId" .= String "execution-session", "selectedOption" .= String "cancel"])
+          KeyMap.lookup "error" request @?= Nothing
+          loop identifier active False
         _ -> do
-          handled <- handleMcpRequest "daemon." identifier request respond notify readFrame
-          if handled then loop identifier active else assertFailure "Unexpected daemon request, including forbidden implicit close/logout"
+          handled <- handleMcpRequest "daemon." identifier request respond notify (readSessionFrame identifier)
+          if handled then loop identifier active pendingPermission else assertFailure ("Unexpected daemon frame (implicit close/logout forbidden): " <> show (KeyMap.lookup "type" request, KeyMap.lookup "method" request, KeyMap.lookup "id" request))
     interaction identifier method params expected = do
       writeFrame ["type" .= String "request", "id" .= (identifier :: Text), "method" .= (method :: Text), "params" .= params]
       response <- readFrame

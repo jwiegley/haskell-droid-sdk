@@ -8,7 +8,10 @@ module Factory.Droid.Schema.Session
     mkSessionTagName,
     sessionTagNameText,
     SessionTag (..),
+    findSubagentSessionTag,
+    inspectSubagentSessionTag,
     SessionWorktreeMetadata (..),
+    SessionWorktreeInfo (..),
     SessionSnapshot (..),
     SandboxStatus (..),
     WorktreeGitRef,
@@ -21,6 +24,7 @@ import Data.Aeson
   ( FromJSON (..),
     Object,
     ToJSON (..),
+    Value (String),
     withObject,
     withText,
     (.:),
@@ -29,7 +33,9 @@ import Data.Aeson
   )
 import Data.Aeson.Key (Key)
 import Data.Aeson.KeyMap (KeyMap)
+import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Char (isControl, isSpace)
+import Data.List (find)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Factory.Droid.Internal.JSON
@@ -94,6 +100,17 @@ instance ToJSON SessionTag where
     objectWithAdditionalFields tagKeys (sessionTagAdditionalFields tag) $
       ["name" .= sessionTagName tag] <> optionalField "metadata" (sessionTagMetadata tag)
 
+-- | The first exact subagent tag, including absent/empty metadata and extensions.
+-- Inspect its metadata with the existing selector and KeyMap lookup; never
+-- fall through to later tags or infer validated linkage from descriptive data.
+findSubagentSessionTag :: [SessionTag] -> Maybe SessionTag
+findSubagentSessionTag = find ((== "subagent") . sessionTagNameText . sessionTagName)
+
+-- | Raw first-tag inspection, retaining arbitrary metadata values. It does not
+-- decode a SessionTag or validate/admit any calling-session or tool identity.
+inspectSubagentSessionTag :: [Object] -> Maybe Object
+inspectSubagentSessionTag = find ((== Just (String "subagent")) . KeyMap.lookup "name")
+
 -- | Worktree metadata. Paths and removedAt remain strings as specified by
 -- the schema; decoding does not validate filesystem state or parse a date.
 data SessionWorktreeMetadata = SessionWorktreeMetadata
@@ -130,6 +147,32 @@ instance ToJSON SessionWorktreeMetadata where
         <> optionalField "path" (worktreePath worktree)
         <> optionalField "removedAt" (worktreeRemovedAt worktree)
         <> optionalField "setupProfileId" (worktreeSetupProfileId worktree)
+
+-- | Initialization report, distinct from saved worktree metadata: branch, path
+-- and the creation/reuse flag are required; repository root is optional.
+data SessionWorktreeInfo = SessionWorktreeInfo
+  { initialWorktreeBranch :: !Text,
+    initialWorktreePath :: !Text,
+    initialWorktreeIsNew :: !Bool,
+    initialWorktreeRepoRoot :: !(Maybe Text),
+    initialWorktreeLifecycle :: !(Maybe WorktreeLifecycle),
+    initialWorktreeParentPath :: !(Maybe Text),
+    initialWorktreeAdditionalFields :: !Object
+  }
+  deriving stock (Eq)
+
+instance Show SessionWorktreeInfo where
+  show _ = "SessionWorktreeInfo <redacted>"
+
+instance FromJSON SessionWorktreeInfo where
+  parseJSON = withObject "SessionWorktreeInfo" $ \fields ->
+    SessionWorktreeInfo <$> fields .: "branch" <*> fields .: "path" <*> fields .: "isNewlyCreated" <*> fields .:! "repoRoot" <*> fields .:! "lifecycle" <*> fields .:! "parentWorktreePath" <*> pure (additionalFields initialWorktreeKeys fields)
+
+instance ToJSON SessionWorktreeInfo where
+  toJSON info = objectWithAdditionalFields initialWorktreeKeys (initialWorktreeAdditionalFields info) (["branch" .= initialWorktreeBranch info, "path" .= initialWorktreePath info, "isNewlyCreated" .= initialWorktreeIsNew info] <> optionalField "repoRoot" (initialWorktreeRepoRoot info) <> optionalField "lifecycle" (initialWorktreeLifecycle info) <> optionalField "parentWorktreePath" (initialWorktreeParentPath info))
+
+initialWorktreeKeys :: [Key]
+initialWorktreeKeys = ["branch", "path", "isNewlyCreated", "repoRoot", "lifecycle", "parentWorktreePath"]
 
 -- | Saved message/title data, not a live session handle. Messages retain
 -- their supplied order and extensions; a title may be absent or empty.

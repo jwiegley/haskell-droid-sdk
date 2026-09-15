@@ -1,4 +1,5 @@
-/dist-newstyle/
+/dist-newstyle
+/native/schema-validator/target/
 /.direnv/
 /.pi/goals/
 /.pi/.goals-pool-snapshot.json

@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module MissionSpec (missionTests) where
+module MissionSpec (missionTests, handoffJSON, dismissalJSON, featureJSON) where
 
 import Control.Monad (forM_)
 import Data.Aeson (FromJSON, Object, Result (..), ToJSON, Value (..), eitherDecode, encode, fromJSON, object, toJSON, (.=))

@@ -4,13 +4,26 @@
 module Factory.Droid.Internal.Session
   ( DroidOptions (..),
     defaultDroidOptions,
+    DroidSessionOptions (..),
+    defaultDroidSessionOptions,
+    droidSessionOptions,
+    withDroidSessionOn,
+    withObservedDroidSession,
+    withObservedDroidSessionOn,
+    withDroidSessionOnHandlers,
+    withResumedDroidSessionOn,
+    withResumedDroidSessionOnHandlers,
     DroidSession,
     DroidSessionStatus (..),
     droidSessionStatus,
+    getDroidWorkingDirectory,
+    getDroidWorkingDirectoryState,
     onDroidSessionEvent,
+    onDroidMissionSnapshot,
     DroidReplacementError (..),
     DroidRewindOptions (..),
     droidSessionId,
+    sessionConnection,
     DroidResult (..),
     DroidEvent (..),
     DroidStreamMode (..),
@@ -63,6 +76,9 @@ module Factory.Droid.Internal.Session
     submitDroidMcpAuthCode,
     submitDroidMcpAuthError,
     getDroidSettings,
+    getDroidMissionSnapshot,
+    lookupMissionSnapshot,
+    lookupMissionId,
     updateDroidSettings,
     setDroidSkillDisabled,
     getDroidContextStats,
@@ -78,51 +94,76 @@ module Factory.Droid.Internal.Session
     sessionRequestWithTimeout,
     SessionConnection (..),
     SessionBackend (..),
+    LocalSessionState,
     withSessionConnection,
     installMcpObserver,
     newSessionHandle,
+    withSessionUse,
+    withSessionLease,
+    closeDroidSession,
+    waitDroidSessionIdle,
+    ownSessionCleanup,
     sessionBoundary,
+    connectionBoundary,
     connectionRequest,
     callSettings,
     callSettingsResult,
+    callSettingsResultObserved,
+    callSettingsResultObservedWithin,
+    callSettingsResultObservedWithAdmission,
   )
 where
 
+import Control.Applicative ((<|>))
+import Control.Concurrent.Async (race)
 import Control.Concurrent.MVar (MVar, newMVar, putMVar, tryTakeMVar, withMVar)
-import Control.Concurrent.STM (STM, TVar, atomically, check, modifyTVar', newTQueueIO, newTVarIO, readTQueue, readTVar, throwSTM, writeTQueue, writeTVar)
-import Control.Exception (Exception, Handler (..), SomeException, bracket, bracket_, catches, evaluate, finally, fromException, mask, mask_, onException, throwIO, try)
+import Control.Concurrent.STM (STM, TVar, atomically, check, modifyTVar', newTVarIO, readTVar, throwSTM, writeTVar)
+import Control.Exception (Exception, Handler (..), SomeException, bracket, bracket_, catches, evaluate, finally, fromException, mask, mask_, onException, throwIO, toException, try)
 import Control.Monad (forM_, unless, void, when)
-import Data.Aeson (FromJSON (parseJSON), Object, ToJSON (toJSON), Value (..), withObject, (.:), (.:!), (.=))
+import Data.Aeson (FromJSON (parseJSON), Object, ToJSON (toJSON), Value (..), withObject, (.:), (.:!))
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types (Parser, parseEither)
 import Data.IORef (IORef, atomicModifyIORef', newIORef)
-import Data.Maybe (fromMaybe, isNothing)
+import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe, isJust, isNothing)
+import Data.Proxy (Proxy (..))
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Time (UTCTime, defaultTimeLocale, formatTime, getCurrentTime)
 import Data.UUID.Types qualified as UUID
 import Data.UUID.V4 (nextRandom)
+import Data.Unique (Unique, newUnique)
 import Factory.Droid.Client qualified as Client
 import Factory.Droid.Input (DroidInput (..), droidDocumentSource, droidImageSource, droidInput)
 import Factory.Droid.Interaction
 import Factory.Droid.Internal.Output
 import Factory.Droid.Internal.Stream
 import Factory.Droid.MCP.Server qualified as Hosted
+import Factory.Droid.Mission qualified as Mission
+import Factory.Droid.Observability qualified as Obs
 import Factory.Droid.Protocol
 import Factory.Droid.Protocol.Dispatch
+import Factory.Droid.Schema.Configuration qualified as Configuration
 import Factory.Droid.Schema.Context (ContextStats, GetContextBreakdownResult)
-import Factory.Droid.Schema.Control (AddUserMessageParams (..), ChangeWorkingDirectoryParams (..), ChangeWorkingDirectoryResult, CompactSessionParams, CompactSessionResult (..), ExecuteRewindParams (..), ExecuteRewindResult (..), ForkSessionParams, ForkSessionResult (..), GetRewindInfoParams (..), GetRewindInfoResult, OutputFormat, RenameSessionParams (..), RewindFileCreation, RewindFileSnapshot)
+import Factory.Droid.Schema.Control (AddUserMessageParams (..), ChangeWorkingDirectoryParams (..), ChangeWorkingDirectoryResult (..), CompactSessionParams, CompactSessionResult (..), ExecuteRewindParams (..), ExecuteRewindResult (..), ForkSessionParams, ForkSessionResult (..), GetRewindInfoParams (..), GetRewindInfoResult, OutputFormat, RenameSessionParams (..), RewindFileCreation, RewindFileSnapshot)
 import Factory.Droid.Schema.Discovery (ListCommandsResult, ListSkillsResult, ListToolsResult, SetSkillDisabledParams)
 import Factory.Droid.Schema.MCP (ListMcpRegistryResult, ListMcpServersResult, ListMcpToolsResult, McpServerNameParams (..), RemoveMcpServerParams (..), SubmitMcpAuthCodeParams, SubmitMcpAuthErrorParams, ToggleMcpServerParams (..), ToggleMcpToolParams (..))
-import Factory.Droid.Schema.MCP.Config (AddMcpServerParams, McpConfigurationError (..), McpSessionOptions (..), defaultMcpSessionOptions, mcpInitializeFields, mcpLoadFields, validateMcpConfiguration)
+import Factory.Droid.Schema.MCP.Config (AddMcpServerParams, McpConfigurationError (..), McpSessionOptions (..), defaultMcpSessionOptions, validateMcpConfiguration)
+import Factory.Droid.Schema.Mission (MissionSnapshot (..))
 import Factory.Droid.Schema.Models (ListModelsOptions, ListModelsResult)
-import Factory.Droid.Schema.Notifications (AgentTurnCompleted (..), AgentTurnCompletionReason (..))
+import Factory.Droid.Schema.Notifications (AgentTurnCompleted (..), AgentTurnCompletionReason (..), SessionTokenUsageChanged (..), SessionWorkingDirectoryChanged (..))
 import Factory.Droid.Schema.RPC
-import Factory.Droid.Schema.Settings (ListToolsOptions, SessionSettings, SettingsChange, SettingsUpdated (..), UpdateSessionSettingsParams (..), emptySettingsUpdate)
+import Factory.Droid.Schema.Session (SessionWorktreeInfo (initialWorktreePath))
+import Factory.Droid.Schema.Settings (ListToolsOptions, SessionSettings, SettingsChange, SettingsUpdated (..), UpdateSessionSettingsParams (..), emptySettingsUpdate, settingsSystemPrompt)
 import Factory.Droid.Schema.SystemPrompt (SystemPromptConfig, appendedSystemPrompt, customSystemPrompt)
+import Factory.Droid.SessionState qualified as State
+import Factory.Droid.Transport (ObjectTransport (..), TransportLocality (..))
+import Factory.Droid.Transport qualified as Transport
 import Factory.Droid.Transport.Process qualified as Process
 import System.Directory (makeAbsolute)
 import System.Environment (getEnvironment)
-import System.Process (CreateProcess (cwd, env))
+import System.Process (CreateProcess (cwd))
 import System.Timeout (timeout)
 
 -- | Minimal local configuration. Authentication is inherited from the caller's
@@ -139,7 +180,11 @@ data DroidOptions = DroidOptions
     droidFrameLimitBytes :: !Int,
     droidSystemPrompt :: !(Maybe SystemPromptConfig),
     droidMcpOptions :: !McpSessionOptions,
-    droidHostedMcpServers :: ![Hosted.McpServer]
+    droidHostedMcpServers :: ![Hosted.McpServer],
+    droidLaunchOptions :: !Process.DroidLaunchOptions,
+    droidMachineId :: !(Maybe Text),
+    droidConfiguration :: !Configuration.SessionConfiguration,
+    droidLoadConfiguration :: !Configuration.SessionLoadConfiguration
   }
   deriving stock (Eq)
 
@@ -149,7 +194,29 @@ instance Show DroidOptions where
 -- | Use the installed droid, the given directory and its default model. Turns
 -- have no implicit deadline; asynchronous cancellation remains available.
 defaultDroidOptions :: FilePath -> DroidOptions
-defaultDroidOptions directory = DroidOptions "droid" directory Nothing Nothing (10 * 1024 * 1024) Nothing defaultMcpSessionOptions []
+defaultDroidOptions directory = DroidOptions "droid" directory Nothing Nothing (10 * 1024 * 1024) Nothing defaultMcpSessionOptions [] Process.defaultDroidLaunchOptions Nothing Configuration.defaultSessionConfiguration Configuration.defaultSessionLoadConfiguration
+
+-- | Session settings independent of executable, arguments and transport limits.
+data DroidSessionOptions = DroidSessionOptions
+  { droidSessionWorkingDirectory :: !FilePath,
+    droidSessionModel :: !(Maybe Text),
+    droidSessionTimeoutMicros :: !(Maybe Int),
+    droidSessionSystemPrompt :: !(Maybe SystemPromptConfig),
+    droidSessionMcpOptions :: !McpSessionOptions,
+    droidSessionHostedMcpServers :: ![Hosted.McpServer],
+    droidSessionMachineId :: !(Maybe Text),
+    droidSessionConfiguration :: !Configuration.SessionConfiguration,
+    droidSessionLoadConfiguration :: !Configuration.SessionLoadConfiguration
+  }
+  deriving stock (Eq)
+
+instance Show DroidSessionOptions where show _ = "DroidSessionOptions <redacted>"
+
+defaultDroidSessionOptions :: FilePath -> DroidSessionOptions
+defaultDroidSessionOptions directory = DroidSessionOptions directory Nothing Nothing Nothing defaultMcpSessionOptions [] Nothing Configuration.defaultSessionConfiguration Configuration.defaultSessionLoadConfiguration
+
+droidSessionOptions :: DroidOptions -> DroidSessionOptions
+droidSessionOptions options = DroidSessionOptions (droidWorkingDirectory options) (droidModel options) (droidTurnTimeoutMicros options) (droidSystemPrompt options) (droidMcpOptions options) (droidHostedMcpServers options) (droidMachineId options) (droidConfiguration options) (droidLoadConfiguration options)
 
 -- | Local stream failures. Reported messages/reasons remain explicit data but
 -- are not included in Show. RPC and process failures retain their existing types.
@@ -212,54 +279,74 @@ data DroidSession = DroidSession
     sessionLifecycle :: !(TVar (DroidSessionStatus, Int)),
     sessionTurnTimeout :: !(Maybe Int),
     sessionInterrupts :: !(TVar Int),
-    sessionSubmitted :: !(TVar Bool)
+    sessionSubmitted :: !(TVar Bool),
+    sessionTurnLock :: !(MVar ()),
+    sessionClosed :: !(TVar Bool),
+    sessionCleanups :: !(TVar (Map Unique (IO ())))
   }
 
 data SessionConnection = SessionConnection
   { connectionChannel :: !RpcChannel,
     connectionDispatcher :: !RpcDispatcher,
     connectionCounter :: !(IORef Integer),
-    connectionTurnLock :: !(MVar ()),
+    connectionRequestNamespace :: !Text,
     connectionOpen :: !(TVar Bool),
     connectionAutoRejectPermissions :: !Bool,
-    connectionSettings :: !(TVar (Maybe (Text, Either DroidError SessionSettings))),
+    connectionSettings :: !(TVar (Maybe Text, Map Text (Either DroidError SessionSettings))),
+    connectionMission :: !(TVar Mission.MissionRegistry),
+    connectionMissionTarget :: !(TVar (Maybe (Text, Maybe Text))),
+    connectionUnscopedMission :: !(TVar (Map Text (Either DroidError (Maybe Mission.MissionStore)))),
     connectionBackend :: !SessionBackend,
     connectionMcpOptions :: !McpSessionOptions
   }
 
--- Backend variation is confined to wire decoding and the two operations used
--- by the common turn engine. Local replacement APIs are not daemon operations.
+-- | Daemon cwd/load state already belongs to its controller. Only the local
+-- backend carries this scoped state; there is no second daemon cwd cache.
+data LocalSessionState = LocalSessionState
+  { localLoadConfiguration :: !Configuration.SessionLoadConfiguration,
+    localWorkingDirectories :: !(TVar (Map Text State.WorkingDirectoryState))
+  }
+
+-- Backend variation stays in wire operations and its existing state owner.
 data SessionBackend = SessionBackend
   { backendContext :: !JsonRpcEnvelope,
     backendDecode :: !(Text -> Maybe Text -> JsonRpcBaseNotification -> Either String [DroidEvent]),
     backendSubmit :: !(RpcDispatcher -> RpcChannel -> Client.CallOptions -> Text -> AddUserMessageParams -> IO Object),
-    backendInterrupt :: !(RpcChannel -> Client.CallOptions -> Text -> IO Object)
+    backendInterrupt :: !(RpcChannel -> Client.CallOptions -> Text -> IO Object),
+    backendLocalState :: !(Maybe LocalSessionState)
   }
 
-localBackend :: SessionBackend
-localBackend =
+localBackend :: LocalSessionState -> SessionBackend
+localBackend state =
   SessionBackend
     context
     (\identifier expected -> maybe (decodeSessionNotification identifier) (decodeNotification identifier) expected)
     (\_ channel options _ -> Client.addUserMessage channel options)
     (\channel options _ -> Client.interruptSession channel options mempty)
+    (Just state)
 
 withSessionConnection :: RpcChannel -> SessionBackend -> Bool -> McpSessionOptions -> (SessionConnection -> IO a) -> IO a
 withSessionConnection channel backend rejectPermissions mcpOptions action =
   withRpcDispatcher channel (backendContext backend) $ \dispatcher -> do
     counter <- newIORef 0
-    lock <- newMVar ()
+    namespace <- UUID.toText <$> nextRandom
     open <- newTVarIO True
-    settings <- newTVarIO Nothing
-    let connection = SessionConnection channel dispatcher counter lock open rejectPermissions settings backend mcpOptions
+    settings <- newTVarIO (Nothing, mempty)
+    mission <- newTVarIO Mission.emptyMissionRegistry
+    missionTarget <- newTVarIO Nothing
+    unscopedMission <- newTVarIO mempty
+    let connection = SessionConnection channel dispatcher counter namespace open rejectPermissions settings mission missionTarget unscopedMission backend mcpOptions
+    void (onRpcNotification dispatcher (atomically . observeSettingsNotification connection))
+    void (onRpcNotification dispatcher (observeMissionNotification connection))
     void (onRpcError dispatcher (\_ -> atomically (writeTVar open False)))
     action connection `finally` atomically (writeTVar open False)
 
--- The local connection can change sessions while loading: pass through its
--- reported source ID. A daemon connection observes only its attached ID.
-installMcpObserver :: SessionConnection -> Text -> Maybe Text -> DroidHandlers -> IO ()
-installMcpObserver connection method owned handlers =
-  forM_ (onDroidMcpEvent handlers) $ \callback -> do
+-- Local replacement keeps its connection-wide observer; daemon attachments
+-- register an owned observer and retain the returned cleanup.
+installMcpObserver :: SessionConnection -> Text -> Maybe Text -> DroidHandlers -> IO (IO ())
+installMcpObserver connection method owned handlers = case onDroidMcpEvent handlers of
+  Nothing -> pure (pure ())
+  Just callback -> mask_ $ do
     let dispatcher = connectionDispatcher connection
         observe notification = when (baseNotificationMethod (envelopeBody notification) == method) $
           case baseNotificationParams (envelopeBody notification) of
@@ -273,8 +360,9 @@ installMcpObserver connection method owned handlers =
                       Left _ -> callback actual (Left DroidMcpInvalidEvent)
                       Right events -> forM_ events (callback actual . Right)
             _ -> pure ()
-    void (onRpcNotification dispatcher observe)
-    void (onRpcError dispatcher (callback owned . Left . DroidMcpConnectionFailure))
+    stop <- onRpcNotification dispatcher observe
+    stopError <- onRpcError dispatcher (callback owned . Left . DroidMcpConnectionFailure) `onException` stop
+    pure (stopError >> stop)
 
 -- | Observe local lifecycle state; subsequent operations can still race closure.
 droidSessionStatus :: DroidSession -> IO DroidSessionStatus
@@ -290,7 +378,34 @@ droidSessionStatus = atomically . sessionStatus
 -- already admitted callback may finish. Replacing/retired/unavailable handles
 -- admit no new notifications, and all subscriptions end with the connection.
 onDroidSessionEvent :: DroidSession -> (Either DroidError DroidEvent -> IO ()) -> IO (IO ())
-onDroidSessionEvent session callback = mask_ $ do
+onDroidSessionEvent session callback = subscribeSessionNotifications session observe (callback . Left)
+  where
+    connection = sessionConnection session
+    observe notification = case backendDecode (connectionBackend connection) (droidSessionId session) Nothing notification of
+      Left _ -> callback (Left DroidInvalidEvent)
+      Right events -> forM_ events (callback . Right)
+
+-- | Observe relevant notifications for the owned mission, including explicitly
+-- associated sessions. This is not a turn subscription or permission grant.
+onDroidMissionSnapshot :: DroidSession -> (Either DroidError (Maybe MissionSnapshot) -> IO ()) -> IO (IO ())
+onDroidMissionSnapshot session callback = subscribeSessionNotifications session observe (callback . Left)
+  where
+    connection = sessionConnection session
+    observe notification = do
+      admitted <- atomically $ do
+        notice <- missionNotificationContext connection notification
+        registry <- readTVar (connectionMission connection)
+        pure $ case notice of
+          Just (Just origin, decoded)
+            | origin == droidSessionId session || Mission.sharesMission origin (droidSessionId session) registry ->
+                case decoded of
+                  Left _ -> True
+                  Right events -> any (missionEventAdmitted origin registry) events
+          _ -> False
+      when admitted (try @DroidError (getDroidMissionSnapshot session) >>= callback)
+
+subscribeSessionNotifications :: DroidSession -> (JsonRpcBaseNotification -> IO ()) -> (DroidError -> IO ()) -> IO (IO ())
+subscribeSessionNotifications session notify failedCallback = mask_ $ do
   atomically (ensureSession session)
   let connection = sessionConnection session
       dispatcher = connectionDispatcher connection
@@ -301,19 +416,16 @@ onDroidSessionEvent session callback = mask_ $ do
               SessionReady -> pure True
               SessionRunning -> pure True
               _ -> pure False
-        when active $ case backendDecode (connectionBackend connection) (droidSessionId session) Nothing notification of
-          Left _ -> callback (Left DroidInvalidEvent)
-          Right events -> forM_ events (callback . Right)
+        when active (notify notification)
       failed _ = do
-        retired <-
-          atomically $
-            readTVar (sessionLifecycle session) >>= \case
-              (SessionReplaced _, _) -> pure True
-              _ -> pure False
-        unless retired (callback (Left DroidSessionUnusable))
+        retired <- atomically $ do
+          closed <- readTVar (sessionClosed session)
+          (status, _) <- readTVar (sessionLifecycle session)
+          pure $ closed || case status of SessionReplaced _ -> True; _ -> False
+        unless retired (failedCallback DroidSessionUnusable)
   unsubscribe <- onRpcNotification dispatcher observe
   unsubscribeError <- onRpcError dispatcher failed `onException` unsubscribe
-  pure (unsubscribeError >> unsubscribe)
+  ownSessionCleanup session (unsubscribeError >> unsubscribe)
 
 -- | Own a local CLI process and one session, including follow-up prompts.
 -- Unhandled permission requests and questions are rejected. Unsupported SDK
@@ -333,49 +445,97 @@ withResumedDroidSession options = withResumedDroidSessionHandlers options defaul
 -- and successor sessions. Ordinary callback failures cancel their interaction;
 -- dispatcher-owned workers are cancelled/joined before the process scope closes.
 withDroidSessionHandlers :: DroidOptions -> DroidHandlers -> (DroidSession -> IO a) -> IO a
-withDroidSessionHandlers options handlers = withLocalSession options handlers Nothing
+withDroidSessionHandlers options = withObservedDroidSession Obs.defaultDroidObservability options Nothing
 
 -- | Resume with the same connection-scoped handler and cleanup policy.
 withResumedDroidSessionHandlers :: DroidOptions -> DroidHandlers -> Text -> (DroidSession -> IO a) -> IO a
-withResumedDroidSessionHandlers options handlers identifier = withLocalSession options handlers (Just identifier)
+withResumedDroidSessionHandlers options handlers identifier = withObservedDroidSession Obs.defaultDroidObservability options (Just identifier) handlers
 
-withLocalSession :: DroidOptions -> DroidHandlers -> Maybe Text -> (DroidSession -> IO a) -> IO a
-withLocalSession options handlers saved action = do
-  case (saved, droidSystemPrompt options) of
+-- | Own the RPC/session scope over borrowed local-protocol object I/O.
+withDroidSessionOn :: DroidSessionOptions -> ObjectTransport -> (DroidSession -> IO a) -> IO a
+withDroidSessionOn options transport = withDroidSessionOnHandlers options transport defaultDroidHandlers
+
+withDroidSessionOnHandlers :: DroidSessionOptions -> ObjectTransport -> DroidHandlers -> (DroidSession -> IO a) -> IO a
+withDroidSessionOnHandlers options transport = withObservedDroidSessionOn Obs.defaultDroidObservability options transport Nothing
+
+withResumedDroidSessionOn :: DroidSessionOptions -> ObjectTransport -> Text -> (DroidSession -> IO a) -> IO a
+withResumedDroidSessionOn options transport = withResumedDroidSessionOnHandlers options transport defaultDroidHandlers
+
+withResumedDroidSessionOnHandlers :: DroidSessionOptions -> ObjectTransport -> DroidHandlers -> Text -> (DroidSession -> IO a) -> IO a
+withResumedDroidSessionOnHandlers options transport handlers identifier = withObservedDroidSessionOn Obs.defaultDroidObservability options transport (Just identifier) handlers
+
+-- | Explicit telemetry for an owned new/resumed session, without changing
+-- comparable session settings or installing global callbacks.
+withObservedDroidSession :: Obs.DroidObservability -> DroidOptions -> Maybe Text -> DroidHandlers -> (DroidSession -> IO a) -> IO a
+withObservedDroidSession observability options saved handlers = withLocalSession observability (droidSessionOptions options) handlers saved LocalHost (withLocalTransport observability options)
+
+-- | The equivalent borrowed-transport scope. Observability belongs to this
+-- physical connection; session-handler changes do not rebind its sinks.
+withObservedDroidSessionOn :: Obs.DroidObservability -> DroidSessionOptions -> ObjectTransport -> Maybe Text -> DroidHandlers -> (DroidSession -> IO a) -> IO a
+withObservedDroidSessionOn observability options transport saved handlers = withLocalSession observability options handlers saved (transportLocality transport) ($ transport)
+
+withLocalSession :: Obs.DroidObservability -> DroidSessionOptions -> DroidHandlers -> Maybe Text -> TransportLocality -> ((ObjectTransport -> IO a) -> IO a) -> (DroidSession -> IO a) -> IO a
+withLocalSession observability options handlers saved locality acquire action = do
+  case (saved, droidSessionSystemPrompt options) of
     (Just _, Just _) -> throwIO DroidSystemPromptRequiresNewSession
     _ -> pure ()
-  forM_ (droidTurnTimeoutMicros options) $ \micros -> unless (micros >= 0) (throwIO RpcInvalidTimeout)
-  mcpOptions <- either throwIO pure (validateMcpConfiguration (droidMcpOptions options))
+  when (isJust saved && (isJust (droidSessionMachineId options) || droidSessionConfiguration options /= Configuration.defaultSessionConfiguration)) (throwIO Configuration.InitializationOptionsOnResume)
+  forM_ (droidSessionTimeoutMicros options) $ \micros -> unless (micros >= 0) (throwIO RpcInvalidTimeout)
+  mcpOptions <- either throwIO pure (validateMcpConfiguration (droidSessionMcpOptions options))
   unless (isNothing saved || isNothing (sessionBlockOnMcpLoad mcpOptions)) (throwIO McpInitOnlyOptionOnResume)
-  Hosted.withMcpServerOptions (droidHostedMcpServers options) mcpOptions $ \activeOptions ->
-    openLocalSession options handlers saved activeOptions action
+  when (isNothing saved) $ either throwIO pure (Configuration.validateInitializationParams (localInitializationParams options handlers (Text.pack (droidSessionWorkingDirectory options)) mcpOptions))
+  let loadConfig = localRetainedLoadConfiguration options saved
+      (loadParams, _) = Configuration.prepareLoadSessionParams (fromMaybe "" saved) mcpOptions (localAutoReject options handlers) loadConfig
+  either throwIO pure (Configuration.validateLoadSessionParams loadParams)
+  when (not (null (droidSessionHostedMcpServers options)) && locality /= LocalHost) (throwIO Hosted.HostedMcpRequiresLocalDaemon)
+  Hosted.withMcpServerOptions (droidSessionHostedMcpServers options) mcpOptions $ \activeOptions ->
+    acquire (\transport -> openLocalSession observability options handlers saved activeOptions transport action)
 
-openLocalSession :: DroidOptions -> DroidHandlers -> Maybe Text -> McpSessionOptions -> (DroidSession -> IO a) -> IO a
-openLocalSession options handlers saved mcpOptions action = do
+localInitializationParams :: DroidSessionOptions -> DroidHandlers -> Text -> McpSessionOptions -> Configuration.InitializeSessionParams
+localInitializationParams options handlers directory mcp =
+  (Configuration.defaultInitializeSessionParams (fromMaybe "default" (droidSessionMachineId options)) directory)
+    { Configuration.initializeModel = droidSessionModel options,
+      Configuration.initializeSystemPrompt = droidSessionSystemPrompt options,
+      Configuration.initializeMcpOptions = mcp,
+      Configuration.initializeConfiguration = (droidSessionConfiguration options) {Configuration.configurationAutoRejectPermissions = Just (localAutoReject options handlers)}
+    }
+
+localAutoReject :: DroidSessionOptions -> DroidHandlers -> Bool
+localAutoReject options handlers = fromMaybe (isNothing (onDroidPermission handlers)) (Configuration.configurationAutoRejectPermissions (droidSessionConfiguration options))
+
+withLocalTransport :: Obs.DroidObservability -> DroidOptions -> (ObjectTransport -> IO a) -> IO a
+withLocalTransport observability options action = do
   directory <- makeAbsolute (droidWorkingDirectory options)
-  environment <- filter (\(key, _) -> key `notElem` ["FACTORY_UPSTREAM_CLIENT_TYPE", "FACTORY_UPSTREAM_SDK"]) <$> getEnvironment
-  let process = (Process.proc (droidExecutable options) ["exec", "--input-format", "stream-jsonrpc", "--output-format", "stream-jsonrpc"]) {cwd = Just directory, env = Just environment}
-  Process.withJsonLinesProcess (droidFrameLimitBytes options) 5000000 process $ \transport ->
-    withRpcChannel (Process.sendObject transport) (Process.receiveObject transport) $ \channel ->
-      withSessionConnection channel localBackend (isNothing (onDroidPermission handlers)) mcpOptions $ \connection -> do
-        let dispatcher = connectionDispatcher connection
-            rejectPermissions = connectionAutoRejectPermissions connection
-        void (onRpcNotification dispatcher (atomically . observeSettingsNotification connection))
-        void (registerRpcHandler dispatcher "droid.request_permission" (permissionRpcHandler handlers))
-        void (registerRpcHandler dispatcher "droid.ask_user" (questionRpcHandler handlers))
-        installMcpObserver connection "droid.session_notification" Nothing handlers
-        identifier <- case saved of
-          Nothing -> sessionBoundary connection $ do
-            let params = KeyMap.union (mcpInitializeFields mcpOptions) (KeyMap.fromList (["machineId" .= String "default", "cwd" .= directory, "autoRejectPermissionRequests" .= rejectPermissions] <> maybe [] (\model -> ["modelId" .= model]) (droidModel options) <> maybe [] (\prompt -> ["systemPrompt" .= prompt]) (droidSystemPrompt options)))
-            callSettings connection Nothing "droid.initialize_session" params
-          Just identifier -> do
-            loadSession connection identifier
-            forM_ (droidModel options) $ \model ->
-              sessionBoundary connection $
-                void (connectionRequest connection 30000000 (\rpc callOptions -> Client.updateSessionSettings rpc callOptions (emptySettingsUpdate {updateSettingsModel = Just model})))
-            pure identifier
-        session <- newSessionHandle identifier connection (droidTurnTimeoutMicros options)
-        action session
+  environment <- getEnvironment
+  let sanitize = Map.delete "FACTORY_UPSTREAM_CLIENT_TYPE" . Map.delete "FACTORY_UPSTREAM_SDK"
+      process = (Process.prepareDroidProcess (droidExecutable options) Process.StreamJsonRpc (droidLaunchOptions options) environment sanitize) {cwd = Just directory}
+  Process.withObservedJsonLinesProcess observability (droidFrameLimitBytes options) 5000000 process (action . Transport.processTransport)
+
+openLocalSession :: Obs.DroidObservability -> DroidSessionOptions -> DroidHandlers -> Maybe Text -> McpSessionOptions -> ObjectTransport -> (DroidSession -> IO a) -> IO a
+openLocalSession observability options handlers saved mcpOptions rawTransport action = do
+  let transport = if Obs.observabilityLogTransport observability then Transport.loggedObjectTransport (Obs.observabilityLogger observability) Transport.defaultTransportLogOptions rawTransport else rawTransport
+  directory <- makeAbsolute (droidSessionWorkingDirectory options)
+  let config = localRetainedLoadConfiguration options saved
+  local <- LocalSessionState config <$> newTVarIO mempty
+  withObservedRpcChannel observability (transportSendObject transport) (transportReceiveObject transport) $ \channel ->
+    withSessionConnection channel (localBackend local) (localAutoReject options handlers) mcpOptions $ \connection -> do
+      let dispatcher = connectionDispatcher connection
+      void (registerRpcHandler dispatcher "droid.request_permission" (permissionRpcHandler handlers))
+      void (registerRpcHandler dispatcher "droid.ask_user" (questionRpcHandler handlers))
+      void (installMcpObserver connection "droid.session_notification" Nothing handlers)
+      forM_ (onDroidRequestSettled handlers) (onRpcRequestSettled channel)
+      identifier <- case saved of
+        Nothing -> sessionBoundary connection $ do
+          let params = Configuration.initializationFields (localInitializationParams options handlers (Text.pack directory) mcpOptions)
+          callSettings connection Nothing "droid.initialize_session" params
+        Just identifier -> do
+          loadSession connection identifier
+          forM_ (droidSessionModel options) $ \model ->
+            sessionBoundary connection $
+              void (connectionRequest connection 30000000 (\rpc callOptions -> Client.updateSessionSettings rpc callOptions (emptySettingsUpdate {updateSettingsModel = Just model})))
+          pure identifier
+      session <- newSessionHandle identifier connection (droidSessionTimeoutMicros options)
+      action session
 
 -- | Run a prompt without a streaming callback and close the session afterward.
 runDroid :: DroidOptions -> Text -> IO DroidResult
@@ -451,10 +611,35 @@ submitDroidMcpAuthError session params = sessionRequest MutatingRequest session 
 getDroidSettings :: DroidSession -> IO SessionSettings
 getDroidSettings session = atomically $ do
   ensureSession session
-  observed <- readTVar (connectionSettings (sessionConnection session))
-  case observed of
-    Just (identifier, settings) | identifier == droidSessionId session -> either throwSTM pure settings
-    _ -> throwSTM DroidSessionUnusable
+  (_, observed) <- readTVar (connectionSettings (sessionConnection session))
+  case Map.lookup (droidSessionId session) observed of
+    Just settings -> either throwSTM pure settings
+    Nothing -> throwSTM DroidSessionUnusable
+
+-- | Read the owned mission view without RPC or waiting. Nothing means that no
+-- mission baseline or mutation has been observed. A malformed mission update
+-- makes the view invalid until a full successful load/initialization replaces
+-- it. Like the settings getter, this is safe inside ordinary event callbacks.
+getDroidMissionSnapshot :: DroidSession -> IO (Maybe MissionSnapshot)
+getDroidMissionSnapshot session = atomically $ do
+  ensureSession session
+  missionSnapshotAt (sessionConnection session) (droidSessionId session)
+
+-- Cached, connection-scoped lookups never create stores or load sessions.
+lookupMissionSnapshot :: SessionConnection -> Text -> IO (Maybe MissionSnapshot)
+lookupMissionSnapshot connection identifier = atomically $ do
+  readTVar (connectionOpen connection) >>= flip unless (throwSTM RpcChannelClosed)
+  missionSnapshotAt connection identifier
+
+lookupMissionId :: SessionConnection -> Text -> IO (Maybe Text)
+lookupMissionId connection identifier = atomically $ do
+  readTVar (connectionOpen connection) >>= flip unless (throwSTM RpcChannelClosed)
+  Mission.resolveMissionId identifier <$> readTVar (connectionMission connection)
+
+missionSnapshotAt :: SessionConnection -> Text -> STM (Maybe MissionSnapshot)
+missionSnapshotAt connection identifier = do
+  registry <- readTVar (connectionMission connection)
+  either (const (throwSTM DroidInvalidEvent)) (pure . fmap Mission.missionSnapshot) (Mission.lookupMissionStore identifier registry)
 
 -- | Apply a partial settings update and retain the peer's acknowledgement.
 -- No optimistic settings cache is maintained. Unknown mutation outcomes invalidate
@@ -481,7 +666,25 @@ renameDroidSession session title = sessionRequest MutatingRequest session (\chan
 -- | Change the CLI's working directory and return its resolved path. This does
 -- not change the caller's process directory; the CLI enforces runtime restrictions.
 changeDroidWorkingDirectory :: DroidSession -> Text -> IO ChangeWorkingDirectoryResult
-changeDroidWorkingDirectory session directory = sessionRequest MutatingRequest session (\channel options -> Client.changeWorkingDirectory channel options (ChangeWorkingDirectoryParams directory mempty))
+changeDroidWorkingDirectory session directory = sessionRequest MutatingRequest session $ \channel options ->
+  Client.callObserved (Proxy @(WithEnvelope (MethodRequest "droid.change_working_directory" ChangeWorkingDirectoryParams))) channel options (ChangeWorkingDirectoryParams directory mempty) $ \result ->
+    recordLocalDirectory (sessionConnection session) (droidSessionId session) (State.WorkingDirectoryReported (Just (changedResolvedPath result)))
+
+-- | Last intake-observed directory, not the caller's process directory.
+-- Receipt return alone does not synchronize later notifications.
+getDroidWorkingDirectoryState :: DroidSession -> IO State.WorkingDirectoryState
+getDroidWorkingDirectoryState session = atomically $ do
+  ensureSession session
+  local <- requireLocalState (sessionConnection session)
+  Map.findWithDefault State.WorkingDirectoryUnknown (droidSessionId session) <$> readTVar (localWorkingDirectories local)
+
+getDroidWorkingDirectory :: DroidSession -> IO (Maybe Text)
+getDroidWorkingDirectory session =
+  getDroidWorkingDirectoryState session >>= \case
+    State.WorkingDirectoryUnknown -> pure Nothing
+    State.WorkingDirectoryInherited path -> pure (Just path)
+    State.WorkingDirectoryReported path -> pure path
+    State.WorkingDirectoryInvalid _ -> throwIO DroidInvalidEvent
 
 -- | Read rewind metadata for this session without restoring or deleting files.
 getDroidRewindInfo :: DroidSession -> Text -> IO GetRewindInfoResult
@@ -589,29 +792,24 @@ runEventTurn session input callback = withPrompt session $ do
       channel = connectionChannel connection
       dispatcher = connectionDispatcher connection
       deadline = sessionTurnTimeout session
-  events <- newTQueueIO
-  let publish notification = atomically $ do
-        open <- readTVar (connectionOpen connection)
-        if not open
-          then writeTQueue events (Left DroidSessionUnusable)
-          else case backendDecode (connectionBackend connection) identifier (Just turnIdentifier) notification of
-            Right decoded -> forM_ decoded (writeTQueue events . Right)
-            Left _ -> writeTQueue events (Left DroidInvalidEvent)
-      disconnected _ = atomically (writeTQueue events (Left DroidSessionUnusable))
-      exchange = do
-        synchronizeRpcEvents channel
+      options = (defaultDroidStreamOptions identifier turnIdentifier) {streamMode = AllEvents}
+      admission = do
+        closed <- readTVar (sessionClosed session)
+        when closed (throwSTM DroidSessionUnusable)
+      exchange = withDroidStreamChecked admission options $ \stream -> do
+        let publish notification = void $ feedDroidDecoded stream $ do
+              open <- readTVar (connectionOpen connection)
+              pure $
+                if not open
+                  then Left (toException DroidSessionUnusable)
+                  else either (const (Left (toException DroidInvalidEvent))) Right (backendDecode (connectionBackend connection) identifier (Just turnIdentifier) notification)
+            disconnected _ = void (feedDroidError stream (toException DroidSessionUnusable))
+        withinSessionLifetime session (synchronizeRpcEvents channel)
         bracket (onRpcNotification dispatcher publish) id $ \_ ->
           bracket (onRpcError dispatcher disconnected) id $ \_ -> do
-            _ <- connectionRequest connection 30000000 (\rpc options -> backendSubmit (connectionBackend connection) dispatcher rpc options identifier (input {userMessageId = Just turnIdentifier}))
+            _ <- withinSessionLifetime session (connectionRequest connection 30000000 (\rpc callOptions -> backendSubmit (connectionBackend connection) dispatcher rpc callOptions identifier (input {userMessageId = Just turnIdentifier})))
             atomically (writeTVar (sessionSubmitted session) True)
-            collect initialStreamState
-      collect state = do
-        event <- atomically (readTQueue events) >>= either throwIO pure
-        let (next, pieces) = stepStream state event
-        callback event pieces
-        case event of
-          TurnCompletedEvent completion -> pure (finishStream identifier completion next)
-          _ -> collect next
+            streamTurnResult <$> consumeDroidStream stream (\frame -> callback (streamFrameEvent frame) (streamFrameText frame))
       invalidate = invalidateSession session
       timed = maybe (Just <$> exchange) (`timeout` exchange) deadline
   (timed >>= maybe (throwIO DroidTurnTimedOut) pure) `onException` invalidate
@@ -620,7 +818,7 @@ runEventTurn session input callback = withPrompt session $ do
 -- acknowledgement is not completion: await sendDroidTurn for the terminal result.
 -- Pending interrupts fence the next prompt so a delayed request cannot cancel it.
 interruptDroidSession :: DroidSession -> IO ()
-interruptDroidSession session = bracket acquire release $ \active -> when active $ do
+interruptDroidSession session = bracket acquire release $ \active -> when active $ withinSessionLifetime session $ do
   result <- timeout 30000000 $ do
     submitted <- atomically $ do
       status <- sessionStatus session
@@ -660,7 +858,7 @@ sessionRequest effect = sessionRequestWithTimeout effect 30000000
 
 sessionRequestWithTimeout :: RequestEffect -> Int -> DroidSession -> (RpcChannel -> Client.CallOptions -> IO a) -> IO a
 sessionRequestWithTimeout effect deadline session request =
-  bracket_ (atomically (beginUse session)) (atomically (endUse session)) $
+  withSessionUse session $
     performSessionRequest effect session (connectionRequest (sessionConnection session) deadline request)
 
 performSessionRequest :: RequestEffect -> DroidSession -> IO a -> IO a
@@ -676,7 +874,7 @@ performSessionRequest effect session action = mask $ \restore -> do
 
 connectionRequest :: SessionConnection -> Int -> (RpcChannel -> Client.CallOptions -> IO a) -> IO a
 connectionRequest connection deadline request = do
-  identifier <- nextRequestId (connectionCounter connection)
+  identifier <- nextRequestId connection
   request (connectionChannel connection) (Client.CallOptions identifier (backendContext (connectionBackend connection)) (Just deadline))
 
 sessionStatus :: DroidSession -> STM DroidSessionStatus
@@ -709,7 +907,7 @@ endUse :: DroidSession -> STM ()
 endUse session = modifyTVar' (sessionLifecycle session) (\(status, active) -> (status, active - 1))
 
 withPrompt :: DroidSession -> IO a -> IO a
-withPrompt session action = withMVar (connectionTurnLock (sessionConnection session)) $ \() ->
+withPrompt session action = withMVar (sessionTurnLock session) $ \() ->
   bracket_
     ( atomically $ do
         beginUse session
@@ -729,15 +927,58 @@ withPrompt session action = withMVar (connectionTurnLock (sessionConnection sess
 
 invalidateSession :: DroidSession -> IO ()
 invalidateSession session = do
-  atomically (setStatus session SessionUnavailable)
-  let connection = sessionConnection session
-  void (connectionRequest connection 1000000 (\channel options -> backendInterrupt (connectionBackend connection) channel options (droidSessionId session)))
-    `catches` [Handler (\(_ :: RpcChannelError) -> pure ()), Handler (\(_ :: RpcResultError) -> pure ())]
+  closed <- atomically $ do
+    setStatus session SessionUnavailable
+    readTVar (sessionClosed session)
+  unless closed $ do
+    let connection = sessionConnection session
+    void (connectionRequest connection 1000000 (\channel options -> backendInterrupt (connectionBackend connection) channel options (droidSessionId session)))
+      `catches` [Handler (\(_ :: RpcChannelError) -> pure ()), Handler (\(_ :: RpcResultError) -> pure ())]
 
 loadSession :: SessionConnection -> Text -> IO ()
-loadSession connection identifier =
-  sessionBoundary connection $
-    void (callSettings connection (Just identifier) "droid.load_session" (KeyMap.union (mcpLoadFields (connectionMcpOptions connection)) (KeyMap.fromList ["sessionId" .= identifier, "autoRejectPermissionRequests" .= connectionAutoRejectPermissions connection])))
+loadSession connection identifier = sessionBoundary connection $ do
+  local <- atomically (requireLocalState connection)
+  let config = localLoadConfiguration local
+      (params, patch) = Configuration.prepareLoadSessionParams identifier (connectionMcpOptions connection) (connectionAutoRejectPermissions connection) config
+  either throwIO pure (Configuration.validateLoadSessionParams params)
+  void (callSettings connection (Just identifier) "droid.load_session" (Configuration.loadSessionFields params))
+  forM_ patch $ \update -> void (connectionRequest connection 30000000 (\channel options -> Client.updateSessionSettings channel options update))
+
+localRetainedLoadConfiguration :: DroidSessionOptions -> Maybe Text -> Configuration.SessionLoadConfiguration
+localRetainedLoadConfiguration options saved =
+  let inherited = if isNothing saved then Configuration.loadConfigurationFromInitialization (droidSessionConfiguration options) else Configuration.defaultSessionLoadConfiguration
+   in Configuration.mergeSessionLoadConfiguration inherited (droidSessionLoadConfiguration options)
+
+requireLocalState :: SessionConnection -> STM LocalSessionState
+requireLocalState connection = maybe (throwSTM DroidSessionUnusable) pure (backendLocalState (connectionBackend connection))
+
+recordLocalDirectory :: SessionConnection -> Text -> State.WorkingDirectoryState -> STM ()
+recordLocalDirectory connection identifier directory = forM_ (backendLocalState (connectionBackend connection)) $ \local ->
+  modifyTVar' (localWorkingDirectories local) $ case directory of
+    State.WorkingDirectoryUnknown -> Map.insertWith (\_ old -> old) identifier directory
+    _ -> Map.insert identifier directory
+
+inheritLocalDirectory :: SessionConnection -> Text -> Text -> STM ()
+inheritLocalDirectory connection parent identifier = forM_ (backendLocalState (connectionBackend connection)) $ \local ->
+  modifyTVar' (localWorkingDirectories local) $ \directories ->
+    let inherited = Map.findWithDefault State.WorkingDirectoryUnknown parent directories
+        previous = Map.findWithDefault State.WorkingDirectoryUnknown identifier directories
+     in Map.insert identifier (State.inheritWorkingDirectoryState inherited previous) directories
+
+parseLocalDirectory :: SessionConnection -> Maybe Text -> Object -> Object -> Parser State.WorkingDirectoryState
+parseLocalDirectory connection saved params fields = case backendLocalState (connectionBackend connection) of
+  Nothing -> pure State.WorkingDirectoryUnknown
+  Just _ | isNothing saved -> do
+    requested <- params .: "cwd"
+    worktree <- fields .:! "worktree"
+    pure (State.WorkingDirectoryReported (Just (maybe requested initialWorktreePath worktree)))
+  Just _ -> case KeyMap.lookup "cwd" fields of
+    Nothing -> pure $ case KeyMap.lookup "worktree" fields of
+      Just (Object legacy) -> case KeyMap.lookup "path" legacy of
+        Just (String path) -> State.WorkingDirectoryReported (Just path)
+        _ -> State.WorkingDirectoryUnknown
+      _ -> State.WorkingDirectoryUnknown
+    Just value -> State.WorkingDirectoryReported <$> parseJSON value
 
 -- Full replies and notification updates write only on the same ordered intake.
 -- Source lifecycle guards hide provisional successor settings until publication.
@@ -745,38 +986,155 @@ callSettings :: SessionConnection -> Maybe Text -> Text -> Object -> IO Text
 callSettings connection saved method params = fst <$> callSettingsResult connection saved method params
 
 callSettingsResult :: SessionConnection -> Maybe Text -> Text -> Object -> IO (Text, Object)
-callSettingsResult connection saved method params = do
-  identifier <- nextRequestId (connectionCounter connection)
+callSettingsResult connection saved method params = callSettingsResultObserved connection saved method params pure (\_ _ _ -> pure True)
+
+-- Validate the consumer's complete receipt and gate publication at the same
+-- ordered wire position as settings/mission updates, not after a later IO wait.
+callSettingsResultObserved :: SessionConnection -> Maybe Text -> Text -> Object -> (Object -> Parser a) -> (UTCTime -> Text -> a -> STM Bool) -> IO (Text, a)
+callSettingsResultObserved = callSettingsResultObservedWithin Nothing
+
+-- A wire-only deadline lets a caller retry a specifically idempotent request
+-- without replaying receipt restoration or later user work.
+callSettingsResultObservedWithin :: Maybe Int -> SessionConnection -> Maybe Text -> Text -> Object -> (Object -> Parser a) -> (UTCTime -> Text -> a -> STM Bool) -> IO (Text, a)
+callSettingsResultObservedWithin = callSettingsResultObservedWithAdmission (pure ())
+
+callSettingsResultObservedWithAdmission :: STM () -> Maybe Int -> SessionConnection -> Maybe Text -> Text -> Object -> (Object -> Parser a) -> (UTCTime -> Text -> a -> STM Bool) -> IO (Text, a)
+callSettingsResultObservedWithAdmission admit deadline connection saved method params decode observeReceipt = do
+  identifier <- nextRequestId connection
+  let expected = saved <|> case KeyMap.lookup "sessionId" params of Just (String value) -> Just value; _ -> Nothing
+  atomically (admit >> writeTVar (connectionMissionTarget connection) (Just (identifier, expected)))
   let parse fields = do
         sessionId <- maybe (fields .: "sessionId") pure saved
+        forM_ expected $ \wanted -> unless (sessionId == wanted) (fail "Unexpected attached session identifier")
         forM_ saved $ \_ -> do
           snapshot <- fields .: "session"
           void (snapshot .: "messages" :: Parser [Value])
         settings <- fields .: "settings"
-        pure (sessionId, settings)
-      observe response = forM_ (decodeRpcResult response) $ \fields ->
-        forM_ (parseEither parse fields) $ \(sessionId, settings) ->
-          writeTVar (connectionSettings connection) (Just (sessionId, Right settings))
+        when (isNothing saved && KeyMap.member "systemPrompt" params && isNothing (settingsSystemPrompt settings)) (fail "Requested system prompt was not acknowledged")
+        mission <- fields .:! "mission"
+        parent <- fields .:! "callingSessionId"
+        receipt <- decode fields
+        directory <- parseLocalDirectory connection saved params fields
+        pure (sessionId, settings, mission, parent, receipt, directory)
+      observe receivedAt response = forM_ (decodeRpcResult response) $ \fields ->
+        forM_ (parseEither parse fields) $ \(sessionId, settings, mission, parent, receipt, directory) -> do
+          accepted <- observeReceipt receivedAt sessionId receipt
+          when accepted $ do
+            modifyTVar' (connectionSettings connection) (\(_, known) -> (Just sessionId, Map.insert sessionId (Right settings) known))
+            recordLocalDirectory connection sessionId directory
+            pending <- readTVar (connectionUnscopedMission connection)
+            registry <- readTVar (connectionMission connection)
+            let provisioned = case Map.lookup identifier pending of
+                  Just (Left _) -> Mission.invalidateMissionStore sessionId registry
+                  Just (Right (Just store)) -> Mission.modifyMissionStore sessionId (Mission.mergeFrom (scopePendingUsage sessionId store)) registry
+                  _ -> registry
+                restored = case mission of
+                  Just snapshot -> Mission.restoreRegistrySnapshotAt (observationTimestamp receivedAt) sessionId snapshot provisioned
+                  Nothing -> case parent of
+                    Just parentId | not (Text.null parentId) -> Mission.associateWorkerWithParentMission parentId sessionId provisioned
+                    _ -> provisioned
+                associated = case Mission.lookupMissionStore sessionId restored of
+                  Right (Just store) -> foldl' (flip (Mission.associateWorkerWithParentMission sessionId)) restored (missionSnapshotWorkers (Mission.missionSnapshot store))
+                  _ -> restored
+            writeTVar (connectionMission connection) associated
+          modifyTVar' (connectionUnscopedMission connection) (Map.delete identifier)
+          current <- readTVar (connectionMissionTarget connection)
+          when (fmap fst current == Just identifier) (writeTVar (connectionMissionTarget connection) (if accepted then Just (identifier, Just sessionId) else Nothing))
   let envelope = backendContext (connectionBackend connection)
-  response <- requestReplyObserved (connectionChannel connection) Nothing (envelope {envelopeBody = BaseRequest identifier method (Just (Object params)) mempty}) observe
+  response <- requestReplyObservedAtWithAdmission (connectionChannel connection) RunBeforeRequest admit deadline (envelope {envelopeBody = BaseRequest identifier method (Just (Object params)) mempty}) observe
   fields <- either throwIO pure (decodeRpcResult response)
-  (sessionId, _) <- parseSessionResult parse fields
-  pure (sessionId, fields)
+  (sessionId, _, _, _, receipt, _) <- parseSessionResult parse fields
+  pure (sessionId, receipt)
+
+observationTimestamp :: UTCTime -> Text
+observationTimestamp = Text.pack . formatTime defaultTimeLocale "%Y-%m-%dT%H:%M:%S%3QZ"
+
+observeMissionNotification :: SessionConnection -> JsonRpcBaseNotification -> IO ()
+observeMissionNotification connection notification = do
+  observedAt <- observationTimestamp <$> getCurrentTime
+  atomically $ do
+    notice <- missionNotificationContext connection notification
+    forM_ notice $ \(origin, decoded) -> case origin of
+      Just identifier -> modifyTVar' (connectionMission connection) $ \registry -> case decoded of
+        Left _ -> Mission.invalidateMissionStore identifier registry
+        Right events -> foldl' (flip (Mission.applyRegistryEventAt observedAt identifier)) registry events
+      Nothing -> do
+        target <- readTVar (connectionMissionTarget connection)
+        forM_ target $ \(requestId, _) -> modifyTVar' (connectionUnscopedMission connection) $ \pending ->
+          let previous = Map.findWithDefault (Right Nothing) requestId pending
+              next = case decoded of
+                Left _ -> Left DroidInvalidEvent
+                Right events -> foldl' (\current event -> fmap (applyUnscopedMissionEvent observedAt event) current) previous events
+           in Map.insert requestId next pending
+
+missionNotificationContext :: SessionConnection -> JsonRpcBaseNotification -> STM (Maybe (Maybe Text, Either String [DroidEvent]))
+missionNotificationContext connection notification = do
+  target <- readTVar (connectionMissionTarget connection)
+  pure $ case baseNotificationParams (envelopeBody notification) of
+    Just (Object params)
+      | Just (Object payload) <- KeyMap.lookup "notification" params,
+        Just (String kind) <- KeyMap.lookup "type" payload,
+        kind `elem` ["mission_state_changed", "mission_features_changed", "mission_progress_entry", "mission_worker_started", "mission_worker_completed", "session_token_usage_changed"] ->
+          let reported = case KeyMap.lookup "sessionId" params of Just (String value) -> Just value; _ -> Nothing
+              origin = reported <|> (snd =<< target)
+           in if isJust origin || baseNotificationMethod (envelopeBody notification) == "droid.session_notification"
+                then Just (origin, backendDecode (connectionBackend connection) (fromMaybe "" origin) Nothing notification)
+                else Nothing
+    _ -> Nothing
+
+applyUnscopedMissionEvent :: Text -> DroidEvent -> Maybe Mission.MissionStore -> Maybe Mission.MissionStore
+applyUnscopedMissionEvent observedAt event current = case event of
+  UsageEvent _ -> Mission.applyEventAt observedAt event <$> current
+  MissionStateEvent _ -> update
+  MissionFeaturesEvent _ -> update
+  MissionProgressEvent _ -> update
+  MissionWorkerStartedEvent _ -> update
+  MissionWorkerCompletedEvent _ -> update
+  _ -> current
+  where
+    update = Just (Mission.applyEventAt observedAt event (fromMaybe Mission.emptyMissionStore current))
+
+scopePendingUsage :: Text -> Mission.MissionStore -> Mission.MissionStore
+scopePendingUsage identifier store = Mission.setTokenUsageBySessionId kept store
+  where
+    usage = fromMaybe mempty (missionSnapshotSessionUsage (Mission.missionSnapshot store))
+    kept = Map.filterWithKey (\sessionId _ -> sessionId == identifier || Mission.hasWorkerSession sessionId store) usage
+
+missionEventAdmitted :: Text -> Mission.MissionRegistry -> DroidEvent -> Bool
+missionEventAdmitted origin registry event = case event of
+  UsageEvent usage -> case Mission.lookupMissionStore origin registry of
+    Left _ -> True
+    Right (Just store) -> sessionUsageId usage == origin || Mission.hasWorkerSession (sessionUsageId usage) store
+    Right Nothing -> False
+  MissionStateEvent _ -> True
+  MissionFeaturesEvent _ -> True
+  MissionProgressEvent _ -> True
+  MissionWorkerStartedEvent _ -> True
+  MissionWorkerCompletedEvent _ -> True
+  _ -> False
 
 observeSettingsNotification :: SessionConnection -> JsonRpcBaseNotification -> STM ()
 observeSettingsNotification connection notification =
   case baseNotificationParams (envelopeBody notification) of
     Just (Object params)
       | Just (Object payload) <- KeyMap.lookup "notification" params,
-        KeyMap.lookup "type" payload == Just (String "settings_updated") -> do
-          observed <- readTVar (connectionSettings connection)
-          forM_ observed $ \(identifier, current) ->
-            case decodeSessionNotification identifier notification of
-              Left _ -> writeTVar (connectionSettings connection) (Just (identifier, Left DroidInvalidEvent))
+        let kind = KeyMap.lookup "type" payload,
+        kind == Just (String "settings_updated") || (isJust (backendLocalState (connectionBackend connection)) && kind == Just (String "session_working_directory_changed")) -> do
+          (owner, observed) <- readTVar (connectionSettings connection)
+          let origin = case KeyMap.lookup "sessionId" params of
+                Just (String identifier) -> Just identifier
+                _ | baseNotificationMethod (envelopeBody notification) == "droid.session_notification" -> owner
+                _ -> Nothing
+          forM_ origin $ \identifier -> forM_ (Map.lookup identifier observed) $ \current ->
+            case backendDecode (connectionBackend connection) identifier Nothing notification of
+              Left _ | kind == Just (String "settings_updated") -> writeTVar (connectionSettings connection) (owner, Map.insert identifier (Left DroidInvalidEvent) observed)
+              Left _ -> forM_ (backendLocalState (connectionBackend connection)) $ \local ->
+                modifyTVar' (localWorkingDirectories local) (Map.alter (Just . State.invalidateWorkingDirectoryState . fromMaybe State.WorkingDirectoryUnknown) identifier)
               Right events -> forM_ events $ \case
                 SettingsUpdatedEvent update ->
                   let !next = current >>= (`mergeObservedSettings` settingsUpdateValues update)
-                   in writeTVar (connectionSettings connection) (Just (identifier, next))
+                   in writeTVar (connectionSettings connection) (owner, Map.insert identifier next observed)
+                WorkingDirectoryEvent change -> recordLocalDirectory connection identifier (State.WorkingDirectoryReported (Just (updatedWorkingDirectory change)))
                 _ -> pure ()
     _ -> pure ()
 
@@ -798,15 +1156,19 @@ mergeObservedSettings previous change =
 -- Replies still overtake dispatch, but snapshot observations have wire positions.
 -- Drain that prefix before publishing a handle, under the same startup deadline.
 sessionBoundary :: SessionConnection -> IO a -> IO a
-sessionBoundary connection action = do
-  result <- timeout 60000000 (action <* synchronizeRpcEvents (connectionChannel connection))
+sessionBoundary connection = connectionBoundary connection 60000000
+
+-- The exchange and its ordered publication share one deadline.
+connectionBoundary :: SessionConnection -> Int -> IO a -> IO a
+connectionBoundary connection deadline action = do
+  result <- timeout deadline (action <* synchronizeRpcEvents (connectionChannel connection))
   maybe (throwIO RpcRequestTimedOut) pure result
 
 replaceSession :: DroidSession -> Int -> (RpcChannel -> Client.CallOptions -> IO a) -> (a -> Text) -> IO (DroidSession, a)
 replaceSession session deadline operation successorId = mask $ \restore -> do
   atomically (ensureSession session)
   let connection = sessionConnection session
-      lock = connectionTurnLock connection
+      lock = sessionTurnLock session
   tryTakeMVar lock >>= \case
     Nothing -> throwIO DroidSessionBusy
     Just () -> (`finally` putMVar lock ()) $ do
@@ -835,6 +1197,7 @@ replaceSession session deadline operation successorId = mask $ \restore -> do
           let target = successorId value
           attached <- try @SomeException $ do
             restore (loadSession connection target)
+            atomically (inheritLocalDirectory connection (droidSessionId session) target)
             successor <- newSessionHandle target connection (sessionTurnTimeout session)
             atomically $ do
               open <- readTVar (connectionOpen connection)
@@ -869,12 +1232,56 @@ replacementProtocolFailure cause =
     (Nothing, Nothing, Nothing) -> False
     _ -> True
 
-nextRequestId :: IORef Integer -> IO Text
-nextRequestId counter = Text.pack . show <$> atomicModifyIORef' counter (\n -> (n + 1, n))
+nextRequestId :: SessionConnection -> IO Text
+nextRequestId connection = do
+  index <- atomicModifyIORef' (connectionCounter connection) (\n -> (n + 1, n))
+  pure (connectionRequestNamespace connection <> ":" <> Text.pack (show index))
 
 newSessionHandle :: Text -> SessionConnection -> Maybe Int -> IO DroidSession
 newSessionHandle identifier connection deadline =
-  DroidSession identifier connection <$> newTVarIO (SessionReady, 0) <*> pure deadline <*> newTVarIO 0 <*> newTVarIO False
+  DroidSession identifier connection <$> newTVarIO (SessionReady, 0) <*> pure deadline <*> newTVarIO 0 <*> newTVarIO False <*> newMVar () <*> newTVarIO False <*> newTVarIO mempty
+
+-- Close only this handle's admission and subscriptions. Waiting is separate
+-- so the dispatcher can report closure without waiting on its own intake.
+closeDroidSession :: DroidSession -> IO ()
+closeDroidSession session = mask_ $ do
+  cleanups <- atomically $ do
+    writeTVar (sessionClosed session) True
+    (status, active) <- readTVar (sessionLifecycle session)
+    case status of
+      SessionReplaced _ -> pure ()
+      _ -> writeTVar (sessionLifecycle session) (SessionUnavailable, active)
+    owned <- readTVar (sessionCleanups session)
+    writeTVar (sessionCleanups session) mempty
+    pure (Map.elems owned)
+  sequence_ cleanups
+
+waitDroidSessionIdle :: DroidSession -> IO ()
+waitDroidSessionIdle session = atomically $ do
+  (_, active) <- readTVar (sessionLifecycle session)
+  check (active == 0)
+
+ownSessionCleanup :: DroidSession -> IO () -> IO (IO ())
+ownSessionCleanup session cleanup = mask_ $ do
+  token <- newUnique
+  registered <- atomically $ do
+    closed <- readTVar (sessionClosed session)
+    unless closed (modifyTVar' (sessionCleanups session) (Map.insert token cleanup))
+    pure (not closed)
+  unless registered cleanup
+  pure (mask_ (cleanup `finally` atomically (modifyTVar' (sessionCleanups session) (Map.delete token))))
+
+-- Closing requests retain admission until their own reply settles, even when
+-- a lifecycle notification has already ended ordinary session operations.
+withSessionLease :: DroidSession -> IO a -> IO a
+withSessionLease session = bracket_ (atomically (beginUse session)) (atomically (endUse session))
+
+withSessionUse :: DroidSession -> IO a -> IO a
+withSessionUse session action = withSessionLease session (withinSessionLifetime session action)
+
+withinSessionLifetime :: DroidSession -> IO a -> IO a
+withinSessionLifetime session action =
+  either throwIO pure =<< race (atomically (readTVar (sessionClosed session) >>= check) >> pure DroidSessionUnusable) action
 
 parseSessionResult :: (Object -> Parser a) -> Object -> IO a
 parseSessionResult parser fields = either (const (throwIO DroidInvalidEvent)) pure (parseEither parser fields)

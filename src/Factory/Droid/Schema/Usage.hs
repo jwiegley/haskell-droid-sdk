@@ -5,6 +5,7 @@
 -- retains their numeric values without binary floating-point rounding.
 module Factory.Droid.Schema.Usage
   ( TokenUsage (..),
+    sumTokenUsage,
     LastCallTokenUsage (..),
   )
 where
@@ -19,6 +20,7 @@ import Data.Aeson
     (.=),
   )
 import Data.Aeson.Key (Key)
+import Data.Maybe (fromMaybe)
 import Data.Scientific (Scientific)
 import Factory.Droid.Internal.JSON
   ( additionalFields,
@@ -63,6 +65,13 @@ instance ToJSON TokenUsage where
         ]
           <> optionalField "factoryCredits" (usageFactoryCredits usage)
       )
+
+-- | Sum known counters exactly. Empty input yields zero, including credits;
+-- absent credits contribute zero. Unknown extensions are not summed.
+sumTokenUsage :: [TokenUsage] -> TokenUsage
+sumTokenUsage = foldl' add (TokenUsage 0 0 0 0 0 (Just 0) mempty)
+  where
+    add left right = TokenUsage (usageInputTokens left + usageInputTokens right) (usageOutputTokens left + usageOutputTokens right) (usageCacheCreationTokens left + usageCacheCreationTokens right) (usageCacheReadTokens left + usageCacheReadTokens right) (usageThinkingTokens left + usageThinkingTokens right) (Just (fromMaybe 0 (usageFactoryCredits left) + fromMaybe 0 (usageFactoryCredits right))) mempty
 
 -- | Latest provider usage for the context and compaction meter. This shape
 -- occurs in load-session results and session-token-usage notifications.

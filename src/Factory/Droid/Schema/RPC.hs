@@ -13,6 +13,7 @@ module Factory.Droid.Schema.RPC
     RpcObject (..),
     WithEnvelope (..),
     JsonRpcEnvelope,
+    inspectJsonRpcEnvelope,
     JsonRpcBaseRequest,
     JsonRpcBaseNotification,
     JsonRpcBaseResponseSuccess,
@@ -42,6 +43,7 @@ module Factory.Droid.Schema.RPC
 where
 
 import Control.Applicative ((<|>))
+import Control.Monad (void, when)
 import Data.Aeson
   ( FromJSON (..),
     Object,
@@ -55,6 +57,8 @@ import Data.Aeson
     (.=),
   )
 import Data.Aeson.Key (Key)
+import Data.Aeson.KeyMap qualified as KeyMap
+import Data.Aeson.Types (Parser, parseMaybe)
 import Data.Proxy (Proxy (..))
 import Data.Text (Text)
 import Data.Text qualified as Text
@@ -393,6 +397,23 @@ instance (RpcObject a) => RpcObject (WithEnvelope a) where
       ["jsonrpc" .= ("2.0" :: Text), "factoryApiVersion" .= ("1.0.0" :: Text)]
         <> optionalField "factoryProtocolVersion" (envelopeProtocolVersion envelope)
         <> optionalField "_meta" (envelopeMeta envelope)
+
+-- | Inspect a partial envelope against an explicitly expected protocol version.
+-- Retain the supplied object verbatim; invalid known fields return Nothing.
+-- This is not wire admission, negotiation or an attribution decision.
+inspectJsonRpcEnvelope :: Text -> Value -> Maybe (Object, Maybe ProtocolVersionMismatch)
+inspectJsonRpcEnvelope expected = parseMaybe $ withObject "Partial RPC envelope" $ \fields -> do
+  when (KeyMap.member "jsonrpc" fields) (requireLiteral "jsonrpc" "2.0" fields)
+  when (KeyMap.member "factoryApiVersion" fields) (requireLiteral "factoryApiVersion" "1.0.0" fields)
+  peer <- fields .:! "factoryProtocolVersion"
+  void (fields .:! "_meta" :: Parser (Maybe TraceContextMeta))
+  kind <- fields .:! "type"
+  method <- fields .:! "method"
+  identifier <- fields .:! "id"
+  let mismatch = case peer of
+        Just version | version /= expected -> Just (ProtocolVersionMismatch expected version kind method identifier mempty)
+        _ -> Nothing
+  pure (fields, mismatch)
 
 -- | Standalone open envelope (JsonRpcEnvelopeSchema).
 type JsonRpcEnvelope = WithEnvelope Object

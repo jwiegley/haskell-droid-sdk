@@ -35,6 +35,7 @@ module Factory.Droid.Schema.Notifications
     ToolExecutionPhaseChanged (..),
     ToolProgressUpdate (..),
     ToolProgressUpdateNotification (..),
+    equalToolStreamingUpdates,
     LlmRetry (..),
     PermissionResolved (..),
     DroidHookEvent (..),
@@ -63,6 +64,7 @@ import Data.Aeson
     (.=),
   )
 import Data.Aeson.Key (Key)
+import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Scientific (Scientific)
 import Data.Text (Text)
 import Factory.Droid.Internal.JSON (additionalFields, enumOptions, objectWithAdditionalFields, optionalField, requireLiteral)
@@ -71,6 +73,11 @@ import Factory.Droid.Schema.Messages (FactoryDroidMessage, PersistedHookCommand,
 import Factory.Droid.Schema.Primitives (NonNegativeNumber)
 import Factory.Droid.Schema.Usage (LastCallTokenUsage, TokenUsage)
 import GHC.Generics (Generic)
+
+-- | Read-only equality excluding only the top-level timestamp. This must not
+-- suppress receipt-time lease renewal in the session-state owner.
+equalToolStreamingUpdates :: Object -> Object -> Bool
+equalToolStreamingUpdates left right = KeyMap.delete "timestamp" left == KeyMap.delete "timestamp" right
 
 -- | Every declared reason for an explicit turn-completed event.
 data AgentTurnCompletionReason

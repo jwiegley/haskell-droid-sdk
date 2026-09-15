@@ -46,6 +46,7 @@ import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
 import Data.Vector qualified as Vector
 import Factory.Droid.MCP.Tool
+import Factory.Droid.MCP.Validator (SchemaValidatorOptions (..), defaultSchemaValidatorOptions)
 import Factory.Droid.Schema.MCP (HttpHeader (..), StdioMcp (..))
 import Factory.Droid.Schema.MCP.Config (McpOAuthConfig (..), McpRemoteConfig (..), McpServerConfig (..), McpSessionOptions (..), validateMcpConfiguration)
 import Network.HTTP.Media qualified as Media
@@ -60,7 +61,8 @@ data McpServerOptions = McpServerOptions
     hostedServerVersion :: !Text,
     hostedRequestLimitBytes :: !Int,
     hostedResponseLimitBytes :: !Int,
-    hostedToolTimeoutMicros :: !(Maybe Int)
+    hostedToolTimeoutMicros :: !(Maybe Int),
+    hostedSchemaValidator :: !SchemaValidatorOptions
   }
   deriving stock (Eq)
 
@@ -68,7 +70,7 @@ instance Show McpServerOptions where
   show _ = "McpServerOptions <redacted>"
 
 defaultMcpServerOptions :: Text -> McpServerOptions
-defaultMcpServerOptions name = McpServerOptions name "1.0.0" (4 * 1024 * 1024) (10 * 1024 * 1024) (Just 30000000)
+defaultMcpServerOptions name = McpServerOptions name "1.0.0" (4 * 1024 * 1024) (10 * 1024 * 1024) (Just 30000000) defaultSchemaValidatorOptions
 
 data McpServerError = InvalidMcpServerOptions | DuplicateMcpToolName | McpServerStartFailure | McpServerCloseFromHandler | McpServerNameConflict | HostedMcpRequiresLocalDaemon
   deriving stock (Eq, Show)
@@ -99,6 +101,9 @@ newMcpServer :: McpServerOptions -> [McpTool] -> IO McpServer
 newMcpServer options tools = do
   unless (not (Text.null (hostedServerName options)) && not (Text.null (hostedServerVersion options)) && hostedRequestLimitBytes options > 0 && hostedResponseLimitBytes options >= 128 && maybe True (>= 0) (hostedToolTimeoutMicros options)) (throwIO InvalidMcpServerOptions)
   unless (Map.size (Map.fromList [(toolName tool, ()) | tool <- tools]) == length tools) (throwIO DuplicateMcpToolName)
+  let validator = hostedSchemaValidator options
+  unless (schemaValidatorTimeoutMicros validator >= 0 && not (null (schemaValidatorExecutable validator)) && '\0' `notElem` schemaValidatorExecutable validator) (throwIO InvalidMcpServerOptions)
+  mapM_ (validateToolSchemas validator) tools
   McpServer options tools <$> newMVar Stopped
 
 mcpServerName :: McpServer -> Text
@@ -362,11 +367,14 @@ dispatch options tools method params = case method of
         Nothing -> pure (Right (toJSON (errorResult "Unknown tool")))
         Just tool -> do
           let objectArguments = case arguments of Just (Object value) -> value; _ -> mempty
-              invoke = invokeTool tool objectArguments
+              invoke = invokeToolWithValidator (hostedSchemaValidator options) tool objectArguments
           result <- case hostedToolTimeoutMicros options of
             Nothing -> invoke
             Just micros -> fromMaybe (Right (errorResult "Tool request timed out")) <$> timeout micros invoke
-          pure (either (const (Left (-32602, "Invalid tool result"))) (Right . toJSON) result)
+          pure $ case result of
+            Left (McpSchemaValidationFailed _) -> Left (-32603, "Tool schema validation failed")
+            Left _ -> Left (-32602, "Invalid tool result")
+            Right value -> Right (toJSON value)
     _ -> pure (Left (-32602, "Invalid tool parameters"))
   _ -> pure (Left (-32601, "Method not found"))
   where

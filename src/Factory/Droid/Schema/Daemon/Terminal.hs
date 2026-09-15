@@ -6,6 +6,7 @@
 -- retains its existing instance. Explicit JSON encoding remains sensitive.
 module Factory.Droid.Schema.Daemon.Terminal
   ( CreateTerminalParams (..),
+    defaultCreateTerminalParams,
     WriteTerminalDataParams (..),
     ResizeTerminalParams (..),
     CloseTerminalParams (..),
@@ -46,6 +47,11 @@ data CreateTerminalParams = CreateTerminalParams
     createTerminalAdditionalFields :: !Object
   }
   deriving stock (Eq)
+
+-- | Only the caller-selected identifier is supplied; the daemon chooses omitted
+-- dimensions, cwd and environment. This does not allocate or start a terminal.
+defaultCreateTerminalParams :: Text -> CreateTerminalParams
+defaultCreateTerminalParams ident = CreateTerminalParams ident Nothing Nothing Nothing Nothing mempty
 
 instance Show CreateTerminalParams where
   show _ = "CreateTerminalParams <redacted>"

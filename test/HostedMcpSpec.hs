@@ -10,54 +10,61 @@ import Data.Aeson (FromJSON (..), Value (..), eitherDecode, encode, object, toJS
 import Data.Aeson.Key (Key)
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString.Lazy qualified as BL
-import Data.IORef (modifyIORef', newIORef, readIORef)
+import Data.IORef (modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Maybe (fromMaybe, isJust, isNothing)
 import Data.String (fromString)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
+import DroidSpec (assertReaped)
 import Factory.Droid qualified as Droid
 import Factory.Droid.Daemon qualified as Daemon
 import Factory.Droid.MCP.Server
 import Factory.Droid.MCP.Tool
+import Factory.Droid.MCP.Validator (SchemaValidatorError (..), SchemaValidatorOptions (..), defaultSchemaValidatorOptions)
 import Factory.Droid.Protocol (RpcResultError)
 import Factory.Droid.Schema.Control (ForkSessionParams (..))
 import Factory.Droid.Schema.MCP (HttpHeader (..))
 import Factory.Droid.Schema.MCP.Config (McpRemoteConfig (..), McpServerConfig (..))
 import Factory.Droid.Transport.WebSocket qualified as WebSocket
+import McpPeer (hostedEchoTools)
 import Network.HTTP.Client qualified as HTTP
 import Network.HTTP.Types (hAccept, hAuthorization, hContentType, statusCode)
 import ProcessSpec (bounded)
+import System.Directory (removeFile)
 import System.Environment (getExecutablePath)
 import System.Timeout (timeout)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
+import ValidatorSpec (withPidWorker, workerIdentifier)
 
 hostedMcpTests :: TestTree
 hostedMcpTests = testGroup "Hosted MCP tools" hostedCases
 
 hostedCases :: [TestTree]
 hostedCases =
-  [ testCase "session-owned tools execute over HTTP during startup, replacement and rollback" $ bounded $ do
+  [ testCase "raw, typed and structured session tools execute during startup, replacement and rollback" $ do
       counter <- newIORef (0 :: Int)
-      tool <- either (const (assertFailure "Tool construction failed")) pure (rawTool "echo" "Echo" openObjectSchema (\arguments -> modifyIORef' counter (+ 1) >> pure (structuredResult arguments)))
-      server <- newMcpServer (defaultMcpServerOptions "hosted-fixture") [tool]
-      executable <- getExecutablePath
-      let options = (Droid.defaultDroidOptions ".") {Droid.droidExecutable = executable, Droid.droidHostedMcpServers = [server]}
-      Droid.withDroidSession options $ \session -> do
-        readIORef counter >>= (@?= 1)
-        before <- getMcpServerConfig server
-        branch <- Droid.forkDroidSession session (ForkSessionParams Nothing Nothing mempty)
-        getMcpServerConfig server >>= assertBool "Replacement changed hosted endpoint" . (== before)
-        result <- try @Droid.DroidReplacementError (Droid.forkDroidSession branch (ForkSessionParams Nothing Nothing (KeyMap.singleton "fixtureLoadFailure" (Bool True))))
-        case result of Left _ -> pure (); Right _ -> assertFailure "Expected rollback"
-        readIORef counter >>= (@?= 4)
-        getMcpServerConfig server >>= assertBool "Rollback lost hosted endpoint" . (== before)
-      getMcpServerConfig server >>= assertBool "Session-owned server was not stopped" . isNothing
-      _ <- startMcpServer server
-      rejected <- try @RpcResultError (Droid.withDroidSession (options {Droid.droidModel = Just "fixture-reject"}) (\_ -> pure ()))
-      case rejected of Left _ -> pure (); Right _ -> assertFailure "Expected initialization failure"
-      getMcpServerConfig server >>= assertBool "Session failure stole caller-owned server" . isJust
-      closeMcpServer server,
+      tools <- hostedEchoTools (modifyIORef' counter (+ 1))
+      forM_ tools $ \tool -> bounded $ do
+        writeIORef counter 0
+        server <- newMcpServer (defaultMcpServerOptions "hosted-fixture") [tool]
+        executable <- getExecutablePath
+        let options = (Droid.defaultDroidOptions ".") {Droid.droidExecutable = executable, Droid.droidHostedMcpServers = [server]}
+        Droid.withDroidSession options $ \session -> do
+          readIORef counter >>= (@?= 1)
+          before <- getMcpServerConfig server
+          branch <- Droid.forkDroidSession session (ForkSessionParams Nothing Nothing mempty)
+          getMcpServerConfig server >>= assertBool "Replacement changed hosted endpoint" . (== before)
+          result <- try @Droid.DroidReplacementError (Droid.forkDroidSession branch (ForkSessionParams Nothing Nothing (KeyMap.singleton "fixtureLoadFailure" (Bool True))))
+          case result of Left _ -> pure (); Right _ -> assertFailure "Expected rollback"
+          readIORef counter >>= (@?= 4)
+          getMcpServerConfig server >>= assertBool "Rollback lost hosted endpoint" . (== before)
+        getMcpServerConfig server >>= assertBool "Session-owned server was not stopped" . isNothing
+        _ <- startMcpServer server
+        rejected <- try @RpcResultError (Droid.withDroidSession (options {Droid.droidModel = Just "fixture-reject"}) (\_ -> pure ()))
+        case rejected of Left _ -> pure (); Right _ -> assertFailure "Expected initialization failure"
+        getMcpServerConfig server >>= assertBool "Session failure stole caller-owned server" . isJust
+        closeMcpServer server,
     testCase "remote daemon hosted options fail before exposing a loopback endpoint" $ do
       server <- newMcpServer (defaultMcpServerOptions "remote-check") []
       let target = WebSocket.WebSocketTarget "remote.invalid" 443 "/"
@@ -258,6 +265,38 @@ hostedCases =
         case invalidEnvelope of
           Object fields | Just (Object problem) <- KeyMap.lookup "error" fields -> KeyMap.lookup "code" problem @?= Just (Number (-32602))
           _ -> assertFailure "Malformed result was treated as success",
+    testCase "raw tools advertise output schemas and validate success without rewriting rich or error results" $ bounded $ do
+      output <- either (const (assertFailure "Output schema construction failed")) pure (mkMcpSchema (KeyMap.fromList ["type" .= String "object", "properties" .= object ["total" .= object ["type" .= String "integer", "minimum" .= (1 :: Int)]], "required" .= [String "total"]]))
+      let good = (structuredResult (KeyMap.singleton "total" (Number 2))) {toolResultContent = [textContent "Two items"], toolResultAdditionalFields = KeyMap.singleton "_meta" (object ["source" .= String "raw-handler"])}
+          failed = (errorResult "No total available") {toolResultStructuredContent = Just (KeyMap.singleton "total" (Number 0))}
+          replies = [("valid", good), ("invalid", structuredResult (KeyMap.singleton "total" (Number 0))), ("missing", textResult "No structured content"), ("error", failed)]
+      tools <-
+        traverse
+          ( \(name, reply) -> do
+              tool <- either (const (assertFailure "Tool construction failed")) pure (rawTool name "Raw result" openObjectSchema (const (pure reply)))
+              pure (withToolOutputSchema output tool)
+          )
+          replies
+      server <- newMcpServer (defaultMcpServerOptions "raw-output") tools
+      withMcpServer server $ \config -> do
+        manager <- HTTP.newManager HTTP.defaultManagerSettings
+        listed <- post manager config (rpc "tools/list" (object []))
+        case resultField listed "tools" of
+          Just (Array entries) -> do
+            length entries @?= 4
+            forM_ entries $ \case
+              Object fields -> KeyMap.lookup "outputSchema" fields @?= Just (Object (mcpSchemaObject output))
+              _ -> assertFailure "Invalid tool definition"
+          _ -> assertFailure "Missing tools"
+        forM_ [("valid", good), ("error", failed)] $ \(name, expected) -> do
+          response <- post manager config (rpc "tools/call" (object ["name" .= String name]))
+          case response of
+            Object fields -> KeyMap.lookup "result" fields @?= Just (toJSON expected)
+            _ -> assertFailure "Invalid tool response"
+        forM_ [("invalid", "Invalid structured tool output"), ("missing", "Missing structured tool output")] $ \(name, message) -> do
+          response <- post manager config (rpc "tools/call" (object ["name" .= String name]))
+          resultField response "isError" @?= Just (Bool True)
+          resultField response "content" @?= Just (toJSON [textContent message]),
     testCase "rich content preserves valid variants and rejects malformed media or metadata" $ do
       let values = [object ["type" .= String "text", "text" .= String "hello", "annotations" .= object ["lastModified" .= String "2025-01-02T03:04Z"]], object ["type" .= String "image", "data" .= String " /x==\n", "mimeType" .= String "image/png"], object ["type" .= String "audio", "data" .= String "Zg", "mimeType" .= String "audio/wav"], object ["type" .= String "resource", "resource" .= object ["uri" .= String "fixture:blob", "blob" .= String "Zg=="]], object ["type" .= String "resource_link", "uri" .= String "fixture:item", "name" .= String "item", "size" .= (2 :: Int), "icons" .= [object ["src" .= String "fixture:icon", "theme" .= String "dark"]]]]
       forM_ values $ \value -> case value of
@@ -266,21 +305,96 @@ hostedCases =
       forM_ [object ["type" .= String "image", "data" .= String "Zg=", "mimeType" .= String "image/png"], object ["type" .= String "audio", "data" .= String "?", "mimeType" .= String "audio/wav"], object ["type" .= String "text", "text" .= String "x", "annotations" .= object ["lastModified" .= String "not-a-date"]], object ["type" .= String "resource_link", "uri" .= String "fixture:x", "name" .= String "x", "size" .= String "invalid"]] $ \case
         Object fields -> case jsonContent fields of Left InvalidMcpToolResult -> pure (); _ -> assertFailure "Malformed content accepted"
         _ -> assertFailure "Invalid fixture",
-    testCase "unsupported pointer escapes cannot select a different validation target" $ do
+    testCase "escaped pointers select the exact schema target" $ do
       let fields = KeyMap.fromList ["type" .= String "object", "$defs" .= object ["~1" .= object ["type" .= String "integer"], "/" .= object ["type" .= String "string"]], "properties" .= object ["v" .= object ["$ref" .= String "#/$defs/~01"]]]
-      case mkMcpSchema fields of
-        Left UnsupportedMcpSchema -> pure ()
-        _ -> assertFailure "Ambiguous dependency pointer decoding was admitted",
-    testCase "checked schemas enforce ref siblings and reject unsupported keywords" $ do
+      schema <- either (const (assertFailure "Schema construction failed")) pure (mkMcpSchema fields)
+      tool <- either (const (assertFailure "Tool construction failed")) pure (rawTool "pointer" "Pointer" schema (const (pure (textResult "valid"))))
+      invokeTool tool (KeyMap.singleton "v" (Number 1)) >>= (\case Right value -> toolResultIsError value @?= Nothing; _ -> assertFailure "Integer pointer target rejected")
+      invokeTool tool (KeyMap.singleton "v" (String "wrong")) >>= (\case Right value -> toolResultIsError value @?= Just True; _ -> assertFailure "Wrong pointer target selected"),
+    testCase "native schemas enforce ref siblings and evaluated properties" $ do
       schema <- either (const (assertFailure "Schema construction failed")) pure (mkMcpSchema (KeyMap.fromList ["type" .= String "object", "$defs" .= object ["number" .= object ["type" .= String "integer"]], "properties" .= object ["value" .= object ["$ref" .= String "#/$defs/number", "minimum" .= (3 :: Int)]]]))
       tool <- either (const (assertFailure "Tool construction failed")) pure (rawTool "check" "Check" schema (const (pure (textResult "valid"))))
       result <- invokeTool tool (KeyMap.singleton "value" (Number 2))
       case result of Right value -> toolResultIsError value @?= Just True; _ -> assertFailure "Unexpected protocol error"
-      case mkMcpSchema (KeyMap.fromList ["type" .= String "object", "unevaluatedProperties" .= False]) of
-        Left UnsupportedMcpSchema -> pure ()
-        _ -> assertFailure "Unsupported schema was silently admitted"
-      forM_ [KeyMap.fromList ["type" .= String "object", "$ref" .= String "#/x-schema", "x-schema" .= object ["unevaluatedProperties" .= False]], KeyMap.fromList ["type" .= String "object", "$ref" .= String "#/default", "default" .= object ["patternProperties" .= object []]]] $ \fields ->
-        case mkMcpSchema fields of Left _ -> pure (); Right _ -> assertFailure "Reference escaped checked schema locations"
+      closed <- either (const (assertFailure "Schema construction failed")) pure (mkMcpSchema (KeyMap.fromList ["type" .= String "object", "properties" .= object ["value" .= object ["type" .= String "integer"]], "unevaluatedProperties" .= False]))
+      checked <- either (const (assertFailure "Tool construction failed")) pure (rawTool "closed" "Closed" closed (const (pure (textResult "valid"))))
+      invokeTool checked (KeyMap.singleton "value" (Number 1)) >>= (\case Right value -> toolResultIsError value @?= Nothing; _ -> assertFailure "Valid evaluated field rejected")
+      invokeTool checked (KeyMap.fromList ["value" .= Number 1, "extra" .= False]) >>= (\case Right value -> toolResultIsError value @?= Just True; _ -> assertFailure "Unevaluated field accepted")
+      forM_ [KeyMap.fromList ["type" .= String "object", "$ref" .= String "#/x-schema", "x-schema" .= object ["unevaluatedProperties" .= False]], KeyMap.fromList ["type" .= String "object", "$ref" .= String "#/default", "default" .= object ["patternProperties" .= object []]]] $ \fields -> do
+        referenced <- either (const (assertFailure "Schema construction failed")) pure (mkMcpSchema fields)
+        validateMcpSchema defaultSchemaValidatorOptions referenced,
+    testCase "invalid full schemas fail before a hosted server is published" $ do
+      schema <- either (const (assertFailure "Outer schema construction failed")) pure (mkMcpSchema (KeyMap.fromList ["type" .= String "object", "properties" .= object ["v" .= object ["type" .= String "not-a-type"]]]))
+      tool <- either (const (assertFailure "Tool construction failed")) pure (rawTool "invalid" "Invalid" schema (const (pure (textResult "never"))))
+      try @SchemaValidatorError (newMcpServer (defaultMcpServerOptions "invalid-schema") [tool]) >>= (@?= Left InvalidSchemaDefinition),
+    testCase "native input and output schema semantics are enforced over HTTP" $ bounded $ do
+      input <- either (const (assertFailure "Input schema construction failed")) pure (mkMcpSchema (KeyMap.fromList ["type" .= String "object", "properties" .= object ["text" .= object ["type" .= String "string", "pattern" .= String "(?<=a)b"]], "required" .= [String "text"]]))
+      output <- either (const (assertFailure "Output schema construction failed")) pure (mkMcpSchema (KeyMap.fromList ["type" .= String "object", "allOf" .= [object ["properties" .= object ["n" .= object ["type" .= String "integer"]]]], "unevaluatedProperties" .= False]))
+      calls <- newIORef (0 :: Int)
+      raw <-
+        either
+          (const (assertFailure "Tool construction failed"))
+          pure
+          ( rawTool
+              "native"
+              "Native validation"
+              input
+              ( \arguments -> do
+                  modifyIORef' calls (+ 1)
+                  pure (structuredResult (KeyMap.fromList (["n" .= Number 1] <> ["extra" .= Bool False | KeyMap.lookup "bad" arguments == Just (Bool True)])))
+              )
+          )
+      server <- newMcpServer (defaultMcpServerOptions "native-semantics") [withToolOutputSchema output raw]
+      withMcpServer server $ \config -> do
+        manager <- HTTP.newManager HTTP.defaultManagerSettings
+        valid <- post manager config (rpc "tools/call" (object ["name" .= String "native", "arguments" .= object ["text" .= String "ab"]]))
+        resultField valid "isError" @?= Just (Bool False)
+        invalidInput <- post manager config (rpc "tools/call" (object ["name" .= String "native", "arguments" .= object ["text" .= String "cb"]]))
+        resultField invalidInput "isError" @?= Just (Bool True)
+        invalidOutput <- post manager config (rpc "tools/call" (object ["name" .= String "native", "arguments" .= object ["text" .= String "ab", "bad" .= Bool True]]))
+        resultField invalidOutput "isError" @?= Just (Bool True)
+        readIORef calls >>= (@?= 2),
+    testCase "missing native validator is explicit and never invokes the handler" $ do
+      schema <- either (const (assertFailure "Schema construction failed")) pure (mkMcpSchema (KeyMap.fromList ["type" .= String "object", "required" .= [String "n"]]))
+      entered <- newIORef False
+      tool <- either (const (assertFailure "Tool construction failed")) pure (rawTool "missing" "Missing dependency" schema (\_ -> writeIORef entered True >> pure (textResult "never")))
+      let missing = defaultSchemaValidatorOptions {schemaValidatorExecutable = "/nonexistent/factory-validator"}
+      invokeToolWithValidator missing tool (KeyMap.singleton "n" (Number 1)) >>= (@?= Left (McpSchemaValidationFailed ValidatorUnavailable))
+      try @SchemaValidatorError (newMcpServer ((defaultMcpServerOptions "missing") {hostedSchemaValidator = missing}) [tool]) >>= (@?= Left ValidatorUnavailable)
+      readIORef entered >>= (@?= False),
+    testCase "validator loss after startup becomes a protocol error without invoking the tool" $
+      bounded $
+        withPidWorker $ \validator _ -> do
+          entered <- newIORef False
+          tool : _ <- hostedEchoTools (writeIORef entered True)
+          server <- newMcpServer ((defaultMcpServerOptions "lost-validator") {hostedSchemaValidator = validator}) [tool]
+          removeFile (schemaValidatorExecutable validator)
+          withMcpServer server $ \config -> do
+            manager <- HTTP.newManager HTTP.defaultManagerSettings
+            response <- post manager config (rpc "tools/call" (object ["name" .= String "echo", "arguments" .= object ["source" .= String "offline-peer"]]))
+            case response of
+              Object envelope | Just (Object problem) <- KeyMap.lookup "error" envelope -> do
+                KeyMap.lookup "code" problem @?= Just (Number (-32603))
+                KeyMap.lookup "message" problem @?= Just (String "Tool schema validation failed")
+              _ -> assertFailure "Validator failure was not a protocol error"
+            readIORef entered >>= (@?= False),
+    testCase "server close joins an active validator before returning" $
+      bounded $
+        withPidWorker $ \validator pidFile -> do
+          schema <- either (const (assertFailure "Schema construction failed")) pure (mkMcpSchema (KeyMap.fromList ["type" .= String "object", "properties" .= object ["v" .= object ["type" .= String "string", "pattern" .= String "^(a|aa)+\\1b|a+$"]]]))
+          entered <- newIORef False
+          tool <- either (const (assertFailure "Tool construction failed")) pure (rawTool "slow-validation" "Slow validation" schema (\_ -> writeIORef entered True >> pure (textResult "never")))
+          server <- newMcpServer ((defaultMcpServerOptions "validator-cleanup") {hostedSchemaValidator = validator, hostedToolTimeoutMicros = Nothing}) [tool]
+          withMcpServer server $ \config -> do
+            removeFile pidFile
+            manager <- HTTP.newManager HTTP.defaultManagerSettings
+            withAsync (post manager config (rpc "tools/call" (object ["name" .= String "slow-validation", "arguments" .= object ["v" .= Text.replicate 80 "a"]]))) $ \request -> do
+              identifier <- workerIdentifier pidFile
+              closeMcpServer server
+              assertReaped identifier
+              readIORef entered >>= (@?= False)
+              getMcpServerConfig server >>= (@?= Nothing)
+              void (waitCatch request)
   ]
 
 newtype Arguments = Arguments Int

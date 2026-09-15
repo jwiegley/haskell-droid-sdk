@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module DroidSpec (droidTests, runDroidPeer) where
+module DroidSpec (droidTests, runDroidPeer, assertReaped) where
 
 import Control.Concurrent (newEmptyMVar, putMVar, readMVar, takeMVar, threadDelay, tryTakeMVar)
 import Control.Concurrent.Async (AsyncCancelled (..), asyncThreadId, cancel, wait, waitCatch, withAsync)
@@ -12,7 +12,8 @@ import Data.Aeson.Types (parseEither)
 import Data.ByteString.Char8 qualified as BS
 import Data.ByteString.Lazy qualified as BL
 import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef, writeIORef)
-import Data.Maybe (fromMaybe, isNothing)
+import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe, isNothing, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
@@ -28,17 +29,19 @@ import Factory.Droid.Schema.Enums (AutonomyLevel (..), DroidInteractionMode (Dro
 import Factory.Droid.Schema.Interaction
 import Factory.Droid.Schema.MCP
 import Factory.Droid.Schema.MCP.Config
+import Factory.Droid.Schema.Mission (MissionPhase (MissionCompleted, MissionPaused, MissionRunning), MissionSnapshot (..))
 import Factory.Droid.Schema.Models (ListModelsOptions (..), ListModelsResult (..), ModelAvailability (..), ModelInfo (..), ModelMetadata (..))
 import Factory.Droid.Schema.Notifications (AgentTurnCompleted (..), AgentTurnCompletionReason (..), ErrorNotification (..), ToolConfirmationOutcome (..))
 import Factory.Droid.Schema.RPC (JsonRpcError (..), JsonRpcErrorCode (..), SuccessResult (..))
 import Factory.Droid.Schema.Settings
 import Factory.Droid.Schema.Usage (TokenUsage (..))
-import Factory.Droid.Transport.Process (JsonLinesError (InvalidFrameLimit))
+import Factory.Droid.Transport.Process (DroidLaunchOptions (..), JsonLinesError (InvalidFrameLimit), defaultDroidLaunchOptions)
 import McpConfigSpec (fixtureMcpOptions, fixtureMcpWire)
 import McpPeer (earlyMcpEvents, handleMcpRequest, invokeHosted)
+import MissionEventSpec (missionEventPayload, missionWireEvents)
 import ProcessSpec (bounded)
 import System.Directory (doesFileExist, removePathForcibly)
-import System.Environment (getExecutablePath)
+import System.Environment (getExecutablePath, lookupEnv)
 import System.IO (hFlush, hReady, hSetBinaryMode, stdin, stdout)
 import System.IO.Error (isDoesNotExistError)
 import System.Posix.Directory (getWorkingDirectory)
@@ -56,6 +59,12 @@ droidTests =
     "High-level local Droid path"
     [ testGroup "External MCP management" mcpSessionTests,
       testGroup "MCP configuration lifecycle" mcpConfigurationSessionTests,
+      testCase "custom launch arguments and environment are applied before session initialization" $ bounded $ do
+        options <- fixtureOptions
+        let launch = defaultDroidLaunchOptions {launchPrefixArguments = ["--fixture-launch-prefix"], launchExtraArguments = ["--fixture-launch-extra", ""], launchEnvironment = Map.fromList [("DROID_LAUNCH_VALUE", "ordinary"), ("FACTORY_UPSTREAM_CLIENT_TYPE", "untrusted"), ("FACTORY_UPSTREAM_SDK", "untrusted")], launchTrustedEnvironment = Map.fromList [("DROID_LAUNCH_VALUE", "trusted"), ("DROID_LAUNCH_EMPTY", "")]}
+        result <- runDroid (options {droidModel = Just "launch-options", droidLaunchOptions = launch}) "hello"
+        resultText result @?= "Hello سلام\n😀"
+        assertReaped (resultSessionId result),
       testCase "one-shot prompt returns text and reaps its CLI" $ bounded $ do
         options <- fixtureOptions
         result <- runDroid options "hello"
@@ -341,15 +350,20 @@ droidTests =
         (peer, source, successor) <- withDroidSession options $ \session -> do
           droidSessionStatus session >>= (@?= SessionReady)
           peer <- peerIdentifier session
+          void (sendDroidEvents session AllEvents "mission-events" (\_ -> pure ()))
+          getDroidMissionSnapshot session >>= (@?= Just MissionRunning) . fmap missionSnapshotState
           successor <- forkDroidSession session defaultFork
           droidSessionStatus session >>= (@?= SessionReplaced (droidSessionId successor))
           droidSessionStatus successor >>= (@?= SessionReady)
+          getDroidMissionSnapshot successor >>= (@?= Nothing)
+          expectDroidError (DroidSessionReplaced (droidSessionId successor)) (getDroidMissionSnapshot session)
           expectDroidError (DroidSessionReplaced (droidSessionId successor)) (getDroidContextStats session)
           peerIdentifier successor >>= (@?= peer)
           pure (peer, session, successor)
         assertReaped peer
         droidSessionStatus source >>= (@?= SessionReplaced (droidSessionId successor))
         droidSessionStatus successor >>= (@?= SessionUnavailable)
+        expectDroidError DroidSessionUnusable (getDroidMissionSnapshot successor)
         expectDroidError DroidSessionUnusable (getDroidContextStats successor),
       testCase "compaction and rewind share replacement ownership and preserve metadata" $ bounded $ do
         options <- fixtureOptions
@@ -764,6 +778,78 @@ droidTests =
           droidSessionStatus session >>= (@?= SessionReady)
           next <- sendPrompt session "hello" (\_ -> pure ())
           resultText next @?= "Hello سلام\n😀"
+          pure (droidSessionId session)
+        assertReaped identifier,
+      testCase "sessionless provisional mission state binds once and follows associated children across load boundaries" $ bounded $ do
+        options <- fixtureOptions
+        identifier <- withDroidSession (options {droidModel = Just "mission-provisional"}) $ \session -> do
+          initial <- getDroidMissionSnapshot session >>= maybe (assertFailure "Missing provisional mission") pure
+          missionSnapshotState initial @?= MissionRunning
+          missionSnapshotTitle initial @?= Just "before reply"
+          missionSnapshotWorkers initial @?= ["mission-child"]
+          fmap usageInputTokens (missionSnapshotTokenUsage initial) @?= Just 7
+          delivered <- newEmptyMVar
+          observed <- newIORef (0 :: Int)
+          stop <- onDroidMissionSnapshot session $ \case
+            Left cause -> assertFailure (show cause)
+            Right snapshot -> do
+              modifyIORef' observed (+ 1)
+              fmap missionSnapshotState snapshot @?= Just MissionPaused
+              putMVar delivered ()
+          ordinary <- newIORef []
+          void (sendDroidEvents session AllEvents "mission-child-events" (\event -> modifyIORef' ordinary (<> [event])))
+          takeMVar delivered
+          readIORef ordinary >>= (@?= []) . mapMaybe missionEventPayload
+          successor <- forkDroidSession session defaultFork
+          getDroidMissionSnapshot successor >>= (@?= Just MissionCompleted) . fmap missionSnapshotState
+          getDroidMissionSnapshot successor >>= (@?= Just (Just ("loaded " <> droidSessionId successor))) . fmap missionSnapshotTitle
+          expectDroidError (DroidSessionReplaced (droidSessionId successor)) (getDroidMissionSnapshot session)
+          expectDroidError (DroidSessionReplaced (droidSessionId successor)) (onDroidMissionSnapshot session (\_ -> pure ()))
+          successorStates <- newIORef []
+          stopSuccessor <- onDroidMissionSnapshot successor $ \case
+            Left cause -> assertFailure (show cause)
+            Right snapshot -> modifyIORef' successorStates (<> [fmap missionSnapshotState snapshot])
+          void (sendDroidEvents successor AllEvents "mission-events" (\_ -> pure ()))
+          readIORef successorStates >>= (@?= replicate 5 (Just MissionRunning))
+          readIORef observed >>= (@?= 1)
+          stopSuccessor
+          stop
+          peerIdentifier successor
+        assertReaped identifier,
+      testCase "mission events use the local stream and observer without a parallel runtime" $ bounded $ do
+        options <- fixtureOptions
+        streamed <- newIORef []
+        observed <- newIORef []
+        delivered <- newEmptyMVar
+        identifier <- withDroidSession options $ \session -> do
+          getDroidMissionSnapshot session >>= (@?= Nothing)
+          stop <- onDroidSessionEvent session $ \case
+            Left cause -> assertFailure (show cause)
+            Right event -> do
+              forM_ (missionEventPayload event) $ \value -> modifyIORef' observed (<> [value])
+              case event of
+                MissionStateEvent _ -> getDroidMissionSnapshot session >>= (@?= Just MissionRunning) . fmap missionSnapshotState
+                MissionProgressEvent _ -> getDroidMissionSnapshot session >>= (@?= Just (Just "Mission title")) . fmap missionSnapshotTitle
+                MissionWorkerCompletedEvent _ -> putMVar delivered ()
+                _ -> pure ()
+          result <- sendDroidEvents session AllEvents "mission-events" (\event -> modifyIORef' streamed (<> [event]))
+          takeMVar delivered
+          readIORef streamed >>= (@?= missionWireEvents) . mapMaybe missionEventPayload
+          readIORef observed >>= (@?= missionWireEvents)
+          resultEvents result @?= []
+          resultText result @?= ""
+          stop
+          filtered <- newIORef []
+          _ <- sendDroidEvents session CompleteMessages "mission-events" (\event -> modifyIORef' filtered (<> [event]))
+          readIORef filtered >>= (@?= []) . mapMaybe missionEventPayload
+          pure (droidSessionId session)
+        assertReaped identifier,
+      testCase "malformed local mission payload is not delivered as a raw extension" $ bounded $ do
+        options <- fixtureOptions
+        identifier <- withDroidSession options $ \session -> do
+          result <- try @DroidError (sendDroidEvents session AllEvents "bad-mission-event" (\_ -> pure ()))
+          result @?= Left DroidInvalidEvent
+          expectDroidError DroidSessionUnusable (getDroidMissionSnapshot session)
           pure (droidSessionId session)
         assertReaped identifier,
       testCase "all-event streams expose typed messages, tools, hooks and partial events in order" $ bounded $ do
@@ -2024,11 +2110,20 @@ eventTag = \case
   McpStatusEvent _ -> "mcp_status"
   McpAuthRequiredEvent _ -> "mcp_auth_required"
   McpAuthCompletedEvent _ -> "mcp_auth_completed"
+  MissionStateEvent _ -> "mission_state"
+  MissionFeaturesEvent _ -> "mission_features"
+  MissionProgressEvent _ -> "mission_progress"
+  MissionHeartbeatEvent _ -> "mission_heartbeat"
+  MissionWorkerStartedEvent _ -> "mission_worker_started"
+  MissionWorkerCompletedEvent _ -> "mission_worker_completed"
   PermissionEvent _ -> "permission"
   HookStartedEvent _ -> "hook_started"
   HookCompletedEvent _ -> "hook_completed"
   StructuredOutputEvent _ -> "structured"
   MessageRetractedEvent _ -> "retracted"
+  SessionCompactedEvent _ -> "compacted"
+  QueuedMessagesDiscardedEvent _ -> "queue_discarded"
+  ChildSessionAvailableEvent _ -> "child_available"
   TurnCompletedEvent _ -> "completed"
   ErrorEvent _ -> "error"
   OtherNotificationEvent _ -> "other"
@@ -2069,7 +2164,7 @@ cancelMutation repeatCancellation = withGate $ \gate -> do
 cancelReplacementLoad :: (Exception e, Eq e, Show e) => e -> IO ()
 cancelReplacementLoad exception = withGate $ \gate -> do
   options <- fixtureOptions
-  peer <- withDroidSession options $ \session -> do
+  peer <- withDroidSession (options {droidModel = Just "mission-provisional"}) $ \session -> do
     peer <- peerIdentifier session
     let flags = KeyMap.singleton "fixtureLoadGate" (String (Text.pack gate))
     withAsync (forkDroidSession session (defaultFork {forkSessionAdditionalFields = flags})) $ \worker -> do
@@ -2080,6 +2175,10 @@ cancelReplacementLoad exception = withGate $ \gate -> do
         Left err -> fromException err @?= Just exception
         Right _ -> assertFailure "Cancelled successor load succeeded"
     droidSessionStatus session >>= (@?= SessionReady)
+    snapshot <- getDroidMissionSnapshot session >>= maybe (assertFailure "Rollback lost mission state") pure
+    missionSnapshotState snapshot @?= MissionCompleted
+    missionSnapshotTitle snapshot @?= Just ("loaded " <> droidSessionId session)
+    fmap usageInputTokens (missionSnapshotTokenUsage snapshot) @?= Just 7
     trace <- readRequestTrace gate
     case traceLoadTargets trace of
       [_, restored] -> restored @?= droidSessionId session
@@ -2192,10 +2291,20 @@ runDroidPeerWithState state = do
             Nothing -> pure "new-model"
             Just (String value) -> pure value
             _ -> throwIO CallbackAbort
+          when (model == "launch-options") $ do
+            lookupEnv "DROID_LAUNCH_VALUE" >>= (@?= Just "trusted")
+            lookupEnv "DROID_LAUNCH_EMPTY" >>= (@?= Just "")
+            lookupEnv "FACTORY_UPSTREAM_CLIENT_TYPE" >>= (@?= Nothing)
+            lookupEnv "FACTORY_UPSTREAM_SDK" >>= (@?= Nothing)
           if model == "fixture-reject"
             then writeFrame (response startup ["error" .= object ["code" .= (-32001 :: Int), "message" .= String "fixture authentication failure"]])
             else do
               when (model == "handlers-startup") (ask "startup-permission" "droid.request_permission" (fixturePermission session [ConfirmProceedOnce, ConfirmCancel]) permissionAccepted)
+              when (model == "mission-provisional") $ do
+                emitFor Nothing (object ["type" .= String "mission_state_changed", "state" .= String "running"])
+                emitFor Nothing (object ["type" .= String "mission_progress_entry", "progressLog" .= [object ["type" .= String "mission_accepted", "timestamp" .= String "reported time", "title" .= String "before reply"]]])
+                emitFor Nothing (object ["type" .= String "mission_worker_started", "workerSessionId" .= String "mission-child"])
+                forM_ [(session, 7 :: Int), ("unrelated", 999)] $ \(identifier, input) -> emitFor Nothing (object ["type" .= String "session_token_usage_changed", "sessionId" .= identifier, "tokenUsage" .= object ["inputTokens" .= input, "outputTokens" .= (0 :: Int), "cacheCreationTokens" .= (0 :: Int), "cacheReadTokens" .= (0 :: Int), "thinkingTokens" .= (0 :: Int)]])
               writeFrame (response startup ["result" .= object ["sessionId" .= session, "settings" .= fixtureSettingsSnapshot model (KeyMap.lookup "systemPrompt" params)]])
               loop session (1 :: Int) model
         Just (String "droid.load_session") -> do
@@ -2284,6 +2393,9 @@ runDroidPeerWithState state = do
               Nothing -> reject request RpcEntityNotFound "fixture unknown successor" >> loop session turn model
               Just (savedTurn, savedModel) -> do
                 when (savedModel == "settings-on-load") (emitFor Nothing (object ["type" .= String "settings_updated", "settings" .= object ["modelId" .= String "before-load", "reasoningEffort" .= String "high", "beforeSnapshot" .= True]]))
+                when (savedModel == "mission-provisional") $ do
+                  emitFor Nothing (object ["type" .= String "mission_state_changed", "state" .= String "completed"])
+                  emitFor Nothing (object ["type" .= String "mission_progress_entry", "progressLog" .= [object ["type" .= String "mission_accepted", "timestamp" .= String "reported time", "title" .= ("loaded " <> target)]]])
                 writeFrame (response request ["result" .= object ["session" .= object ["messages" .= ([] :: [Value])], "settings" .= fixtureSettingsSnapshot savedModel Nothing, "cwd" .= String "/saved-working-directory"]])
                 when (savedModel == "settings-on-load") (emitFor Nothing (object ["type" .= String "settings_updated", "settings" .= object ["modelId" .= String "after-load"]]))
                 loop target savedTurn savedModel
@@ -2449,6 +2561,14 @@ runDroidPeerWithState state = do
               emit session (object ["type" .= String "assistant_message_retracted", "messageId" .= String "message"])
               emit session (completed "completed")
             "plain-json" -> outputTurn session Nothing "{\"answer\":7}" "completed"
+            "mission-child-events" -> do
+              emit "mission-child" (object ["type" .= String "mission_state_changed", "state" .= String "paused"])
+              emit session (completed "completed")
+            "mission-events" -> do
+              emit "foreign-session" (object ["type" .= String "mission_state_changed", "state" .= String "future"])
+              forM_ missionWireEvents (emit session)
+              emit session (completed "completed")
+            "bad-mission-event" -> emit session (object ["type" .= String "mission_progress_entry", "progressLog" .= [object ["type" .= String "future_entry"]]])
             "rich-events" -> richEvents session
             "snapshot-correction" -> do
               emit session (delta "draft")

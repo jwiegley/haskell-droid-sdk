@@ -2,8 +2,8 @@
 
 module WebSocketSpec (webSocketTests, withPeer, withSocketPeer, withTLSCertificate, withTLSPeer) where
 
-import Control.Concurrent (newEmptyMVar, putMVar, takeMVar)
-import Control.Concurrent.Async (AsyncCancelled (..), cancel, forConcurrently_, link, wait, waitCatch, withAsync)
+import Control.Concurrent (newEmptyMVar, putMVar, takeMVar, threadDelay)
+import Control.Concurrent.Async (AsyncCancelled (..), asyncThreadId, cancel, forConcurrently_, link, wait, waitCatch, withAsync)
 import Control.Exception (Exception, Handler (..), IOException, bracket, catch, catches, fromException, throwIO, try)
 import Control.Monad (forM_, forever, replicateM, unless, void, (>=>))
 import Data.Aeson (Object, Value (..), eitherDecode, encode, toJSON)
@@ -11,6 +11,7 @@ import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
 import Data.Default (def)
+import Data.IORef (atomicModifyIORef', newIORef, readIORef)
 import Data.List (sort)
 import Data.Text qualified as Text
 import Data.Word (Word8)
@@ -20,6 +21,7 @@ import Factory.Droid.Protocol (withRpcChannel)
 import Factory.Droid.Schema.Models (ListModelsOptions (..))
 import Factory.Droid.Schema.RPC (WithEnvelope (..))
 import Factory.Droid.Transport.WebSocket
+import GHC.Conc (ThreadStatus (ThreadBlocked, ThreadRunning), threadStatus)
 import Network.Connection qualified as Connection
 import Network.Socket qualified as Socket
 import Network.Socket.ByteString qualified as SocketBS
@@ -168,32 +170,58 @@ webSocketTests =
               waitCatch worker >>= \case
                 Left err -> fromException err @?= Just AsyncCancelled
                 Right _ -> assertFailure "Cancelled receive succeeded",
-      testCase "cancellation of a blocked write releases the socket" $ bounded $ do
-        release <- newEmptyMVar
-        ready <- newEmptyMVar
-        withSocketPeer
-          ( \socket -> do
-              Socket.setSocketOption socket Socket.RecvBuffer 4096
-              pending <- WS.makePendingConnection socket WS.defaultConnectionOptions
-              connection <- WS.acceptRequest pending
-              void (SocketBS.recv socket 1)
-              WS.sendTextData connection ("{}" :: BS.ByteString)
-              takeMVar release
-              drainSocket socket
-          )
-          $ \target -> do
-            let value = KeyMap.singleton "text" (String (Text.replicate (4 * 1024 * 1024) "x"))
-            withAsync
-              ( withPlainWebSocket (8 * 1024 * 1024) 1000000 50000 target $ \channel ->
-                  withAsync (sendObject channel value) $ \sender -> receiveObject channel >> putMVar ready () >> wait sender
-              )
-              $ \worker -> do
-                takeMVar ready
-                cancel worker
-                waitCatch worker >>= \case
-                  Left err -> fromException err @?= Just AsyncCancelled
-                  Right _ -> assertFailure "Blocked write unexpectedly succeeded"
-                putMVar release (),
+      testCase "cancellation of a blocked write releases the socket" $ do
+        events <- newIORef ([] :: [String])
+        let mark event = atomicModifyIORef' events (\seen -> (event : seen, ()))
+        completed <- timeout (10 * 1000000) $ do
+          release <- newEmptyMVar
+          ready <- newEmptyMVar
+          withSocketPeer
+            ( \socket -> do
+                Socket.setSocketOption socket Socket.RecvBuffer (64 * 1024)
+                pending <- WS.makePendingConnection socket WS.defaultConnectionOptions
+                connection <- WS.acceptRequest pending
+                mark "peer accepted"
+                void (SocketBS.recv socket 1)
+                mark "peer received first byte"
+                WS.sendTextData connection ("{}" :: BS.ByteString)
+                mark "peer sent marker"
+                takeMVar release
+                mark "peer released"
+                drainSocket socket
+                mark "peer observed closure"
+            )
+            $ \target -> do
+              let value = KeyMap.singleton "text" (String (Text.replicate (16 * 1024 * 1024) "x"))
+              withAsync
+                ( withPlainWebSocket (32 * 1024 * 1024) 1000000 50000 target $ \channel ->
+                    withAsync (mark "send entered" >> sendObject channel value >> mark "send returned") $ \sender -> do
+                      void (receiveObject channel)
+                      mark "client received marker"
+                      putMVar ready sender
+                      wait sender
+                )
+                $ \worker -> do
+                  sender <- takeMVar ready
+                  let awaitBlocked =
+                        threadStatus (asyncThreadId sender) >>= \case
+                          ThreadBlocked _ -> pure ()
+                          ThreadRunning -> threadDelay 1000 >> awaitBlocked
+                          _ -> wait sender >> assertFailure "Sender completed before blocking"
+                  awaitBlocked
+                  mark "sender blocked"
+                  mark "cancelling worker"
+                  cancel worker
+                  mark "worker cancelled"
+                  waitCatch worker >>= \case
+                    Left err -> fromException err @?= Just AsyncCancelled
+                    Right _ -> assertFailure "Blocked write unexpectedly succeeded"
+                  putMVar release ()
+                  mark "release signalled"
+          mark "socket scope returned"
+        case completed of
+          Just () -> pure ()
+          Nothing -> readIORef events >>= assertFailure . ("Blocked-write stages before timeout: " <>) . show . reverse,
       testCase "HTTP handshake deadline closes an accepted socket" $ bounded $ do
         accepted <- newEmptyMVar
         withSocketPeer (\socket -> void (SocketBS.recv socket 1) >> putMVar accepted () >> drainSocket socket) $ \target -> do

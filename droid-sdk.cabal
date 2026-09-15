@@ -14,7 +14,7 @@ author:             John Wiegley
 maintainer:         John Wiegley
 category:           Network
 build-type:         Simple
-tested-with:        GHC ==9.10.3
+tested-with:        GHC ==9.12.4
 extra-doc-files:
   README.md
   docs/parity.md
@@ -23,10 +23,27 @@ extra-doc-files:
   NOTICE
 extra-source-files:
   .github/workflows/ci.yml
+  cabal.project
   flake.nix
   flake.lock
   schema/manifest.json
   scripts/*.py
+  cbits/process-ipc.h
+  native/schema-validator/Cargo.toml
+  native/schema-validator/Cargo.lock
+  native/schema-validator/src/*.rs
+  native/schema-validator/LICENSE
+  native/schema-validator/THIRD_PARTY_LICENSES.txt
+  native/schema-validator/licenses/*.txt
+  native/schema-validator/VENDOR.md
+  native/schema-validator/vendor/jsonschema/**/*.rs
+  native/schema-validator/vendor/jsonschema/**/*.json
+  native/schema-validator/vendor/jsonschema/**/*.toml
+  native/schema-validator/vendor/jsonschema/**/*.md
+  native/schema-validator/vendor/jsonschema/**/*.pem
+  native/schema-validator/vendor/jsonschema/Cargo.toml.orig
+  native/schema-validator/vendor/jsonschema/Cargo.lock
+  native/schema-validator/vendor/jsonschema/LICENSE
 data-files:
   schema/*.schema.json
 
@@ -39,20 +56,40 @@ common warnings
 library
   import:          warnings
   hs-source-dirs:  src
+  c-sources:
+    cbits/process-ipc.c
+  include-dirs:    cbits
+  cc-options:      -std=c11 -Wall -Wextra -Werror
   exposed-modules:
     Factory.Droid
     Factory.Droid.Client
+    Factory.Droid.Connection
     Factory.Droid.Daemon
     Factory.Droid.Input
     Factory.Droid.Interaction
     Factory.Droid.MCP.Server
     Factory.Droid.MCP.Tool
+    Factory.Droid.MCP.Validator
+    Factory.Droid.Mission
+    Factory.Droid.Observability
     Factory.Droid.Protocol
     Factory.Droid.Protocol.Dispatch
+    Factory.Droid.Retry
+    Factory.Droid.SessionState
+    Factory.Droid.Stream
     Factory.Droid.Schema.Automation
     Factory.Droid.Schema.Content
+    Factory.Droid.Schema.Configuration
     Factory.Droid.Schema.Context
     Factory.Droid.Schema.Control
+    Factory.Droid.Schema.Daemon.Automation
+    Factory.Droid.Schema.Daemon.Cron
+    Factory.Droid.Schema.Daemon.Git
+    Factory.Droid.Schema.Daemon.Management
+    Factory.Droid.Schema.Daemon.Plugin
+    Factory.Droid.Schema.Daemon.Session
+    Factory.Droid.Schema.Daemon.Settings
+    Factory.Droid.Schema.Daemon.SoftwareFactory
     Factory.Droid.Schema.Daemon.Terminal
     Factory.Droid.Schema.Daemon.Workspace
     Factory.Droid.Schema.Daemon.Worktree
@@ -78,17 +115,23 @@ library
     Factory.Droid.Schema.SystemPrompt
     Factory.Droid.Schema.Tools
     Factory.Droid.Schema.Usage
+    Factory.Droid.Transport
+    Factory.Droid.Transport.InProcess
+    Factory.Droid.Transport.IPC
     Factory.Droid.Transport.Process
+    Factory.Droid.Transport.Relay
     Factory.Droid.Transport.WebSocket
   other-modules:
     Factory.Droid.Internal.Exception
     Factory.Droid.Internal.JSON
     Factory.Droid.Internal.McpSchema
+    Factory.Droid.Internal.MessageChannel
     Factory.Droid.Internal.Output
     Factory.Droid.Internal.Session
     Factory.Droid.Internal.Stream
+    Factory.Droid.Internal.Wait
   build-depends:
-    base >=4.20 && <4.23,
+    base >=4.21 && <4.22,
     aeson >=2.2.4 && <2.4,
     async >=2.2.5 && <2.3,
     base64-bytestring >=1.2.1 && <1.3,
@@ -102,7 +145,6 @@ library
     filepath >=1.5.4 && <1.6,
     http-media >=0.8.1.1 && <0.9,
     http-types >=0.12.4 && <0.13,
-    jsonschema >=0.3.0.1 && <0.4,
     memory >=0.18 && <0.19,
     network >=3.2 && <3.3,
     network-uri >=2.6.4.2 && <2.7,
@@ -125,14 +167,42 @@ test-suite droid-sdk-test
   type:            exitcode-stdio-1.0
   hs-source-dirs:   test
   main-is:         Main.hs
+  build-tool-depends:
+    droid-sdk:factory-droid-launcher,
+    droid-sdk:droid-ipc-test-peer
   other-modules:
     AutomationSpec
+    ChildSessionSpec
     ClientSpec
+    ConnectionReadinessSpec
     ContentSpec
     ContextSpec
     ControlSpec
+    CwdStateSpec
+    DaemonAttachmentSpec
+    DaemonAutomationConfigSpec
+    DaemonAutomationSpec
+    DaemonCatalogSpec
+    DaemonCronSpec
+    DaemonCustomModelSpec
+    DaemonDefaultsSpec
+    DaemonDiscoveryClientSpec
+    DaemonGitResourceSpec
+    DaemonGitSpec
+    DaemonLifecycleSpec
+    DaemonLoadCoordinationSpec
+    DaemonLoadSpec
+    DaemonManagementSpec
+    DaemonPluginSpec
+    DaemonQueueSpec
+    DaemonSettingsClientSpec
+    DaemonSoftwareFactorySpec
     DaemonSpec
+    DaemonTerminalClientSpec
+    DaemonWorkspaceClientSpec
     DaemonWorkspaceSpec
+    DeferredInteractionSpec
+    DiagnosticSpec
     DroidSpec
     DiscoverySpec
     DispatchSpec
@@ -148,38 +218,64 @@ test-suite droid-sdk-test
     McpPeer
     MessagesSpec
     MetadataSpec
+    MissionEventSpec
+    MissionObservationSpec
+    MissionRegistrySpec
     MissionSpec
+    MissionStateSpec
     ModelsSpec
     NotificationsSpec
+    OwnedIpcSpec
     Paths_droid_sdk
+    PendingInteractionSpec
+    InitializationSpec
+    LoadPolicySpec
+    LoggingSpec
+    InjectedSessionSpec
+    InProcessSpec
+    IpcSpec
     ProcessSpec
     ProtocolSpec
+    ConnectionHooksSpec
+    QueueStateSpec
     RPCSpec
+    RelaySpec
+    RetrySpec
     SchemaTest
     ScriptSpec
     SessionSpec
+    SessionStateSpec
+    StreamSpec
     SettingsSpec
     SourcesSpec
+    SubmissionSpec
     SystemPromptSpec
+    TerminalRuntimeSpec
     TerminalSpec
+    TerminalStateSpec
     TimestampSpec
     ToolNotificationsSpec
     ToolsSpec
+    TunnelSpec
     UsageSpec
+    UtilitySpec
+    ValidatorSpec
     WebSocketSpec
     WorktreeSpec
   autogen-modules: Paths_droid_sdk
   ghc-options:     -threaded -rtsopts
   build-depends:
-    base >=4.20 && <4.23,
+    base >=4.21 && <4.22,
     aeson >=2.2.4 && <2.4,
     async >=2.2.5 && <2.3,
     bytestring >=0.12.2 && <0.13,
+    containers >=0.7 && <0.9,
     crypton-connection >=0.4.6 && <0.5,
     crypton-x509-store >=1.9 && <1.10,
     data-default >=0.8 && <0.9,
     directory >=1.3.8.5 && <1.4,
     droid-sdk,
+    filepath >=1.5.4 && <1.6,
     http-client >=0.7.19 && <0.8,
     http-types >=0.12.4 && <0.13,
     network >=3.2 && <3.3,
@@ -187,12 +283,34 @@ test-suite droid-sdk-test
     scientific >=0.3.8 && <0.4,
     stm >=2.5.3.1 && <2.6,
     text >=2.1 && <2.2,
+    time >=1.12.2 && <1.13,
     tls >=2.3 && <2.5,
     unix >=2.8.7 && <2.9,
+    wai >=3.2.4 && <3.3,
+    warp >=3.4.7 && <3.5,
     websockets >=0.13 && <0.14,
     tasty >=1.5 && <1.6,
     tasty-hunit >=0.10 && <0.11,
     tasty-quickcheck >=0.11 && <0.12
+
+executable factory-droid-launcher
+  main-is:         main.c
+  hs-source-dirs:   native/process-launcher
+  c-sources:       cbits/process-ipc.c
+  include-dirs:    cbits
+  cc-options:      -std=c11 -Wall -Wextra -Werror
+  ghc-options:     -no-hs-main
+  default-language: GHC2024
+
+executable droid-ipc-test-peer
+  scope:           private
+  main-is:         ProcessIpcPeer.c
+  hs-source-dirs:   test
+  c-sources:       cbits/process-ipc.c
+  include-dirs:    cbits
+  cc-options:      -std=c11 -Wall -Wextra -Werror
+  ghc-options:     -no-hs-main
+  default-language: GHC2024
 
 executable droid-example
   import:          warnings
@@ -200,6 +318,6 @@ executable droid-example
   main-is:         Main.hs
   ghc-options:     -threaded -rtsopts
   build-depends:
-    base >=4.20 && <4.23,
+    base >=4.21 && <4.22,
     droid-sdk,
     text >=2.1 && <2.2

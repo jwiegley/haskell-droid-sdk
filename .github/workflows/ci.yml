@@ -11,7 +11,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-        ghc: ['9.10.3', '9.12.4', '9.14.1']
+        ghc: ['9.12.4']
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -19,10 +19,19 @@ jobs:
         with:
           ghc-version: ${{ matrix.ghc }}
           cabal-version: '3.16.1.0'
+      - name: Build native schema validator
+        shell: bash
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal --component rustfmt
+          rustup run 1.98.1 cargo fmt --manifest-path native/schema-validator/Cargo.toml -- --check
+          rustup run 1.98.1 cargo test --locked --release --manifest-path native/schema-validator/Cargo.toml
+          rustup run 1.98.1 cargo build --locked --release --manifest-path native/schema-validator/Cargo.toml
+          echo "$PWD/native/schema-validator/target/release" >> "$GITHUB_PATH"
       - run: cabal build all --ghc-options=-Werror
       - run: cabal test all --test-show-details=direct
       - run: python3 scripts/check_attachment_files.py
       - run: cabal haddock all
+      - run: python3 scripts/check_haddock_urls.py dist-newstyle
       - run: cabal check
       - name: Verify source distribution
         shell: bash
@@ -31,6 +40,8 @@ jobs:
           scratch=$(mktemp -d)
           tar -xzf dist-newstyle/sdist/droid-sdk-0.1.0.0.tar.gz -C "$scratch"
           cd "$scratch/droid-sdk-0.1.0.0"
+          rustup run 1.98.1 cargo build --locked --release --manifest-path native/schema-validator/Cargo.toml
+          export PATH="$PWD/native/schema-validator/target/release:$PATH"
           cabal build all --enable-tests --ghc-options=-Werror
           cabal test all --enable-tests --test-show-details=direct
           python3 scripts/reference_schemas.py
@@ -42,10 +53,10 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: haskell-actions/setup@bda9c527d4136f7759733016190c34a24c84f4f4 # v2
         with:
-          ghc-version: '9.10.3'
+          ghc-version: '9.12.4'
           cabal-version: '3.16.1.0'
       - name: Install pinned development tools
-        run: cabal install ormolu-0.8.0.2 hlint-3.10 --installdir="$RUNNER_TEMP/haskell-tools"
+        run: cabal install --ignore-project --index-state=2026-09-04T00:00:00Z ormolu-0.8.0.2 hlint-3.10 --installdir="$RUNNER_TEMP/haskell-tools"
       - name: Check formatting and lint
         run: |
           export PATH="$RUNNER_TEMP/haskell-tools:$PATH"
