@@ -1,3 +1,7 @@
 packages: .
 tests: True
 index-state: 2026-09-04T00:00:00Z
+
+package droid-sdk
+  haddock-html-location: https://hackage.haskell.org/package/$pkg-$version/docs
+  haddock-options: --show-all

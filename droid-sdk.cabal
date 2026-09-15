@@ -4,10 +4,11 @@ version:            0.1.0.0
 synopsis:           Native Haskell SDK for Factory Droid
 description:
   Native local Droid runs and existing-daemon sessions over verified TLS
-  or explicit plaintext WebSockets. Shared text/event streams, validated
-  attachments, typed output, cancellation and scoped cleanup; low-level
-  RPC and wire codecs. Broader functional SDK coverage remains in progress;
-  exhaustive schema reproduction is a separate backlog.
+  or explicit plaintext WebSockets. Text/event streams, validated inputs
+  and output, scoped session lifecycle, external and hosted MCP, REST and
+  daemon resources, configuration, discovery and state observation.
+  Functional parity and verification scope are documented in the package;
+  exhaustive schema reproduction is a separate optional backlog.
 license:            Apache-2.0
 license-file:       LICENSE
 author:             John Wiegley
