@@ -87,6 +87,7 @@ import PendingInteractionSpec (pendingInteractionTests)
 import ProcessSpec (processTests, runProcessPeer)
 import ProtocolSpec (protocolTests)
 import QueueStateSpec (queueStateTests)
+import RESTSpec (restTests)
 import RPCSpec (rpcTests)
 import RelaySpec (relayTests)
 import RetrySpec (retryTests)
@@ -244,7 +245,8 @@ suiteMain = do
         sessionStateTests,
         loggingTests,
         validatorTests,
-        ownedIpcTests
+        ownedIpcTests,
+        restTests
       ]
 
 enumTests ::
