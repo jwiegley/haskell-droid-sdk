@@ -1132,7 +1132,32 @@ The example is compiled, not executed. Attachment scope exit calls `detachSessio
 
 Permission routing prefers the execution session, then the first active associated session in reported order; questions use only their exact session. Detaching cancels that attachment's blocked permission/question callback rather than another session's worker. Stream callbacks remain on the caller's thread. Notification callbacks remain serial, and an already admitted ordinary callback may finish; keep callbacks cooperative and do not call lifecycle operations from them.
 
-`sessionConnection` borrows the original physical owner's scope: `withConnection`, or the owning `withSession`/`withResumedSession`. Detaching a borrower does not shorten that owner's lifetime, and borrowing does not extend it. Borrowed resume uses the connection's existing authentication/MCP policy and the default unbounded turn timeout. Broader creation/load-option configuration remains separate; retained state and queues are described below. See [attachment verification](docs/development.md#independent-daemon-session-attachments).
+`sessionConnection` borrows the original physical owner's scope: `withConnection`, or the owning `withSession`/`withResumedSession`. Detaching a borrower does not shorten that owner's lifetime, and borrowing does not extend it. Borrowed resume uses the connection's existing authentication/MCP policy and the default unbounded turn timeout. Creation and explicit load configuration use `withSessionOn` and `withResumedSessionOnConfigured`; retained state and queues are described below. See [attachment verification](docs/development.md#independent-daemon-session-attachments).
+
+### Session cache controls
+
+Each connection defaults to a twenty-entry **registered-session** cache. `getSessionCacheCapacity` returns `Just 20`; `setSessionCacheCapacity` accepts an exact `Natural` limit, with `Nothing` for unlimited retention and `Just 0` for protected entries only. It returns the evicted IDs in least-recently-used order. `getCachedSessionIds` returns the remaining registered IDs in insertion order after eligible maintenance.
+
+Initialization, loading and child registration update recency. `touchSession` explicitly touches an existing cached entry and returns `False` for an unknown ID, without registering or loading it. Reading `getSessionState` alone does not touch it. `setActiveSessionId` pins a viewed entry, including a future ID; it does not select a daemon-side session. `getActiveSessionId` reads that selection, and passing `Nothing` releases it.
+
+```haskell
+module SessionCacheExample (keepSelected, releaseSelected) where
+
+import Data.Text (Text)
+import Factory.Droid.Daemon qualified as Daemon
+
+keepSelected :: Daemon.DaemonConnection -> Text -> IO [Text]
+keepSelected connection identifier = do
+  _ <- Daemon.setSessionCacheCapacity connection (Just 20)
+  Daemon.setActiveSessionId connection (Just identifier)
+
+releaseSelected :: Daemon.DaemonConnection -> IO [Text]
+releaseSelected connection = Daemon.setActiveSessionId connection Nothing
+```
+
+This example is compiled, not executed. `pruneSessionCache` reapplies the limit explicitly; ordinary load, detach and notification boundaries also maintain it. Attached, selected, loading and non-idle entries are protected, as are retiring local operations, unresolved restored requests and deferred decisions. Protected entries can exceed the configured capacity. `removeCachedSession` returns `False` for absent or protected entries. These operations neither close a remote session nor log out, and blank cache identities fail with `InvalidSessionCacheIdentity`.
+
+Retirement discards cached conversation, cwd, child-link and terminal views. It retains independently owned load intent, child summaries and identity counters; an older load receipt or terminal acknowledgement cannot restore or consume a newer cached view. Failed creation removes a fresh provisional entry only while its generation and attachment still own it, preserving previously cached or superseding state. None of this is a hard memory bound: unregistered observations, durable metadata, other owners and caller-held immutable snapshots remain outside this cache.
 
 ### Coordinated loading and readiness
 

@@ -5,6 +5,7 @@
 module Factory.Droid.SessionState
   ( SessionState,
     emptySessionState,
+    clearCachedSessionState,
     sessionMessagesById,
     sessionMessages,
     checkedSessionMessages,
@@ -478,6 +479,19 @@ emptySessionState =
       inFlightRequests = mempty,
       queuedMessages = mempty,
       queuedOrder = mempty
+    }
+
+-- | Discard cached conversation/terminal views, not persisted child summaries
+-- or explicit deferred decisions. Keep terminal identity counters so a saved
+-- buffer acknowledgement or an in-flight restoration cannot acquire a new view.
+clearCachedSessionState :: SessionState -> SessionState
+clearCachedSessionState previous =
+  emptySessionState
+    { sessionInvocationSummary = sessionInvocationSummary previous,
+      sessionDeferredPermissions = sessionDeferredPermissions previous,
+      sessionDeferredQuestions = sessionDeferredQuestions previous,
+      nextTerminalVersion = nextTerminalVersion previous,
+      terminalRestorationGeneration = if terminalRestorationGeneration previous == 0 then 0 else terminalRestorationGeneration previous + 1
     }
 
 sessionTerminalsById :: SessionState -> Map Text TerminalMetadata

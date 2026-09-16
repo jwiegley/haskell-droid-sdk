@@ -194,6 +194,7 @@ test-suite droid-sdk-test
     DaemonAttachmentSpec
     DaemonAutomationConfigSpec
     DaemonAutomationSpec
+    DaemonCacheSpec
     DaemonCatalogSpec
     DaemonCronSpec
     DaemonCustomModelSpec

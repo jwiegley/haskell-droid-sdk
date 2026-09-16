@@ -2,15 +2,17 @@
 #+SEQ_TODO: TODO DOING DRAFT WAIT DEFER NOTE | DONE CANCELED
 #+ISSUE_PREFIX: hsdk
 
-* TODO [#C] Add owner-aware daemon cache controls and retirement
+* DONE [#C] Add owner-aware daemon cache controls and retirement
 :PROPERTIES:
 :OBR_SCHEMA_VERSION: 17
 :ID:       hsdk-0aq
 :LABELS:   []
 :ISSUE_TYPE: feature
 :CREATED:  [2026-09-16 Wed 14:08]
-:MODIFIED: [2026-09-16 Wed 14:08]
+:MODIFIED: [2026-09-16 Wed 15:49]
 :CREATED_BY: johnw
+:FINISHED: [2026-09-16 Wed 15:49]
+:CLOSE_REASON: Existing-owner registered-cache capacity/recency/active selection/eligible removal and guarded fresh-creation retirement delivered. Original native25 vs both actual TS references20 nownative20 on both platforms. Seventeen strengthened cases,4051 full Mac/Linux ARM64 tests,20 parallel repetitions and actual README example checks pass. Scoped fess/source-bound evidence docs/evidence/2026-09-16/fc08. Soft cache, not hard memory bound; remaining owner directory work hsdk-dko. No push.
 :SOURCE_REPO: droid-sdk-haskell
 :SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
 :ORIGINAL_SIZE: 0
@@ -3428,6 +3430,38 @@ The native canonical wire codec uses the supplied JSON Schema domain and Bounded
     "depends_on_id": "hsdk-types-codecs-2rb",
     "type": "discovered-from",
     "created_at": "2026-09-05T17:40:07.904711Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
+* TODO [#C] Complete local daemon session directory and machine administration
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-dko
+:LABELS:   []
+:ISSUE_TYPE: feature
+:CREATED:  [2026-09-16 Wed 15:40]
+:MODIFIED: [2026-09-16 Wed 15:40]
+:CREATED_BY: johnw
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Finish the active complete-daemon-owner milestone after creation/cache. Use actual frozen/current MultiSessionStateManager semantics and original integrated-state-coverage.md: local registered-session enumeration, per-session machine association, active machine membership excluding pre-init, non-idle machine/cwd group counts, and machine-scoped readiness invalidation. Reuse existing cache residency, child metadata and load epochs; remote listOpenedSessions is not the local set. Preserve unrelated machines and current/superseding loads, test omission/unknown/closed/loading/pre-init and multi-session changes, and record fess. No second router, application mirror, dependency change, new live service scope or push.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-dko",
+    "depends_on_id": "hsdk-0aq",
+    "type": "discovered-from",
+    "created_at": "2026-09-16T22:40:52.727541Z",
     "created_by": "johnw",
     "metadata": "{}",
     "thread_id": ""

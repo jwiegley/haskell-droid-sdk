@@ -35,6 +35,14 @@ module Factory.Droid.Daemon
     getConnectionId,
     getTransportKind,
     getPendingCount,
+    getSessionCacheCapacity,
+    setSessionCacheCapacity,
+    getCachedSessionIds,
+    touchSession,
+    getActiveSessionId,
+    setActiveSessionId,
+    removeCachedSession,
+    pruneSessionCache,
     setBeforeRequest,
     onRequestSettled,
     onConnectionError,
@@ -267,7 +275,7 @@ import Control.Concurrent.Async (Async, asyncWithUnmask, cancel, mapConcurrently
 import Control.Concurrent.STM (STM, TMVar, TVar, atomically, check, modifyTVar', newEmptyTMVar, newEmptyTMVarIO, newTVarIO, orElse, putTMVar, readTMVar, readTVar, readTVarIO, throwSTM, tryPutTMVar, writeTVar)
 import Control.DeepSeq (force)
 import Control.Exception (Exception, SomeAsyncException, SomeException, bracket, catch, evaluate, finally, fromException, mask, mask_, onException, throwIO, toException, try, uninterruptibleMask_)
-import Control.Monad (forM_, join, unless, void, when, (>=>))
+import Control.Monad (filterM, forM_, join, unless, void, when, (>=>))
 import Data.Aeson (FromJSON (parseJSON), Object, ToJSON (toJSON), Value (..), withObject, (.:), (.:!), (.=))
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types (Parser, parseEither)
@@ -331,6 +339,7 @@ import Factory.Droid.Transport qualified as Transport
 import Factory.Droid.Transport.WebSocket qualified as WebSocket
 import GHC.Clock (getMonotonicTimeNSec)
 import GHC.TypeLits (KnownSymbol)
+import Numeric.Natural (Natural)
 import System.Timeout (timeout)
 
 -- | Explicit credentials; no login files or environment variables are read.
@@ -457,7 +466,7 @@ sessionCreationOptions options mcp =
 daemonClientOptions :: DaemonOptions -> DaemonClientOptions
 daemonClientOptions options = DaemonClientOptions (DaemonAuthenticate (daemonCredential options)) (daemonWorkingDirectory options) (daemonWorktree options) (daemonWorktreeDirectory options) (daemonMachineId options) (daemonModel options) (daemonTurnTimeoutMicros options) (daemonProtocolVersion options) (daemonMcpOptions options) (daemonHostedMcpServers options) (daemonHydrateChildSessions options) (daemonRestoreTerminalsOnLoad options) (daemonConfiguration options) (daemonSystemPrompt options) (daemonSpawnOptions options) (daemonInitializationTimeoutMicros options) (daemonLoadConfiguration options) (daemonLoadSpawnConfiguration options) (daemonObservability options)
 
-data DaemonError = InvalidDaemonCredential | DaemonCredentialUnavailable | DaemonUnauthenticated | DaemonIdentityMismatch | DaemonAuthenticationSuperseded | DaemonModelRequiresNewSession | DaemonWorktreeRequiresNewSession | DaemonSessionAlreadyAttached | DaemonLoadSuperseded | DaemonLoadInterrupted | InvalidChildSessionIdentity
+data DaemonError = InvalidDaemonCredential | DaemonCredentialUnavailable | DaemonUnauthenticated | DaemonIdentityMismatch | DaemonAuthenticationSuperseded | DaemonModelRequiresNewSession | DaemonWorktreeRequiresNewSession | DaemonSessionAlreadyAttached | DaemonLoadSuperseded | DaemonLoadInterrupted | InvalidChildSessionIdentity | InvalidSessionCacheIdentity
   deriving stock (Eq, Show)
 
 instance Exception DaemonError
@@ -475,6 +484,7 @@ data DaemonContext = DaemonContext
     connectionBindings :: !(TVar (Map Text DaemonBinding)),
     connectionLoads :: !(TVar (Map Text SessionLoadEntry)),
     connectionSessionStates :: !(TVar (Map Text SessionState.SessionState)),
+    connectionSessionCache :: !(TVar DaemonSessionCache),
     connectionChildOrder :: !(TVar [Text]),
     connectionChildHydrations :: !(TVar (Maybe (Map Text (Unique, Async ())))),
     connectionHydrateChildren :: !Bool,
@@ -491,6 +501,135 @@ data DaemonBinding = DaemonBinding
     bindingTerminalWriters :: !(TVar (Map Text (Unique, Text -> IO ()))),
     bindingTerminalWriteLock :: !(MVar ())
   }
+
+-- Payloads stay in connectionSessionStates. These are only residency/access
+-- indexes and references to closed attachments whose admitted work is retiring.
+data DaemonSessionCache = DaemonSessionCache
+  { cacheMaximum :: !(Maybe Natural),
+    cacheActiveSession :: !(Maybe Text),
+    cacheSessions :: ![Text],
+    cacheAccessOrder :: ![Text],
+    cacheRetiringBindings :: !(Map Unique Core.DroidSession)
+  }
+
+-- | Eligible registered-session capacity; the default is @Just 20@.
+-- 'Nothing' disables automatic eviction, not explicit removal.
+getSessionCacheCapacity :: DaemonConnection -> IO (Maybe Natural)
+getSessionCacheCapacity connection@(DaemonConnection _ state) = atomically $ do
+  checkConnection connection
+  cacheMaximum <$> readTVar (connectionSessionCache state)
+
+-- | Set the soft capacity and return the IDs evicted, least-recent first.
+-- Zero retains protected entries only. No remote close or logout is sent.
+setSessionCacheCapacity :: DaemonConnection -> Maybe Natural -> IO [Text]
+setSessionCacheCapacity connection@(DaemonConnection _ state) capacity = atomically $ do
+  checkConnection connection
+  modifyTVar' (connectionSessionCache state) (\cache -> cache {cacheMaximum = capacity})
+  pruneRegisteredSessions state
+
+-- | Registered cached IDs in insertion order, after eligible eviction.
+-- Durable metadata and not-yet-registered observations are not this cache.
+getCachedSessionIds :: DaemonConnection -> IO [Text]
+getCachedSessionIds connection@(DaemonConnection _ state) = atomically $ do
+  checkConnection connection
+  void (pruneRegisteredSessions state)
+  cacheSessions <$> readTVar (connectionSessionCache state)
+
+-- | Mark a cached session recently used. Unknown IDs are not registered.
+touchSession :: DaemonConnection -> Text -> IO Bool
+touchSession connection@(DaemonConnection _ state) identifier = atomically $ do
+  checkConnection connection
+  validateCacheIdentity identifier
+  cache <- readTVar (connectionSessionCache state)
+  let present = identifier `elem` cacheSessions cache
+  when present (writeTVar (connectionSessionCache state) (touchCachedEntry identifier cache))
+  pure present
+
+getActiveSessionId :: DaemonConnection -> IO (Maybe Text)
+getActiveSessionId connection@(DaemonConnection _ state) = atomically $ do
+  checkConnection connection
+  cacheActiveSession <$> readTVar (connectionSessionCache state)
+
+-- | Pin the viewed cache entry, not a daemon-side active session. A valid
+-- not-yet-registered ID can be selected without loading or fabricating it.
+setActiveSessionId :: DaemonConnection -> Maybe Text -> IO [Text]
+setActiveSessionId connection@(DaemonConnection _ state) identifier = atomically $ do
+  checkConnection connection
+  forM_ identifier validateCacheIdentity
+  modifyTVar' (connectionSessionCache state) (\cache -> maybe id touchCachedEntry identifier (cache {cacheActiveSession = identifier}))
+  pruneRegisteredSessions state
+
+-- | Remove an eligible cached entry. False means absent or protected; this
+-- does not revoke live attachments, pending decisions or remote resources.
+removeCachedSession :: DaemonConnection -> Text -> IO Bool
+removeCachedSession connection@(DaemonConnection _ state) identifier = atomically $ do
+  checkConnection connection
+  validateCacheIdentity identifier
+  cache <- settleCacheLeases state
+  removable <- cacheEntryEligible state cache identifier
+  when removable (forgetCachedEntry state identifier)
+  pure removable
+
+-- | Reapply the capacity after local activity settles. Attached, loading,
+-- non-idle, selected and locally retiring sessions remain protected; retained
+-- summaries, policy, counters and other owners are not a hard memory bound.
+pruneSessionCache :: DaemonConnection -> IO [Text]
+pruneSessionCache connection@(DaemonConnection _ state) = atomically (checkConnection connection >> pruneRegisteredSessions state)
+
+validateCacheIdentity :: Text -> STM ()
+validateCacheIdentity identifier = unless (validChildIdentity identifier) (throwSTM InvalidSessionCacheIdentity)
+
+touchCachedEntry :: Text -> DaemonSessionCache -> DaemonSessionCache
+touchCachedEntry identifier cache
+  | identifier `elem` cacheSessions cache = cache {cacheAccessOrder = filter (/= identifier) (cacheAccessOrder cache) <> [identifier]}
+  | otherwise = cache
+
+registerCachedEntry :: DaemonContext -> Text -> STM ()
+registerCachedEntry state identifier = do
+  validateCacheIdentity identifier
+  modifyTVar' (connectionSessionCache state) $ \cache ->
+    touchCachedEntry identifier (cache {cacheSessions = if identifier `elem` cacheSessions cache then cacheSessions cache else cacheSessions cache <> [identifier]})
+
+settleCacheLeases :: DaemonContext -> STM DaemonSessionCache
+settleCacheLeases state = do
+  cache <- readTVar (connectionSessionCache state)
+  retiring <- Map.traverseMaybeWithKey (\_ session -> do idle <- Core.isDroidSessionIdle session; pure (if idle then Nothing else Just session)) (cacheRetiringBindings cache)
+  let current = cache {cacheRetiringBindings = retiring}
+  when (Map.size retiring /= Map.size (cacheRetiringBindings cache)) (writeTVar (connectionSessionCache state) current)
+  pure current
+
+cacheEntryEligible :: DaemonContext -> DaemonSessionCache -> Text -> STM Bool
+cacheEntryEligible state cache identifier = do
+  bindings <- readTVar (connectionBindings state)
+  loads <- readTVar (connectionLoads state)
+  states <- readTVar (connectionSessionStates state)
+  let loadingOrWorking entry =
+        let readiness = entryReadiness entry
+            pending = any (\(requestId, (method, _)) -> Set.notMember (method, requestId) (entryCompletedRequests entry)) (Map.toList (entryRestoredRequests entry))
+         in isJust (entryFlight entry) || readinessLoading readiness || readinessWorkingState readiness `notElem` [Right Nothing, Right (Just WorkingIdle)] || pending
+      deferred snapshot = not (Map.null (SessionState.sessionDeferredPermissions snapshot) && Map.null (SessionState.sessionDeferredQuestions snapshot))
+      retiring = any ((== identifier) . Core.droidSessionId) (Map.elems (cacheRetiringBindings cache))
+  pure (identifier `elem` cacheSessions cache && cacheActiveSession cache /= Just identifier && Map.notMember identifier bindings && not retiring && not (maybe False loadingOrWorking (Map.lookup identifier loads)) && not (maybe False deferred (Map.lookup identifier states)))
+
+pruneRegisteredSessions :: DaemonContext -> STM [Text]
+pruneRegisteredSessions state = do
+  cache <- settleCacheLeases state
+  let count = length (cacheSessions cache)
+      excess = case cacheMaximum cache of Just capacity | capacity < fromIntegral count -> count - fromIntegral capacity; _ -> 0
+  selected <- if excess == 0 then pure [] else take excess <$> filterM (cacheEntryEligible state cache) (cacheAccessOrder cache)
+  forM_ selected (forgetCachedEntry state)
+  pure selected
+
+forgetCachedEntry :: DaemonContext -> Text -> STM ()
+forgetCachedEntry state identifier = do
+  -- Keep the generation tombstone and independently retained load policy.
+  invalidateSessionLoad state identifier False
+  modifyTVar' (connectionLoads state) (Map.adjust (\entry -> entry {entryReadiness = (entryReadiness entry) {readinessKnown = False, readinessPreInit = False}}) identifier)
+  modifyTVar' (connectionSessionStates state) (Map.update retain identifier)
+  modifyTVar' (connectionChildOrder state) (filter (/= identifier))
+  modifyTVar' (connectionSessionCache state) (\cache -> cache {cacheSessions = filter (/= identifier) (cacheSessions cache), cacheAccessOrder = filter (/= identifier) (cacheAccessOrder cache)})
+  where
+    retain previous = let kept = SessionState.clearCachedSessionState previous in if kept == SessionState.emptySessionState then Nothing else Just kept
 
 -- | Uses endpoint, transport, credentials, protocol and restoration policies.
 -- No root session is created; other configuration mutations remain explicit.
@@ -740,6 +879,7 @@ registerChildMetadata state parent available = do
       writeTVar (connectionSessionStates state) (Map.insert identifier (SessionState.inheritWorkingDirectory parentCwd discovered) states)
       rememberChildOrder state identifier
       modifyTVar' (connectionLoads state) $ Map.alter (Just . seed . fromMaybe emptyLoadEntry) identifier
+      void (pruneRegisteredSessions state)
       pure True
   where
     seed entry =
@@ -749,7 +889,9 @@ registerChildMetadata state parent available = do
        in entry {entryReadiness = readiness {readinessKnown = True, readinessNotFound = False, readinessWorkingState = seeded}}
 
 rememberChildOrder :: DaemonContext -> Text -> STM ()
-rememberChildOrder state identifier = modifyTVar' (connectionChildOrder state) (\known -> if identifier `elem` known then known else known <> [identifier])
+rememberChildOrder state identifier = do
+  modifyTVar' (connectionChildOrder state) (\known -> if identifier `elem` known then known else known <> [identifier])
+  registerCachedEntry state identifier
 
 -- | Ensure that this physical connection has loaded a registered child. It
 -- joins the existing load coordinator; an unknown child does not cause an RPC.
@@ -936,6 +1078,7 @@ startSessionLoad state identifier = do
   writeTVar (connectionLoads state) (Map.insert identifier next entries)
   modifySessionState (connectionSessionStates state) identifier (SessionState.setChildLoadError Nothing)
   rememberChildOrder state identifier
+  void (pruneRegisteredSessions state)
   pure (epoch, ticket, fromMaybe (connectionLoadDefaults state) (entryLoadPolicy previous))
 
 -- Explicit reloads supersede previous generations. Readiness checks instead
@@ -971,9 +1114,14 @@ trackSessionLoad :: DaemonConnection -> Text -> (SessionLoadGuard -> IO DaemonSe
 trackSessionLoad = trackSessionLoadWithConfiguration Nothing
 
 trackSessionLoadWithConfiguration :: Maybe DaemonLoadPolicy -> DaemonConnection -> Text -> (SessionLoadGuard -> IO DaemonSessionInfo) -> IO DaemonSessionInfo
-trackSessionLoadWithConfiguration configured connection@(DaemonConnection _ state) identifier action = mask $ \restore -> do
-  (epoch, ticket, policy) <- atomically $ do
+trackSessionLoadWithConfiguration = trackSessionLoadWithCreation Nothing
+
+trackSessionLoadWithCreation :: Maybe Unique -> Maybe DaemonLoadPolicy -> DaemonConnection -> Text -> (SessionLoadGuard -> IO DaemonSessionInfo) -> IO DaemonSessionInfo
+trackSessionLoadWithCreation creation configured connection@(DaemonConnection _ state) identifier action = mask $ \restore -> do
+  (existed, previousPolicy, epoch, ticket, policy) <- atomically $ do
     checkConnection connection
+    existed <- (identifier `elem`) . cacheSessions <$> readTVar (connectionSessionCache state)
+    previousPolicy <- (Map.lookup identifier >=> entryLoadPolicy) <$> readTVar (connectionLoads state)
     forM_ configured $ \new ->
       modifyTVar' (connectionLoads state) $
         Map.alter
@@ -983,8 +1131,19 @@ trackSessionLoadWithConfiguration configured connection@(DaemonConnection _ stat
                in Just (entry {entryLoadPolicy = Just (mergeLoadPolicy old new)})
           )
           identifier
-    startSessionLoad state identifier
+    (epoch, ticket, policy) <- startSessionLoad state identifier
+    pure (existed, previousPolicy, epoch, ticket, policy)
   finishSessionLoad state identifier epoch ticket (restore (action (sessionLoadGuard state identifier epoch policy)))
+    `onException` forM_
+      creation
+      ( \token -> unless existed $ atomically $ do
+          entries <- readTVar (connectionLoads state)
+          bindings <- readTVar (connectionBindings state)
+          let current = maybe False ((== epoch) . entryEpoch) (Map.lookup identifier entries) && maybe False ((== token) . bindingToken) (Map.lookup identifier bindings)
+          when current $ do
+            forgetCachedEntry state identifier
+            modifyTVar' (connectionLoads state) (Map.adjust (\entry -> entry {entryLoadPolicy = previousPolicy}) identifier)
+      )
 
 finishSessionLoad :: DaemonContext -> Text -> Integer -> SessionLoadTicket -> IO DaemonSessionInfo -> IO DaemonSessionInfo
 finishSessionLoad state identifier epoch ticket action = do
@@ -1010,6 +1169,7 @@ finishSessionLoad state identifier epoch ticket action = do
                 | otherwise -> Just SessionState.ChildLoadFailed
         modifySessionState (connectionSessionStates state) identifier (SessionState.setChildLoadError failure)
         void (tryPutTMVar ticket shared)
+        void (pruneRegisteredSessions state)
         pure True
       _ -> void (tryPutTMVar ticket (Left (toException DaemonLoadSuperseded))) >> pure False
   case outcome of
@@ -1760,12 +1920,13 @@ withDaemonConnectionUsing options reject mcpOptions acquire action = do
             DaemonInheritAuthenticationProvider inherited _ -> pure inherited
           bindings <- newTVarIO mempty
           loads <- newTVarIO mempty
+          cache <- newTVarIO (DaemonSessionCache (Just 20) Nothing [] [] mempty)
           authenticated <- newTVarIO True
           authLock <- newMVar Nothing
           authEpoch <- newTVarIO 0
           credential <- newTVarIO (authenticationToken (daemonClientAuthentication options))
           interactions <- Interaction.newPendingInteractions
-          let state = DaemonContext identity credential authenticated authLock authEpoch interactions bindings loads sessionStates childOrder childHydrations (daemonClientHydrateChildSessions options) (daemonClientRestoreTerminalsOnLoad options) (transportPendingSessionReady transport) (transportKind transport) defaults
+          let state = DaemonContext identity credential authenticated authLock authEpoch interactions bindings loads sessionStates cache childOrder childHydrations (daemonClientHydrateChildSessions options) (daemonClientRestoreTerminalsOnLoad options) (transportPendingSessionReady transport) (transportKind transport) defaults
               owned = DaemonConnection connection state
               dispatcher = Core.connectionDispatcher connection
           void (setBeforeRequest owned (Just (\identifier method -> unless (Set.member method skipEnsureLoaded) (ensureSessionLoaded owned identifier))))
@@ -1779,7 +1940,7 @@ withDaemonConnectionUsing options reject mcpOptions acquire action = do
                 else withMVar authLock (\failure -> mapM_ throwIO failure >> atomically (checkConnection owned))
           void (registerPreparedRpcHandler dispatcher "daemon.request_permission" (sessionReply owned True permissionRpcHandler Interaction.preparePermissionRpcHandler))
           void (registerPreparedRpcHandler dispatcher "daemon.ask_user" (sessionReply owned False questionRpcHandler Interaction.prepareQuestionRpcHandler))
-          void (onRpcNotification dispatcher (observeLifecycle owned))
+          void (onRpcNotification dispatcher (\notification -> observeLifecycle owned notification `finally` atomically (void (pruneRegisteredSessions state))))
           void (onRpcEvent dispatcher (observePermissionReplay owned))
           action owned `finally` do
             active <- atomically $ do
@@ -2099,7 +2260,7 @@ withCreatedSessionOn owned@(DaemonConnection connection state) handlers options 
           inherited = (Configuration.loadConfigurationFromInitialization initial) {Configuration.loadAutoRejectPermissions = Configuration.configurationAutoRejectPermissions config}
           spawn = Configuration.daemonLoadConfigurationFromSpawn (daemonSessionSpawnOptions options)
           policy = mergeLoadPolicy (inherited, spawn) (daemonSessionLoadConfiguration options, daemonSessionLoadSpawnConfiguration options)
-      trackSessionLoadWithConfiguration (Just policy) owned identifier $ \guard -> Core.connectionBoundary connection (2 * initializationTimeout options) $ do
+      trackSessionLoadWithCreation (Just (bindingToken binding)) (Just policy) owned identifier $ \guard -> Core.connectionBoundary connection (2 * initializationTimeout options) $ do
         let admit = do
               checkConnection owned
               current <- loadStillCurrent guard
@@ -2189,9 +2350,11 @@ detachBinding wait (DaemonConnection _ state) binding = mask_ $ do
       Just current | bindingToken current == bindingToken binding -> do
         let identifier = Core.droidSessionId (bindingSession binding)
         writeTVar (connectionBindings state) (Map.delete identifier bindings)
-        modifySessionState (connectionSessionStates state) identifier SessionState.cancelSessionSubmissions
+        modifyTVar' (connectionSessionStates state) (Map.adjust SessionState.cancelSessionSubmissions identifier)
+        modifyTVar' (connectionSessionCache state) (\cache -> cache {cacheRetiringBindings = Map.insert (bindingToken binding) (bindingSession binding) (cacheRetiringBindings cache)})
       _ -> pure ()
   when wait (Core.waitDroidSessionIdle (bindingSession binding))
+  atomically (void (pruneRegisteredSessions state))
 
 attachmentReceipt :: GetUserInfoResult -> Maybe Text -> Object -> Parser (DaemonSessionInfo, [RestoredSessionRequest])
 attachmentReceipt identity initialDirectory fields = do

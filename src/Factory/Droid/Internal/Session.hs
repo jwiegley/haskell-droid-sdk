@@ -102,6 +102,7 @@ module Factory.Droid.Internal.Session
     withSessionLease,
     closeDroidSession,
     waitDroidSessionIdle,
+    isDroidSessionIdle,
     ownSessionCleanup,
     sessionBoundary,
     connectionBoundary,
@@ -1269,6 +1270,10 @@ waitDroidSessionIdle :: DroidSession -> IO ()
 waitDroidSessionIdle session = atomically $ do
   (_, active) <- readTVar (sessionLifecycle session)
   check (active == 0)
+
+-- | Nonblocking lease observation for the owner retiring a closed attachment.
+isDroidSessionIdle :: DroidSession -> STM Bool
+isDroidSessionIdle session = (== 0) . snd <$> readTVar (sessionLifecycle session)
 
 ownSessionCleanup :: DroidSession -> IO () -> IO (IO ())
 ownSessionCleanup session cleanup = mask_ $ do
