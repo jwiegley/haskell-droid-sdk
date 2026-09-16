@@ -32,6 +32,7 @@ module Factory.Droid.MCP.Tool
   )
 where
 
+import Control.Applicative ((<|>))
 import Control.DeepSeq (force)
 import Control.Exception (evaluate, try)
 import Control.Monad (forM_, unless, void)
@@ -90,10 +91,9 @@ instance FromJSON McpContent where
         void (resource .: "uri" :: Parser Text)
         void (resource .:! "mimeType" :: Parser (Maybe Text))
         void (resource .:! "_meta" :: Parser (Maybe Object))
-        text <- resource .:! "text" :: Parser (Maybe Text)
-        blob <- resource .:! "blob" :: Parser (Maybe Text)
-        unless (isJust text || isJust blob) (fail "Missing resource content")
-        forM_ blob validateBase64
+        -- The other variant's fields are extensions, not extra constraints.
+        void (resource .: "text" :: Parser Text)
+          <|> (resource .: "blob" >>= validateBase64)
       _ -> fail "Unknown MCP content type"
     annotation <- fields .:! "annotations" :: Parser (Maybe Object)
     forM_ annotation $ \value -> do
@@ -216,8 +216,9 @@ validateToolSchemas options (McpTool _ _ input output _) = do
   validateMcpSchema options input
   mapM_ (validateMcpSchema options) output
 
--- | Invalid arguments/results become tool errors; validator infrastructure
--- failures remain explicit protocol-level failures. Async exceptions propagate.
+-- | Schema-invalid arguments/structured outputs become tool errors. Malformed
+-- result envelopes and validator infrastructure failures remain explicit 'Left'
+-- values; asynchronous exceptions propagate.
 invokeTool :: McpTool -> Object -> IO (Either McpToolError McpToolResult)
 invokeTool = invokeToolWithValidator defaultSchemaValidatorOptions
 

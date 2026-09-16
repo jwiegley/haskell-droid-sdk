@@ -6545,6 +6545,40 @@ Scoped parent fess: no production workaround or altered budget, no mock, vacuous
 ]
 #+end_src
 
+* DONE [#C] Validate embedded MCP resources as text or blob unions
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-gsr
+:LABELS:   []
+:ISSUE_TYPE: bug
+:CREATED:  [2026-09-16 Wed 11:42]
+:MODIFIED: [2026-09-16 Wed 12:04]
+:CREATED_BY: johnw
+:FINISHED: [2026-09-16 Wed 12:04]
+:CLOSE_REASON: FC-10 repaired with branch-alternative validation after common-field checks; native extension preservation unchanged. Initial5/38 hosted failures retained. Fifteen new constructor/HTTP/negative cases; full3985 tests pass macOS/GNU/Linux ARM64 GHC9.12.4 -Werror. Fresh MCP1.29/Zod4.6.5 client schema accepts all six original native resource outputs. Fess/evidence: docs/evidence/2026-09-16/fc10. FC-11/12 remain separate; no Factory call or push.
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+FC-10: native McpContent validation parses both text/blob fields and validates every blob, rejecting a valid resource union branch with malformed or null fields belonging only to the other branch. Match pinned MCP1.29/Zod4.6.5 branch acceptance while preserving the native declared extension-retention policy. Keep URI/common metadata and invalid-all-branches rejection. Add constructor and hosted HTTP regressions with real handler outcomes, Mac/Linux checks and fess. No reference edits, live Factory calls or push.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-gsr",
+    "depends_on_id": "hsdk-mcp-y1i",
+    "type": "discovered-from",
+    "created_at": "2026-09-16T18:42:31.970349Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
 * DONE [#B] Resolve legitimate Haskell SDK attribution
 :PROPERTIES:
 :OBR_SCHEMA_VERSION: 17

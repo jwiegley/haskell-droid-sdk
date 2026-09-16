@@ -297,6 +297,48 @@ hostedCases =
           response <- post manager config (rpc "tools/call" (object ["name" .= String name]))
           resultField response "isError" @?= Just (Bool True)
           resultField response "content" @?= Just (toJSON [textContent message]),
+    testGroup
+      "embedded resources accept either union branch"
+      [ testCase label $ bounded $ do
+          let fields = KeyMap.fromList ["type" .= String "resource", "resource" .= resource, "future" .= False]
+          content <- either (const (assertFailure "Valid resource union branch rejected")) pure (jsonContent fields)
+          toJSON content @?= Object fields
+          calls <- newIORef (0 :: Int)
+          let expected = McpToolResult [content] Nothing Nothing mempty
+          tool <- either (const (assertFailure "Tool construction failed")) pure (rawTool "resource" "Union result" openObjectSchema (\_ -> modifyIORef' calls (+ 1) >> pure expected))
+          server <- newMcpServer (defaultMcpServerOptions "resource-union") [tool]
+          withMcpServer server $ \config -> do
+            manager <- HTTP.newManager HTTP.defaultManagerSettings
+            response <- post manager config (rpc "tools/call" (object ["name" .= String "resource"]))
+            case response of
+              Object envelope -> KeyMap.lookup "result" envelope @?= Just (toJSON expected)
+              _ -> assertFailure "Invalid tool response"
+            readIORef calls >>= (@?= 1)
+      | (label, resource) <-
+          [ ("text with invalid blob extension", object ["uri" .= String "fixture:resource", "text" .= String "text", "blob" .= String "?"]),
+            ("text with null blob extension", object ["uri" .= String "fixture:resource", "text" .= String "text", "blob" .= Null]),
+            ("blob with null text extension", object ["uri" .= String "fixture:resource", "blob" .= String "Zg==", "text" .= Null]),
+            ("blob with numeric text extension", object ["uri" .= String "fixture:resource", "blob" .= String "Zg==", "text" .= Number 17]),
+            ("empty text is a complete branch", object ["uri" .= String "fixture:resource", "text" .= String "", "blob" .= String "?"]),
+            ("both branches remain intact", object ["uri" .= String "fixture:resource", "text" .= String "text", "blob" .= String "Zg=="]),
+            ("text-only preserves common metadata", object ["uri" .= String "fixture:resource", "text" .= String "text", "mimeType" .= String "text/plain", "_meta" .= object ["literal" .= Null]]),
+            ("blob-only preserves extensions", object ["uri" .= String "fixture:resource", "blob" .= String "Zg==", "future" .= object ["literal" .= False]])
+          ]
+      ],
+    testGroup
+      "embedded resource unions still reject invalid content"
+      [ testCase label $ do
+          jsonContent (KeyMap.fromList ["type" .= String "resource", "resource" .= resource]) @?= Left InvalidMcpToolResult
+      | (label, resource) <-
+          [ ("neither branch", object ["uri" .= String "fixture:resource"]),
+            ("malformed blob only", object ["uri" .= String "fixture:resource", "blob" .= String "?"]),
+            ("both branches malformed", object ["uri" .= String "fixture:resource", "text" .= Number 17, "blob" .= String "?"]),
+            ("both branches null", object ["uri" .= String "fixture:resource", "text" .= Null, "blob" .= Null]),
+            ("invalid shared URI", object ["uri" .= Null, "text" .= String "text"]),
+            ("invalid shared MIME type", object ["uri" .= String "fixture:resource", "text" .= String "text", "mimeType" .= Number 17]),
+            ("invalid shared metadata", object ["uri" .= String "fixture:resource", "blob" .= String "Zg==", "_meta" .= Bool False])
+          ]
+      ],
     testCase "rich content preserves valid variants and rejects malformed media or metadata" $ do
       let values = [object ["type" .= String "text", "text" .= String "hello", "annotations" .= object ["lastModified" .= String "2025-01-02T03:04Z"]], object ["type" .= String "image", "data" .= String " /x==\n", "mimeType" .= String "image/png"], object ["type" .= String "audio", "data" .= String "Zg", "mimeType" .= String "audio/wav"], object ["type" .= String "resource", "resource" .= object ["uri" .= String "fixture:blob", "blob" .= String "Zg=="]], object ["type" .= String "resource_link", "uri" .= String "fixture:item", "name" .= String "item", "size" .= (2 :: Int), "icons" .= [object ["src" .= String "fixture:icon", "theme" .= String "dark"]]]]
       forM_ values $ \value -> case value of
