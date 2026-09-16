@@ -11,7 +11,7 @@ import Data.Aeson.Key (Key)
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString.Char8 qualified as BS
 import Data.ByteString.Lazy qualified as BL
-import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
+import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import Data.Maybe (fromMaybe)
 import Data.Proxy (Proxy (..))
 import Data.Scientific (scientific)
@@ -21,10 +21,12 @@ import DroidSpec (assertReaped)
 import Factory.Droid qualified as Droid
 import Factory.Droid.Client qualified as Client
 import Factory.Droid.Daemon qualified as Daemon
+import Factory.Droid.Interaction (cancelDroidQuestions)
 import Factory.Droid.Protocol
 import Factory.Droid.Schema.Configuration
 import Factory.Droid.Schema.Discovery (GetUserInfoResult (..))
 import Factory.Droid.Schema.RPC
+import Factory.Droid.Schema.Settings (ToolPolicy (..), emptyToolPolicy)
 import Factory.Droid.Transport
 import Factory.Droid.Transport.Process qualified as Process
 import ProcessSpec (bounded)
@@ -197,8 +199,179 @@ initializationTests =
           void (atomically (readTQueue sent))
           cancel worker
           waitCatch worker >>= \case Left cause -> fromException cause @?= Just AsyncCancelled; Right _ -> assertFailure "Cancellation lost"
-        readIORef count >>= (@?= 1)
+        readIORef count >>= (@?= 1),
+      testGroup "existing daemon connection creation" borrowedCreationTests
     ]
+
+borrowedCreationTests :: [TestTree]
+borrowedCreationTests =
+  [ testCase "two created sessions share the owner and keep independent lifetimes" $ bounded $ withInitPeer ReplyNormally $ \transport sent count -> do
+      escaped <- Daemon.withConnectionOn clientOptions transport $ \connection -> do
+        owner <- Daemon.getConnectionId connection
+        Daemon.withSessionOn connection (creationOptions "one") $ \one ->
+          Daemon.withSessionOn connection (creationOptions "two") $ \two -> do
+            Daemon.getConnectionId (Daemon.sessionConnection one) >>= (@?= owner)
+            Daemon.getConnectionId (Daemon.sessionConnection two) >>= (@?= owner)
+            assertCreatedSession one "one"
+            assertCreatedSession two "two"
+            Daemon.detachSession one
+            try @Droid.DroidError (Daemon.getSettings one) >>= (@?= Left Droid.DroidSessionUnusable)
+            assertCreatedSession two "two"
+        Daemon.getProxyToken connection >>= (@?= object ["token" .= String "fixture"]) . toJSON
+        pure (Daemon.getProxyToken connection)
+      try @RpcChannelError escaped >>= \case Left RpcChannelClosed -> pure (); _ -> assertFailure "Closed owner remained usable"
+      readIORef count >>= (@?= 2)
+      frames <- atomically (flushTQueue sent)
+      map (field "method") frames @?= map String ["daemon.initialize_session", "daemon.initialize_session", "daemon.get_proxy_token"],
+    testCase "invalid creation receipts never publish or poison the owner" $ bounded $ do
+      forM_ [WrongIdentity, IgnorePromptEcho] $ \mode -> withInitPeer mode $ \transport _ count -> do
+        params <- decode @InitializeSessionParams (addFields ["sessionId" .= String "expected", "systemPrompt" .= String "required prompt"] minimalWire)
+        let options = (Daemon.defaultDaemonSessionOptions "/ignored") {Daemon.daemonSessionParameters = params}
+        Daemon.withConnectionOn clientOptions transport $ \connection -> do
+          try @Droid.DroidError (Daemon.withSessionOn connection options (const (assertFailure "Invalid receipt published" :: IO ()))) >>= (@?= Left Droid.DroidInvalidEvent)
+          readIORef count >>= (@?= 1)
+          void (Daemon.getProxyToken connection),
+    testCase "missing creation credentials do not fall back or consume the binding" $ bounded $ withInitPeer ReplyNormally $ \transport sent count -> do
+      let connected = clientOptions {Daemon.daemonClientAuthentication = Daemon.DaemonInheritAuthenticationProvider (GetUserInfoResult "user" "org" mempty) (pure Nothing)}
+          options = creationOptions "missing-token"
+      Daemon.withConnectionOn connected transport $ \connection -> do
+        try @Daemon.DaemonError (Daemon.withSessionOn connection options (const (pure ()))) >>= (@?= Left Daemon.DaemonCredentialUnavailable)
+        readIORef count >>= (@?= 0)
+        atomically (isEmptyTQueue sent) >>= (@?= True)
+        try @RpcChannelError (Daemon.withSessionOn connection (options {Daemon.daemonSessionInitializationTimeoutMicros = Just 0}) (const (pure ()))) >>= (@?= Left RpcRequestTimedOut)
+        void (Daemon.getProxyToken connection),
+    testCase "concurrent creations publish independent state on one connection" $ bounded $ withInitPeer ReplyNormally $ \transport _ count ->
+      Daemon.withConnectionOn clientOptions transport $ \connection -> do
+        ready <- newTVarIO (0 :: Int)
+        let create identifier = Daemon.withSessionOn connection (creationOptions identifier) $ \session -> do
+              atomically (modifyTVar' ready (+ 1))
+              atomically (readTVar ready >>= check . (== 2))
+              assertCreatedSession session identifier
+        withAsync (create "one") $ \one -> withAsync (create "two") $ \two -> wait one >> wait two
+        readIORef count >>= (@?= 2)
+        void (Daemon.getProxyToken connection),
+    testCase "creation fields and fresh owner credentials are preserved" $ bounded $ withInitPeer ReplyNormally $ \transport sent _ -> do
+      fetched <- newIORef (0 :: Int)
+      params <- decode @InitializeSessionParams (addFields ["systemPrompt" .= String "new prompt", "mcpServers" .= ([] :: [Value]), "blockOnMcpLoad" .= False, "worktree" .= False, "worktreeDir" .= String ""] richWire)
+      let provider = atomicModifyIORef' fetched (\n -> (n + 1, Just "fresh"))
+          connected = clientOptions {Daemon.daemonClientAuthentication = Daemon.DaemonInheritAuthenticationProvider (GetUserInfoResult "user" "org" mempty) provider, Daemon.daemonClientProtocolVersion = "1.205.0"}
+          options = (Daemon.defaultDaemonSessionOptions "/ignored") {Daemon.daemonSessionParameters = params, Daemon.daemonSessionSpawnOptions = defaultDaemonSpawnOptions {spawnDisableInactivityTimeout = Just False, spawnRuntimeSettingsPath = Just "", spawnInactivityTimeoutMillis = Just 9007199254740993}}
+      Daemon.withConnectionOn connected transport $ \connection -> do
+        readIORef fetched >>= (@?= 0)
+        Daemon.withSessionOn connection options $ \session -> do
+          Daemon.sessionId session @?= "requested"
+          frame <- atomically (readTQueue sent)
+          assertFields (initializationFields params) (paramsOf frame)
+          field "token" (paramsOf frame) @?= String "fresh"
+          field "factoryProtocolVersion" frame @?= String "1.205.0"
+          field "runtimeSettingsPath" (paramsOf frame) @?= String ""
+          field "inactivityTimeoutMs" (paramsOf frame) @?= Number 9007199254740993
+        readIORef fetched >>= (@?= 1),
+    testCase "duplicate creation fails before another request or owner change" $ bounded $ withInitPeer ReplyNormally $ \transport _ count ->
+      Daemon.withConnectionOn clientOptions transport $ \connection ->
+        Daemon.withSessionOn connection (creationOptions "same") $ \session -> do
+          try @Daemon.DaemonError (Daemon.withSessionOn connection (creationOptions "same") (const (pure ()))) >>= (@?= Left Daemon.DaemonSessionAlreadyAttached)
+          readIORef count >>= (@?= 1)
+          assertCreatedSession session "same",
+    testCase "invalid options precede token acquisition and initialization" $ bounded $ withInitPeer ReplyNormally $ \transport sent _ -> do
+      fetched <- newIORef (0 :: Int)
+      let connected = clientOptions {Daemon.daemonClientAuthentication = Daemon.DaemonInheritAuthenticationProvider (GetUserInfoResult "user" "org" mempty) (atomicModifyIORef' fetched (\n -> (n + 1, Just "token")))}
+          options = creationOptions "invalid"
+      Daemon.withConnectionOn connected transport $ \connection -> do
+        try @InitializationError (Daemon.withSessionOn connection (options {Daemon.daemonSessionSpawnOptions = defaultDaemonSpawnOptions {spawnInactivityTimeoutMillis = Just 0}}) (const (pure ()))) >>= (@?= Left InvalidInitializationParams)
+        try @LoadConfigurationError (Daemon.withSessionOn connection (options {Daemon.daemonSessionLoadConfiguration = defaultSessionLoadConfiguration {loadMessageLimit = Just 0}}) (const (pure ()))) >>= (@?= Left InvalidLoadParams)
+        forM_ [-1, maxBound] $ \budget ->
+          try @RpcChannelError (Daemon.withSessionOn connection (options {Daemon.daemonSessionInitializationTimeoutMicros = Just budget}) (const (pure ()))) >>= (@?= Left RpcInvalidTimeout)
+        try @RpcChannelError (Daemon.withSessionOn connection (options {Daemon.daemonSessionTurnTimeoutMicros = Just (-1)}) (const (pure ()))) >>= (@?= Left RpcInvalidTimeout)
+        readIORef fetched >>= (@?= 0)
+        atomically (isEmptyTQueue sent) >>= (@?= True)
+        show options @?= "DaemonSessionOptions <redacted>",
+    testCase "rejection does not close the owner or keep an attachment lease" $ bounded $ withInitPeer RejectInit $ \transport _ count ->
+      Daemon.withConnectionOn clientOptions transport $ \connection -> do
+        let options = creationOptions "rejected"
+        try @RpcResultError (Daemon.withSessionOn connection options (const (assertFailure "Rejected initialization published"))) >>= \case Left (RpcRemoteFailure _) -> pure (); _ -> assertFailure "Remote failure lost"
+        try @RpcChannelError (Daemon.withSessionOn connection (options {Daemon.daemonSessionInitializationTimeoutMicros = Just 0}) (const (pure ()))) >>= (@?= Left RpcRequestTimedOut)
+        readIORef count >>= (@?= 1)
+        void (Daemon.getProxyToken connection),
+    testCase "cancellation preserves identity and releases only the new lease" $ bounded $ withInitPeer HoldInit $ \transport sent count ->
+      Daemon.withConnectionOn clientOptions transport $ \connection -> do
+        let options = creationOptions "cancelled"
+        withAsync (Daemon.withSessionOn connection options (const (assertFailure "Cancelled initialization published"))) $ \worker -> do
+          void (atomically (readTQueue sent))
+          cancel worker
+          waitCatch worker >>= \case Left cause -> fromException cause @?= Just AsyncCancelled; Right _ -> assertFailure "Cancellation lost"
+        try @RpcChannelError (Daemon.withSessionOn connection (options {Daemon.daemonSessionInitializationTimeoutMicros = Just 0}) (const (pure ()))) >>= (@?= Left RpcRequestTimedOut)
+        readIORef count >>= (@?= 1)
+        void (Daemon.getProxyToken connection),
+    testCase "superseded token-provider wait cannot send a stale initialization" $ bounded $ withInitPeer ReplyNormally $ \transport sent count -> do
+      entered <- newEmptyTMVarIO
+      release <- newEmptyTMVarIO
+      let provider = atomically (putTMVar entered ()) >> atomically (readTMVar release) >> pure (Just "token")
+          connected = clientOptions {Daemon.daemonClientAuthentication = Daemon.DaemonInheritAuthenticationProvider (GetUserInfoResult "user" "org" mempty) provider}
+      Daemon.withConnectionOn connected transport $ \connection -> do
+        withAsync (try @Daemon.DaemonError (Daemon.withSessionOn connection (creationOptions "stale") (const (pure ())))) $ \worker -> do
+          atomically (readTMVar entered)
+          Daemon.markSessionNotLoaded connection "stale"
+          atomically (putTMVar release ())
+          wait worker >>= (@?= Left Daemon.DaemonLoadSuperseded)
+        readIORef count >>= (@?= 0)
+        atomically (isEmptyTQueue sent) >>= (@?= True)
+        void (Daemon.getProxyToken connection),
+    testCase "handlers are active before publication and can use the shared owner" $ bounded $ withInitPeer AskDuringInit $ \transport _ count ->
+      Daemon.withConnectionOn clientOptions transport $ \connection -> do
+        published <- newIORef False
+        called <- newIORef (0 :: Int)
+        let handlers = Droid.defaultDroidHandlers {Droid.onDroidQuestion = Just (\_ -> readIORef published >>= (@?= False) >> void (Daemon.getProxyToken connection) >> atomicModifyIORef' called (\n -> (n + 1, ())) >> pure cancelDroidQuestions)}
+        Daemon.withSessionOnHandlers connection handlers (creationOptions "question") $ \session -> do
+          writeIORef published True
+          assertCreatedSession session "question"
+        readIORef called >>= (@?= 1)
+        readIORef count >>= (@?= 1),
+    testCase "initialization retry preserves identity and fetches the token once" $ bounded $ withInitPeer DelayFirst $ \transport sent count -> do
+      fetched <- newIORef (0 :: Int)
+      let connected = clientOptions {Daemon.daemonClientAuthentication = Daemon.DaemonInheritAuthenticationProvider (GetUserInfoResult "user" "org" mempty) (atomicModifyIORef' fetched (\n -> (n + 1, Just "token")))}
+          options = (creationOptions "retry") {Daemon.daemonSessionInitializationTimeoutMicros = Just 500000}
+      Daemon.withConnectionOn connected transport $ \connection ->
+        Daemon.withSessionOn connection options (const (pure ()))
+      first <- atomically (readTQueue sent)
+      second <- atomically (readTQueue sent)
+      paramsOf first @?= paramsOf second
+      assertBool "RPC identifier reused" (frameId first /= frameId second)
+      readIORef count >>= (@?= 2)
+      readIORef fetched >>= (@?= 1),
+    testCase "caller failures do not retry initialization or consume the owner" $ bounded $ withInitPeer ReplyNormally $ \transport _ count ->
+      Daemon.withConnectionOn clientOptions transport $ \connection -> do
+        try @RpcChannelError (Daemon.withSessionOn connection (creationOptions "caller") (const (throwIO RpcRequestTimedOut :: IO ()))) >>= (@?= Left RpcRequestTimedOut)
+        readIORef count >>= (@?= 1)
+        void (Daemon.getProxyToken connection),
+    testCase "future load options use existing readiness and policy ownership" $ bounded $ withInitPeer ReplyNormally $ \transport sent _ ->
+      Daemon.withConnectionOn (clientOptions {Daemon.daemonClientRestoreTerminalsOnLoad = False}) transport $ \connection -> do
+        let options = (creationOptions "policy") {Daemon.daemonSessionLoadConfiguration = defaultSessionLoadConfiguration {loadMessageLimit = Just 7, loadToolPolicy = emptyToolPolicy {policyRestrictedTools = Just []}}, Daemon.daemonSessionLoadSpawnConfiguration = defaultDaemonLoadConfiguration {daemonLoadRuntimeSettingsPath = Just "runtime"}}
+        Daemon.withSessionOn connection options $ \_ -> do
+          void (atomically (flushTQueue sent))
+          Daemon.markSessionNotLoaded connection "policy"
+          Daemon.ensureSessionLoaded connection "policy"
+          frames <- atomically (flushTQueue sent)
+          map (field "method") frames @?= map String ["daemon.load_session", "daemon.update_session_settings"]
+          case frames of
+            [load, patch] -> do
+              field "messageLimit" (paramsOf load) @?= Number 7
+              field "runtimeSettingsPath" (paramsOf load) @?= String "runtime"
+              field "restrictToolIds" (paramsOf patch) @?= toJSON ([] :: [Text])
+            _ -> assertFailure "Unexpected reload sequence"
+  ]
+
+creationOptions :: Text -> Daemon.DaemonSessionOptions
+creationOptions identifier =
+  let options = Daemon.defaultDaemonSessionOptions "/created"
+      params = Daemon.daemonSessionParameters options
+   in options {Daemon.daemonSessionParameters = params {initializeConfiguration = defaultSessionConfiguration {configurationSessionId = Just identifier}}}
+
+assertCreatedSession :: Daemon.DaemonSession -> Text -> IO ()
+assertCreatedSession session identifier = do
+  Daemon.sessionId session @?= identifier
+  fields <- asObject . toJSON <$> Daemon.getSettings session
+  field "sessionId" (asObject (field "initializationParams" fields)) @?= String identifier
 
 minimalWire :: Value
 minimalWire = object ["machineId" .= String "machine", "cwd" .= String "/work"]
@@ -266,7 +439,7 @@ roundTrip _ value = decode @a value >>= (@?= value) . toJSON
 assertFields :: Object -> Object -> IO ()
 assertFields expected actual = forM_ (KeyMap.toList expected) $ \(key, value) -> KeyMap.lookup key actual @?= Just value
 
-data PeerMode = ReplyNormally | DelayFirst | HoldInit | RejectInit | WrongIdentity | IgnorePromptEcho deriving stock (Eq)
+data PeerMode = ReplyNormally | DelayFirst | HoldInit | RejectInit | WrongIdentity | IgnorePromptEcho | AskDuringInit deriving stock (Eq)
 
 clientOptions :: Daemon.DaemonClientOptions
 clientOptions = Daemon.defaultDaemonClientOptions (Daemon.DaemonInheritAuthentication (GetUserInfoResult "user" "org" mempty) "") "/work"
@@ -276,14 +449,26 @@ withInitPeer mode action = do
   incoming <- newTQueueIO
   sent <- newTQueueIO
   count <- newIORef 0
-  let send frame = do
+  pending <- newEmptyTMVarIO
+  let feed = atomically . writeTQueue incoming
+      send frame = do
         atomically (writeTQueue sent frame)
-        let method = textField "method" frame
-        unless (method `elem` ["droid.initialize_session", "daemon.initialize_session"]) (assertFailure "Unexpected initialization fixture method")
-        number <- atomicModifyIORef' count (\old -> (old + 1, old + 1))
-        unless (mode == HoldInit || (mode == DelayFirst && number == 1)) $ do
-          let response = if mode == RejectInit then KeyMap.insert "error" (toJSON (JsonRpcError RpcConflict "fixture rejection" Nothing mempty)) (reply (frameId frame) Null) else reply (frameId frame) (initializationResult mode "" frame)
-          atomically (writeTQueue incoming response)
+        case field "method" frame of
+          String "daemon.get_proxy_token" -> feed (reply (frameId frame) (object ["token" .= String "fixture"]))
+          String "daemon.load_session" -> feed (reply (frameId frame) (initializationResult ReplyNormally "" frame))
+          String "daemon.update_session_settings" -> feed (reply (frameId frame) (object []))
+          Null | mode == AskDuringInit && frameId frame == "init-question" -> atomically (takeTMVar pending) >>= feed
+          String method -> do
+            unless (method `elem` ["droid.initialize_session", "daemon.initialize_session"]) (assertFailure "Unexpected initialization fixture method")
+            number <- atomicModifyIORef' count (\old -> (old + 1, old + 1))
+            unless (mode == HoldInit || (mode == DelayFirst && number == 1)) $ do
+              let response = if mode == RejectInit then KeyMap.insert "error" (toJSON (JsonRpcError RpcConflict "fixture rejection" Nothing mempty)) (reply (frameId frame) Null) else reply (frameId frame) (initializationResult mode "" frame)
+              if mode == AskDuringInit
+                then do
+                  atomically (putTMVar pending response)
+                  feed (asObject (object ["jsonrpc" .= String "2.0", "factoryApiVersion" .= String "1.0.0", "factoryProtocolVersion" .= String "1.205.0", "type" .= String "request", "id" .= String "init-question", "method" .= String "daemon.ask_user", "params" .= object ["sessionId" .= field "sessionId" (paramsOf frame), "toolCallId" .= String "tool", "questions" .= ([] :: [Value])]]))
+                else feed response
+          _ -> assertFailure "Unexpected fixture frame"
   action (objectTransport send (atomically (readTQueue incoming))) sent count
 
 initializationResult :: PeerMode -> Text -> Object -> Value

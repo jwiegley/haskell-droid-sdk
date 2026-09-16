@@ -1096,15 +1096,22 @@ This example is compiled, not executed. Its snapshot can become stale: the calle
 
 ### Independent attachments on one connection
 
+`withSessionOn connection options` creates a new session on that same authenticated owner. `defaultDaemonSessionOptions directory` supplies the ordinary defaults; `daemonSessionParameters` reuses `Schema.Configuration.InitializeSessionParams` for machine/model, system prompt, worktree, MCP and other creation fields. Spawn options, initialization/turn budgets and future load configuration are separate fields. `withSessionOnHandlers connection handlers options` installs per-attachment handlers before initialization. Connection authentication, protocol and transport settings are not accepted or silently replaced by these per-session options. Initialization MCP configuration is forwarded; subsequent reloads retain the connection's existing MCP policy. Caller-owned hosted-server endpoints must remain alive for the operations that use them.
+
 `withResumedSessionOn connection savedId` attaches a saved session using an existing authenticated connection, without opening another transport or authenticating again. `withResumedSessionOnHandlers` additionally accepts per-session `DroidHandlers`. Settings and turn admission are session-local; different attached sessions can have concurrent turns. The connection remains the owner of the common reader, dispatcher and authentication context.
 
 ```haskell
-module SharedAttachmentExample (inspectIndependent, closeSaved) where
+module SharedAttachmentExample (createNew, inspectIndependent, closeSaved) where
 
 import Data.Aeson (Object)
 import Data.Text (Text)
 import Factory.Droid.Daemon qualified as Daemon
 import Factory.Droid.Schema.Settings (SessionSettings)
+
+createNew :: Daemon.DaemonConnection -> Text -> IO Text
+createNew connection directory =
+  Daemon.withSessionOn connection (Daemon.defaultDaemonSessionOptions directory)
+    (pure . Daemon.sessionId)
 
 inspectIndependent :: Daemon.DaemonConnection -> Text -> Text -> IO SessionSettings
 inspectIndependent connection firstId secondId =
@@ -1119,7 +1126,7 @@ closeSaved connection identifier =
   Daemon.withResumedSessionOn connection identifier Daemon.closeAttachedSession
 ```
 
-The example is compiled, not executed. Attachment scope exit calls `detachSession`: it retires that handle, releases subscriptions and joins its admitted local operations without closing the connection or sending remote close/logout/interruption requests. Detach is idempotent, and a stale handle cannot remove a newer attachment of the same ID. Duplicate active attachments fail with `DaemonSessionAlreadyAttached` before loading. Failed or cancelled loads release their lease without publishing a handle.
+The example is compiled, not executed. Attachment scope exit calls `detachSession`: it retires that handle, releases subscriptions and joins its admitted local operations without closing the connection or sending remote close/logout/interruption requests. Detach is idempotent, and a stale handle cannot remove a newer attachment of the same ID. Duplicate active attachments fail with `DaemonSessionAlreadyAttached` before initialization or loading. Failed or cancelled creation/load releases the attachment lease without publishing a handle; cancellation does not undo a remote operation that already ran. The creation path uses the owner's current token provider and existing stable-ID initialization retry, while caller work remains outside that retry.
 
 `closeAttachedSession` explicitly requests remote close and then detaches the particular handle on a successful reply, even without a lifecycle notification. It also invalidates that current attachment's load generation and child linkage; a late reload cannot restore the closed child, and an older handle cannot retire a newer lease. Remote errors remain errors; no rollback or retry is inferred. A lifecycle notification for one session also retires only that session. Other attachments remain usable while the physical connection remains healthy. As with existing RPC operations, cancellation during an uncertain transport write can fail the shared channel rather than conceal a partial frame.
 

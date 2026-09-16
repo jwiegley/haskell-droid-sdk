@@ -2,6 +2,38 @@
 #+SEQ_TODO: TODO DOING DRAFT WAIT DEFER NOTE | DONE CANCELED
 #+ISSUE_PREFIX: hsdk
 
+* TODO [#C] Add owner-aware daemon cache controls and retirement
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-0aq
+:LABELS:   []
+:ISSUE_TYPE: feature
+:CREATED:  [2026-09-16 Wed 14:08]
+:MODIFIED: [2026-09-16 Wed 14:08]
+:CREATED_BY: johnw
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+FC-08 and the active complete-daemon-owner milestone require configurable eligible-session cache capacity/recency/removal with active/loading/working protection, not trimming an application copy. Reuse connection state/load/binding ownership, preserving generation tombstones so late receipts cannot resurrect retired state. Include coherent retirement of provisional state after failed unpublished creation, without deleting prior or superseding state; constructor work deliberately retains existing load-failure bookkeeping until this cache unit. Verify default25-versus20 counterexample, touch/active/loading behavior, guarded manual removal and multi-session effects. No remote close or push.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-0aq",
+    "depends_on_id": "hsdk-laj",
+    "type": "discovered-from",
+    "created_at": "2026-09-16T21:08:07.068728Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
 * DONE [#C] Expose daemon workspace, trust, file and transfer operations
 :PROPERTIES:
 :OBR_SCHEMA_VERSION: 17
@@ -437,6 +469,38 @@ Fess self-audit completed before closure: Summary: pure output-field composition
     "depends_on_id": "hsdk-mcp-y1i",
     "type": "discovered-from",
     "created_at": "2026-09-08T21:00:01.493390Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
+* TODO [#C] Resolve truthful session and REST SDK attribution defaults
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-8b6
+:LABELS:   []
+:ISSUE_TYPE: task
+:CREATED:  [2026-09-16 Wed 14:35]
+:MODIFIED: [2026-09-16 Wed 14:35]
+:CREATED_BY: johnw
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Part of pending resolve-native-contracts. Native daemon creation preserves explicit tags/source/origin and defaults origin to API; frozen TS0.7 createSdkSessionAttribution uses api, while current TS0.9.1 uses sdk (chunk-TWSTJMV7.mjs:25418). TS create adds canonical SDK language/version tags (frozen SDK_TAG:8293; current withSdkTag:9529 and create:25741), whereas native Configuration defaults omit tags. Native input flexibility is real but does not establish matching SDK-attribution defaults. Account frozen/current distinctions, including any analogous local path, and choose/test truthful Haskell package-version tagging and REST headers rather than claiming typescript. Preserve explicit native configuration contracts or document a justified change. No live account call or source impersonation. This does not invalidate the new existing-owner creation capability; its tests currently prove native exact-field forwarding, not full attribution parity.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-8b6",
+    "depends_on_id": "hsdk-laj",
+    "type": "discovered-from",
+    "created_at": "2026-09-16T21:35:57.410937Z",
     "created_by": "johnw",
     "metadata": "{}",
     "thread_id": ""
@@ -7316,6 +7380,40 @@ Implemented sendDroidEvents with CompleteMessages/AllEvents on the existing UUID
     "depends_on_id": "hsdk-sessions-streams-d0f",
     "type": "discovered-from",
     "created_at": "2026-09-07T11:43:13.269862Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
+* DONE [#C] Create scoped sessions on an existing daemon connection
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-laj
+:LABELS:   []
+:ISSUE_TYPE: feature
+:CREATED:  [2026-09-16 Wed 13:37]
+:MODIFIED: [2026-09-16 Wed 14:39]
+:CREATED_BY: johnw
+:FINISHED: [2026-09-16 Wed 14:39]
+:CLOSE_REASON: Scoped creation on an existing DaemonConnection implemented through the shared initializer. Fourteen new checks; 37 initialization and 4034 full tests pass on macOS/Linux ARM64, plus ten parallel new-case runs and public examples. Source-bound evidence/fess docs/evidence/2026-09-16/fc07. Owner milestone remains open: cache/provisional-state retirement hsdk-0aq; attribution hsdk-8b6 in native-contract milestone. No push.
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+FC-07: expose integrated new-session construction on an already active DaemonConnection. Reuse existing authentication/token provider, initialization retry/readiness publication, binding/handler ownership and session scope; no second reader or connection. Use focused creation options rather than silently ignoring connection-level options. Verify exact init configuration, multiple sessions, duplicate claims, rejection/cancellation and connection survival. Preserve legacy constructors through the same path. Cache retirement/directory administration remain other requirements in complete-daemon-owner. No live Factory mutation or push.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-laj",
+    "depends_on_id": "hsdk-transports-client-4yp",
+    "type": "discovered-from",
+    "created_at": "2026-09-16T20:37:00.071972Z",
     "created_by": "johnw",
     "metadata": "{}",
     "thread_id": ""

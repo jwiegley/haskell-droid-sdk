@@ -11,6 +11,10 @@ module Factory.Droid.Daemon
     DaemonClientOptions (..),
     defaultDaemonClientOptions,
     daemonClientOptions,
+    DaemonSessionOptions (..),
+    defaultDaemonSessionOptions,
+    withSessionOn,
+    withSessionOnHandlers,
     withConnectionOn,
     withSessionUsing,
     withSessionUsingHandlers,
@@ -411,6 +415,44 @@ instance Show DaemonClientOptions where show _ = "DaemonClientOptions <redacted>
 
 defaultDaemonClientOptions :: DaemonAuthentication -> Text -> DaemonClientOptions
 defaultDaemonClientOptions authentication cwd = DaemonClientOptions authentication cwd Nothing Nothing "local" Nothing Nothing "1.201.1" defaultMcpSessionOptions [] True True Configuration.defaultSessionConfiguration Nothing Configuration.defaultDaemonSpawnOptions Nothing Configuration.defaultSessionLoadConfiguration Configuration.defaultDaemonLoadConfiguration Obs.defaultDroidObservability
+
+-- | Creation and future-load intent for one scoped attachment. Authentication,
+-- protocol, transport and connection observers remain owned by the connection.
+-- MCP configurations here apply to initialization; later loads retain the
+-- connection's existing MCP policy. Scope any caller-owned hosted servers
+-- around the operations that need their endpoints.
+data DaemonSessionOptions = DaemonSessionOptions
+  { daemonSessionParameters :: !Configuration.InitializeSessionParams,
+    daemonSessionSpawnOptions :: !Configuration.DaemonSpawnOptions,
+    daemonSessionTurnTimeoutMicros :: !(Maybe Int),
+    daemonSessionInitializationTimeoutMicros :: !(Maybe Int),
+    daemonSessionLoadConfiguration :: !Configuration.SessionLoadConfiguration,
+    daemonSessionLoadSpawnConfiguration :: !Configuration.DaemonLoadConfiguration
+  }
+  deriving stock (Eq)
+
+instance Show DaemonSessionOptions where show _ = "DaemonSessionOptions <redacted>"
+
+defaultDaemonSessionOptions :: Text -> DaemonSessionOptions
+defaultDaemonSessionOptions directory = DaemonSessionOptions (Configuration.defaultInitializeSessionParams "local" directory) Configuration.defaultDaemonSpawnOptions Nothing Nothing Configuration.defaultSessionLoadConfiguration Configuration.defaultDaemonLoadConfiguration
+
+sessionCreationOptions :: DaemonClientOptions -> McpSessionOptions -> DaemonSessionOptions
+sessionCreationOptions options mcp =
+  DaemonSessionOptions
+    ( (Configuration.defaultInitializeSessionParams (daemonClientMachineId options) (daemonClientWorkingDirectory options))
+        { Configuration.initializeModel = daemonClientModel options,
+          Configuration.initializeSystemPrompt = daemonClientSystemPrompt options,
+          Configuration.initializeMcpOptions = mcp,
+          Configuration.initializeWorktree = daemonClientWorktree options,
+          Configuration.initializeWorktreeDirectory = daemonClientWorktreeDirectory options,
+          Configuration.initializeConfiguration = daemonClientConfiguration options
+        }
+    )
+    (daemonClientSpawnOptions options)
+    (daemonClientTurnTimeoutMicros options)
+    (daemonClientInitializationTimeoutMicros options)
+    (daemonClientLoadConfiguration options)
+    (daemonClientLoadSpawnConfiguration options)
 
 daemonClientOptions :: DaemonOptions -> DaemonClientOptions
 daemonClientOptions options = DaemonClientOptions (DaemonAuthenticate (daemonCredential options)) (daemonWorkingDirectory options) (daemonWorktree options) (daemonWorktreeDirectory options) (daemonMachineId options) (daemonModel options) (daemonTurnTimeoutMicros options) (daemonProtocolVersion options) (daemonMcpOptions options) (daemonHostedMcpServers options) (daemonHydrateChildSessions options) (daemonRestoreTerminalsOnLoad options) (daemonConfiguration options) (daemonSystemPrompt options) (daemonSpawnOptions options) (daemonInitializationTimeoutMicros options) (daemonLoadConfiguration options) (daemonLoadSpawnConfiguration options) (daemonObservability options)
@@ -1968,38 +2010,47 @@ withDaemonSessionUsing options handlers saved locality acquire action = do
   forM_ (daemonClientTurnTimeoutMicros options) $ \micros -> when (micros < 0) (throwIO RpcInvalidTimeout)
   mcpOptions <- either throwIO pure (validateMcpConfiguration (daemonClientMcpOptions options))
   when (isJust saved && isJust (sessionBlockOnMcpLoad mcpOptions)) (throwIO McpInitOnlyOptionOnResume)
-  when (isNothing saved) $ either throwIO pure (Configuration.validateDaemonInitializationParams (daemonInitializationParams options handlers (fromMaybe "" (Configuration.configurationSessionId (daemonClientConfiguration options))) "" mcpOptions))
-  let (loadParams, _) = daemonLoadParameters (fromMaybe "" saved) "" mcpOptions (daemonAutoReject options handlers) (daemonClientLoadConfiguration options, daemonClientLoadSpawnConfiguration options)
+  when (isNothing saved) (validateCreatedSessionOptions (sessionCreationOptions options mcpOptions) handlers)
+  let (loadParams, _) = daemonLoadParameters (fromMaybe "" saved) "" mcpOptions (daemonAutoReject (daemonClientConfiguration options) handlers) (daemonClientLoadConfiguration options, daemonClientLoadSpawnConfiguration options)
   either throwIO pure (Configuration.validateDaemonLoadSessionParams loadParams)
   when (not (null (daemonClientHostedMcpServers options)) && locality /= LocalHost) (throwIO Hosted.HostedMcpRequiresLocalDaemon)
   Hosted.withMcpServerOptions (daemonClientHostedMcpServers options) mcpOptions $ \activeOptions ->
     openDaemonSession options handlers saved activeOptions acquire action
 
-daemonAutoReject :: DaemonClientOptions -> DroidHandlers -> Bool
-daemonAutoReject options handlers = fromMaybe (isNothing (onDroidPermission handlers)) (Configuration.configurationAutoRejectPermissions (daemonClientConfiguration options))
+daemonAutoReject :: Configuration.SessionConfiguration -> DroidHandlers -> Bool
+daemonAutoReject config handlers = fromMaybe (isNothing (onDroidPermission handlers)) (Configuration.configurationAutoRejectPermissions config)
 
-daemonInitializationParams :: DaemonClientOptions -> DroidHandlers -> Text -> Text -> McpSessionOptions -> Configuration.DaemonInitializeSessionParams
-daemonInitializationParams options handlers identifier token mcp =
-  let config = daemonClientConfiguration options
-      base =
-        (Configuration.defaultInitializeSessionParams (daemonClientMachineId options) (daemonClientWorkingDirectory options))
-          { Configuration.initializeModel = daemonClientModel options,
-            Configuration.initializeSystemPrompt = daemonClientSystemPrompt options,
-            Configuration.initializeMcpOptions = mcp,
-            Configuration.initializeWorktree = daemonClientWorktree options,
-            Configuration.initializeWorktreeDirectory = daemonClientWorktreeDirectory options,
-            Configuration.initializeConfiguration =
+validateCreatedSessionOptions :: DaemonSessionOptions -> DroidHandlers -> IO ()
+validateCreatedSessionOptions options handlers = do
+  forM_ (daemonSessionInitializationTimeoutMicros options) $ \micros -> when (micros < 0 || micros > maxBound `div` 2) (throwIO RpcInvalidTimeout)
+  forM_ (daemonSessionTurnTimeoutMicros options) $ \micros -> when (micros < 0) (throwIO RpcInvalidTimeout)
+  let base = daemonSessionParameters options
+      config = Configuration.initializeConfiguration base
+      identifier = fromMaybe "" (Configuration.configurationSessionId config)
+      mcp = Configuration.initializeMcpOptions base
+  void (either throwIO pure (validateMcpConfiguration mcp))
+  either throwIO pure (Configuration.validateDaemonInitializationParams (daemonInitializationParams options handlers identifier ""))
+  let (loadParams, _) = daemonLoadParameters identifier "" mcp (daemonAutoReject config handlers) (daemonSessionLoadConfiguration options, daemonSessionLoadSpawnConfiguration options)
+  either throwIO pure (Configuration.validateDaemonLoadSessionParams loadParams)
+
+daemonInitializationParams :: DaemonSessionOptions -> DroidHandlers -> Text -> Text -> Configuration.DaemonInitializeSessionParams
+daemonInitializationParams options handlers identifier token =
+  let base = daemonSessionParameters options
+      config = Configuration.initializeConfiguration base
+      configured =
+        base
+          { Configuration.initializeConfiguration =
               config
                 { Configuration.configurationSessionId = Just identifier,
                   Configuration.configurationSource = Just (fromMaybe (SessionSource (SourceApi identifier) mempty) (Configuration.configurationSource config)),
                   Configuration.configurationOrigin = Just (fromMaybe Enums.OriginAPI (Configuration.configurationOrigin config)),
-                  Configuration.configurationAutoRejectPermissions = Just (daemonAutoReject options handlers)
+                  Configuration.configurationAutoRejectPermissions = Just (daemonAutoReject config handlers)
                 }
           }
-   in Configuration.DaemonInitializeSessionParams base token (daemonClientSpawnOptions options)
+   in Configuration.DaemonInitializeSessionParams configured token (daemonSessionSpawnOptions options)
 
-initializationTimeout :: DaemonClientOptions -> Int
-initializationTimeout = fromMaybe 60000000 . daemonClientInitializationTimeoutMicros
+initializationTimeout :: DaemonSessionOptions -> Int
+initializationTimeout = fromMaybe 60000000 . daemonSessionInitializationTimeoutMicros
 
 -- Only the timeout of a stable-session initialization is retryable. Receipt
 -- restoration, auth/token acquisition and user actions remain outside this loop.
@@ -2013,28 +2064,57 @@ retryInitialization =
     )
 
 openDaemonSession :: DaemonClientOptions -> DroidHandlers -> Maybe Text -> McpSessionOptions -> ((ObjectTransport -> IO a) -> IO a) -> (DaemonSession -> IO a) -> IO a
-openDaemonSession options handlers saved mcpOptions acquire action = do
-  identifier <- maybe (UUID.toText <$> nextRandom) pure (saved <|> Configuration.configurationSessionId (daemonClientConfiguration options))
-  withDaemonConnectionUsing options (daemonAutoReject options handlers) mcpOptions acquire $ \owned@(DaemonConnection connection state) ->
-    withDaemonBinding owned handlers identifier (daemonClientTurnTimeoutMicros options) $ \binding -> do
-      info <- Core.withSessionUse (bindingSession binding) $ case saved of
-        Just _ -> loadSessionInfoWithConfiguration owned identifier (daemonClientLoadConfiguration options) (daemonClientLoadSpawnConfiguration options)
-        Nothing -> do
-          let initial = Configuration.initializeConfiguration (Configuration.daemonInitializeSession (daemonInitializationParams options handlers identifier "" mcpOptions))
-              inherited = (Configuration.loadConfigurationFromInitialization initial) {Configuration.loadAutoRejectPermissions = Configuration.configurationAutoRejectPermissions (daemonClientConfiguration options)}
-              spawn = Configuration.daemonLoadConfigurationFromSpawn (daemonClientSpawnOptions options)
-              policy = mergeLoadPolicy (inherited, spawn) (daemonClientLoadConfiguration options, daemonClientLoadSpawnConfiguration options)
-          trackSessionLoadWithConfiguration (Just policy) owned identifier $ \guard -> Core.connectionBoundary connection (2 * initializationTimeout options) $ do
-            credential <- join (readTVarIO (connectionCredential state))
-            let decode = attachmentReceipt (connectionIdentity state) (Just (daemonClientWorkingDirectory options))
-                params = Configuration.daemonInitializationFields (daemonInitializationParams options handlers identifier credential mcpOptions)
-            (attached, (receipt, _)) <-
-              withSessionReadyGate state identifier $
-                retryInitialization $
-                  Core.callSettingsResultObservedWithin (Just (initializationTimeout options)) connection Nothing "daemon.initialize_session" params decode (observeLoadReceipt guard)
-            unless (attached == identifier) (throwIO Core.DroidInvalidEvent)
-            pure receipt
-      action (DaemonSession binding info owned)
+openDaemonSession options handlers saved mcpOptions acquire action =
+  withDaemonConnectionUsing options (daemonAutoReject (daemonClientConfiguration options) handlers) mcpOptions acquire $ \owned ->
+    case saved of
+      Nothing -> withCreatedSessionOn owned handlers (sessionCreationOptions options mcpOptions) action
+      Just identifier -> withDaemonBinding owned handlers identifier (daemonClientTurnTimeoutMicros options) $ \binding -> do
+        info <- Core.withSessionUse (bindingSession binding) (loadSessionInfoWithConfiguration owned identifier (daemonClientLoadConfiguration options) (daemonClientLoadSpawnConfiguration options))
+        action (DaemonSession binding info owned)
+
+-- | Create a new scoped session through an already owned connection. No new
+-- reader, authentication exchange or physical connection is acquired. Scope exit
+-- detaches only this attachment; it does not close the remote session or owner.
+withSessionOn :: DaemonConnection -> DaemonSessionOptions -> (DaemonSession -> IO a) -> IO a
+withSessionOn owned = withSessionOnHandlers owned defaultDroidHandlers
+
+-- | Handlers are registered before initialization and retain the existing
+-- per-attachment routing and cleanup rules. Invalid configuration fails before
+-- token-provider or initialization I/O; callers still own remote side effects.
+withSessionOnHandlers :: DaemonConnection -> DroidHandlers -> DaemonSessionOptions -> (DaemonSession -> IO a) -> IO a
+withSessionOnHandlers owned handlers options action = do
+  validateCreatedSessionOptions options handlers
+  withCreatedSessionOn owned handlers options action
+
+-- Both connection-owning constructors and the borrowed-owner API initialize
+-- through the same binding, generation, readiness gate and retry boundary.
+withCreatedSessionOn :: DaemonConnection -> DroidHandlers -> DaemonSessionOptions -> (DaemonSession -> IO a) -> IO a
+withCreatedSessionOn owned@(DaemonConnection connection state) handlers options action = do
+  let base = daemonSessionParameters options
+      config = Configuration.initializeConfiguration base
+  identifier <- maybe (UUID.toText <$> nextRandom) pure (Configuration.configurationSessionId config)
+  withDaemonBinding owned handlers identifier (daemonSessionTurnTimeoutMicros options) $ \binding -> do
+    info <- Core.withSessionUse (bindingSession binding) $ do
+      let initial = Configuration.initializeConfiguration (Configuration.daemonInitializeSession (daemonInitializationParams options handlers identifier ""))
+          inherited = (Configuration.loadConfigurationFromInitialization initial) {Configuration.loadAutoRejectPermissions = Configuration.configurationAutoRejectPermissions config}
+          spawn = Configuration.daemonLoadConfigurationFromSpawn (daemonSessionSpawnOptions options)
+          policy = mergeLoadPolicy (inherited, spawn) (daemonSessionLoadConfiguration options, daemonSessionLoadSpawnConfiguration options)
+      trackSessionLoadWithConfiguration (Just policy) owned identifier $ \guard -> Core.connectionBoundary connection (2 * initializationTimeout options) $ do
+        let admit = do
+              checkConnection owned
+              current <- loadStillCurrent guard
+              unless current (throwSTM DaemonLoadSuperseded)
+        atomically admit
+        credential <- join (readTVarIO (connectionCredential state))
+        let decode = attachmentReceipt (connectionIdentity state) (Just (Configuration.initializeWorkingDirectory base))
+            params = Configuration.daemonInitializationFields (daemonInitializationParams options handlers identifier credential)
+        (attached, (receipt, _)) <-
+          withSessionReadyGate state identifier $
+            retryInitialization $
+              Core.callSettingsResultObservedWithAdmission admit (Just (initializationTimeout options)) connection Nothing "daemon.initialize_session" params decode (observeLoadReceipt guard)
+        unless (attached == identifier) (throwIO Core.DroidInvalidEvent)
+        pure receipt
+    action (DaemonSession binding info owned)
 
 -- | Attach a saved session without reauthenticating or taking connection ownership.
 -- Scope exit detaches this handle only; no remote close or logout is sent.
