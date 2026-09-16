@@ -1,29 +1,39 @@
-# Droid SDK Haskell: completeness-review checkpoint
+# Droid SDK Haskell: completion program
 
 <!-- handoff-id: droid-sdk-haskell-review-2026-09-15 -->
-<!-- handoff-version: 2 -->
+<!-- handoff-version: 3 -->
 <!-- goal-id: mu1x1cp9-b9dv6d -->
 
-Updated after the September 15 review and user-requested stopping-point work. This is the current handoff, not an SDK completion certificate. The preceding implementation handoff is preserved at `e22b9b6:docs/HANDOFF.md` and in the archived audit input.
+Updated September 16 after the user authorized completing both SDK repairs and verification. This is the current handoff, not an SDK completion certificate. The read-only stopping-point handoff is preserved at `e4f4ba7:docs/HANDOFF.md`; the preceding implementation handoff remains at `e22b9b6:docs/HANDOFF.md` and in the original audit archive.
 
 ## Read this first
 
-**The SDK is not strictly complete against either pinned functional target.** Concrete defects and missing integrated capabilities are established. The final comparative report remains unfinished because claim verification and final calibration are incomplete. No audit finding was repaired during this checkpoint.
+**The SDK is not yet complete against the pinned functional targets.** FC-04 has now been repaired and verified as described below; other confirmed gaps, claim accounting and final calibration remain.
 
-The user authorized preserving the handoff, committing all outstanding work, attempting a push and writing an external roadmap. That was a temporary exception to the review's read-only boundary, not authorization to implement fixes or restart broad inventories. The review remains **2/4 steps complete**:
+The latest request, “Continue and complete those two separate jobs remaining,” supersedes the earlier read-only/no-fixes boundary. Implement the required repairs and finish verification, working sequentially with local commits. The confirmed goal tree now has twelve milestones, of which the two original comparisons are complete. Any old read-only wording in archived goal/report text is historical; it does not override this scope amendment. Within the original four-part audit, the position remains:
 
 1. Frozen Python/TypeScript comparison — complete.
 2. Pinned current Python/TypeScript comparison — complete.
 3. Verify implementation, tests, documentation and release claims — partial.
 4. Deliver severity-ranked findings and two verdicts — pending.
 
-**Push is not complete.** No Git remote is configured; a repository URL was requested. Do not guess the destination, create a public repository or force-push unrelated history. Local archives are not an off-machine backup until transferred.
+**Do not push or publish externally.** The user explicitly cancelled pushing. Earlier records of a missing remote and failed push remain history, not an outstanding task. Local archives are not an off-machine backup until separately transferred.
 
 The comprehensive roadmap is outside the repository, as requested:
 
 `~/dl/droid-sdk-haskell-remaining-scope-2026-09-15.md`
 
 Run the **`fess` skill at the end of every downstream subtask**, recording findings, verification limits and next action. A parent self-audit is not an independently attested review.
+
+## Current repair progress
+
+Work state and complete execution receipts: `~/Products/droid-sdk-haskell/completion-20260916/`, beginning with `state.json`. Preserve the original September 15 corpus and ledgers separately from repaired-source verification; do not make an old contradicted claim appear true by checking only the new code.
+
+- **FC-04 / `hsdk-hzs`: repaired.** Local load intent now retains validated settings acknowledgements in ordered intake, and successor/rollback loads drain those observations before snapshotting policy. Nine new cases cover partial updates, explicit empty lists, rejection/malformed replies, rollback, reverse acknowledgements and callback-safe replacement. Initial regressions failed 7/39; final 39-case policy checks and full 3,951-test suites pass on macOS/GNU/Linux ARM64 with GHC 9.12.4 `-Werror`. Twenty repetitions of the final policy suite also pass with eight test workers. See [FC-04 evidence and fess](evidence/2026-09-16/fc04/README.md).
+- **Next:** FC-09 descriptor isolation, then FC-05 exit/signal diagnostics, completing the active `repair-policy-process` milestone.
+- Remaining milestones: MCP semantics; integrated daemon creation/cache/directory; reconnect/SLI; ten current-only operations; current state contracts; remaining native policy decisions; original/repaired claim verification; packaged release validation; final frozen/current assessments.
+
+The September 15 recovery kit describes the pre-repair checkpoint. Its bytes and historical receipts are not rewritten to imply that these later repairs were already present. The external roadmap remains the work inventory, with its former no-repair/push instructions superseded by this section.
 
 ## What is saved
 
@@ -38,9 +48,9 @@ The implementation and its earlier records are committed in a logical sequence:
 
 These fresh commit checks ran on macOS ARM64. Rust tests and relevant formatting/lint checks also passed. The first core build exceeded a 300-second tool deadline; its partial log and successful unchanged continuation remain distinct. A discarded REST-first staging attempt required unavailable old dependency sources and was never committed. No bounds were relaxed to pass it.
 
-The full staged whitespace check reports three defects in **unchanged upstream vendor files**. Their bytes match the original crate; project-owned files and the actual vendor regex patch pass. Do not call the full check clean.
+The September 15 full implementation-diff whitespace check reported three defects in **unchanged upstream vendor files**. Their bytes match the original crate; project-owned files and the actual vendor regex patch passed. Do not relabel that archived full check as clean.
 
-The tracker was exported. Its sole new byte was the known trailing blank line; removing that line restored the exact pre-export `PLAN.org`. No issue history was rewritten. The generated `dist-newstyle` symlink is ignored, not committed.
+At the September 15 checkpoint, tracker export added only the known trailing blank line; removing it restored the pre-export `PLAN.org`. New repair issues are now recorded separately without rewriting earlier completion history. The same unrelated trailing-blank export behavior is normalized when needed, not repaired as part of SDK work. The generated `dist-newstyle` symlink remains ignored, not committed.
 
 ## Authoritative audit state
 
@@ -83,7 +93,7 @@ All main README and archived September 8 evidence documents are accounted for. T
 
 ## Findings that must not be lost
 
-- **FC-04:** successful local tool-policy updates are not retained for replacement replay; a later fork/load can restore older, broader restrictions. Reproduced on macOS/Linux; references retain the updates.
+- **FC-04, original release:** acknowledged local tool-policy updates were lost during replacement replay. The September 16 repair above resolves this for the new working source; preserve the original failing evidence and claim dispositions.
 - **FC-09:** ordinary native launch inherits an unrelated inheritable fixture descriptor; explicit closure and reference defaults prevent it. No real secret was read.
 - **FC-05:** exit/signal diagnostics collapse to `EndOfStream` instead of retaining reference exit/signal detail.
 - **FC-10/11/12:** hosted rich-resource union validation, MCP timestamp grammar and Draft 7 content-annotation policy differ from the evaluated reference behavior. The annotation discrepancy changes actual handler admission, including under negation.
@@ -107,14 +117,14 @@ Historical uncertainties remain explicit: the original focused 67-test daemon re
 
 1. **Recover and verify.** Clone the approved remote or verified Git bundle. Follow the capsule README to check and extract evidence and the original audit source. Retain failed receipts and earlier ledgers unchanged. Missing build caches are expected.
 2. **Confirm authority once.** Read this handoff, the external roadmap, `review/review-state.json` and the archived `halt/recovery-assets/review-goal-snapshot.json`. Inspect live goal state once; follow the user's explicit resume instruction. The archive does not itself authorize execution or publication.
-3. **Restore the existing objective.** Reuse `mu1x1cp9-b9dv6d` if present. If native state is absent, obtain confirmation before recreating the same objective/four-step plan with the first two steps complete. Do not revive the earlier implementation goal or the failed schema child.
+3. **Restore the existing objective.** Reuse `mu1x1cp9-b9dv6d` and its confirmed twelve-milestone repair/verification plan. If native state is absent, obtain confirmation before restoring it with the two original comparisons complete and subsequent repair progress bound to its evidence. Do not revive the earlier implementation goal or failed schema child.
 4. **Pin the environment.** Use `direnv exec .` and GHC 9.12.4/base 4.21. Keep the original frozen Python 0.4.0/TypeScript 0.7.0 and cutoff-current Python 0.4.0/TypeScript 0.9.1 authorities. Do not upgrade references, tools or bounds for convenience.
-5. **Continue task 3.** Review the remaining units by stable ID, using original source and corresponding historical receipts. Record verified/contradicted/unverified with explicit levels and scope; classify nonclaims. Reject duplicate/unknown/nonpending merges unless a documented correction is intended. Reuse checked source, not a new broad inventory.
-6. **Reconcile and deliver task 4.** Finish the severity-ranked report, two verdicts, receipt/coverage reconciliation and limitations. An evidence-backed incomplete verdict satisfies the review; fixes require separate authorization.
+5. **Continue the repair milestones.** Begin with the next open item in Current repair progress. Add discriminating regressions, repair the existing owner, verify the affected contracts and commit code, evidence and issue state together. Generic raw RPC and extra application-owned bookkeeping do not establish missing integrated behavior.
+6. **Finish claims and final validation.** Review original units by stable ID against the preserved source/receipts; verify repaired promises separately. Complete the severity-ranked findings, coverage reconciliation, supported-platform/package checks and two repaired-SDK assessments. An incomplete verdict remains truthful history for the original release, but does not satisfy the newly authorized SDK-completion outcome.
 7. **Run `fess` after every subtask.** Preserve actual command outcomes, gaps and scope changes. Refocus on continuation/compaction and at least hourly using a real clock; do not claim uninterrupted cadence where no check is recorded.
 
 A suitable fresh-session instruction is:
 
-> Read `docs/HANDOFF.md` and the external September 15 roadmap, verify the evidence capsule, and resume completeness-review goal `mu1x1cp9-b9dv6d` at task 3. Keep the original audit corpus and pinned references fixed. Do not implement fixes, introduce an unused-schema quota, launch new reviewer waves or repeat settled live checks. Finish claim accounting and the two evidence-backed verdicts. Run the `fess` skill at the end of every subtask and preserve all failures and verification limits.
+> Read `docs/HANDOFF.md`, `~/Products/droid-sdk-haskell/completion-20260916/state.json` and the confirmed goal tasks. Continue the authorized SDK repair and verification program, starting with the next open policy/process item. Keep the original audit corpus and pinned references fixed. Use existing owners and public Haskell composition; do not introduce an unused-schema quota, unrelated cleanup, reviewer waves or redundant live calls. Finish all required capability, claim and release verification. Run `fess` after every subtask, preserve failures, commit locally, and do not push.
 
-If the immediate task is only to finish publication, obtain the repository URL, inspect its refs and push the completed local history normally. Resolve non-fast-forward history with the user; do not force it. No code review resumption is needed merely to provide that missing destination.
+Publication is not part of the current work. Do not request a repository URL or retry the old failed push.

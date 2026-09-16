@@ -6638,6 +6638,40 @@ Accepted optional omission: native SDK sessions add neither requestAttribution n
 
 Select current established Haskell tooling/dependencies and conventions from authoritative sources. Native macOS/Linux Cabal library; verify warning-free build, formatting/lint and CI configuration.
 
+* DONE [#B] Retain acknowledged tool-policy updates across local replacement
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-hzs
+:LABELS:   []
+:ISSUE_TYPE: bug
+:CREATED:  [2026-09-16 Wed 09:29]
+:MODIFIED: [2026-09-16 Wed 10:12]
+:CREATED_BY: johnw
+:FINISHED: [2026-09-16 Wed 10:12]
+:CLOSE_REASON: FC-04 repaired through existing ordered reply observation and local load-policy ownership. Nine regressions/controls; original 7/39 failures retained. Final 3951 tests pass on macOS and GNU/Linux ARM64 under GHC9.12.4 -Werror; 20 final parallel policy repetitions pass. Evidence/fess: docs/evidence/2026-09-16/fc04. No live Factory call or push.
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+FC-04: updateDroidSettings acknowledges tool-policy changes but local replacement replays immutable initial load intent. Retain successful partial tool-policy updates on the existing local owner; omission preserves prior values and explicit empty lists clear them. Load/fork/compact/rewind and rollback must use latest acknowledged policy. Preserve failure/cancellation behavior, wire ordering and callback safety. Add discriminating failure-before-fix regressions and Mac/Linux checks; retain original audit evidence. Authorized by the 2026-09-16 request to complete repairs and verification. Local commits only; no push.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-hzs",
+    "depends_on_id": "hsdk-9k1",
+    "type": "discovered-from",
+    "created_at": "2026-09-16T16:29:21.460306Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
 * DONE [#C] Deliver daemon session lifecycle and rewind controls
 :PROPERTIES:
 :OBR_SCHEMA_VERSION: 17

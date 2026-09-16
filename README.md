@@ -589,6 +589,8 @@ withDroidSession (defaultDroidOptions ".") $ \session -> do
 
 `Nothing` omits a patch field. Spec-model and spec-reasoning fields use `Just Nothing` to clear a stored override and `Just (Just value)` to set one. Tool lists preserve spelling, order and duplicates; `Just []` sends an explicit empty list. Use `DroidAuto` to leave spec mode. The acknowledgement is retained as peer data, not an optimistic local settings cache.
 
+Successful `updateDroidSettings` tool-policy fields are retained for subsequent local successor and rollback loads, in reply-intake order. Omitted fields preserve earlier load intent; explicit empty lists remain overrides. Replacement drains accepted policy observations before constructing its load request, without making ordinary settings updates wait for dispatcher callbacks. Rejected or malformed replies do not update this retained intent. This does not change the separate, notification-driven `getDroidSettings` view described below.
+
 `listDroidTools` evaluates hypothetical options without applying them. Its `skipPermissionsUnsafe` flag affects only the query's reported allow states. `listDroidCommands` and `listDroidSkills` return metadata without executing commands, invoking skills or opening resource paths. `setDroidSkillDisabled session params` takes `SetSkillDisabledParams` from `Schema.Discovery`, including an optional user/project settings level, and retains the actual success flag.
 
 These controls share the ordinary callback-safe request path and cancellation rules below. The CLI remains responsible for applying model and organization policy. `SettingsUpdatedEvent` is available in `AllEvents` streams and outside-turn subscriptions; its `SettingsChange` payload is not a complete snapshot.

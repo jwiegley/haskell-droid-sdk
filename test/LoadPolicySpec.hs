@@ -28,7 +28,7 @@ import Factory.Droid.Schema.Configuration
 import Factory.Droid.Schema.Control (ForkSessionParams (..))
 import Factory.Droid.Schema.Discovery (GetUserInfoResult (..))
 import Factory.Droid.Schema.RPC
-import Factory.Droid.Schema.Settings (ToolPolicy (..), emptyToolPolicy)
+import Factory.Droid.Schema.Settings (ToolPolicy (..), UpdateSessionSettingsParams (..), emptySettingsUpdate, emptyToolPolicy)
 import Factory.Droid.SessionState qualified as State
 import Factory.Droid.Transport
 import Factory.Droid.Transport.Process qualified as Process
@@ -156,6 +156,103 @@ loadPolicyTests =
           map (field "disableBuiltinSkills") loads @?= [Bool False]
           map (KeyMap.lookup "restrictToolIds") loads @?= [Nothing]
           try @Droid.DroidError (Droid.getDroidWorkingDirectory parent) >>= \case Left _ -> pure (); Right _ -> assertFailure "Retired cwd handle remained usable",
+      testGroup
+        "acknowledged local policy survives replacement"
+        [ testCase (show resumed <> if clear then " clears explicit lists" else " retains partial updates") $ bounded $ withEngine $ \transport sent _ ->
+            withLocalPolicySession resumed transport $ \parent -> do
+              let updated = ToolPolicy (Just ["extra", "extra"]) (Just ["enabled"]) (Just ["blocked"]) (Just ["Read"])
+                  expected = if clear then updated {policyDisabledTools = Just [], policyRestrictedTools = Just []} else updated
+              void (Droid.updateDroidSettings parent (emptySettingsUpdate {updateSettingsToolPolicy = updated}))
+              when clear $ void (Droid.updateDroidSettings parent (emptySettingsUpdate {updateSettingsToolPolicy = emptyToolPolicy {policyDisabledTools = Just [], policyRestrictedTools = Just []}}))
+              void (Droid.updateDroidSettings parent (emptySettingsUpdate {updateSettingsModel = Just "changed"}))
+              void (atomically (flushTQueue sent))
+              void (Droid.forkDroidSession parent (ForkSessionParams Nothing Nothing mempty))
+              assertLocalLoadPolicy sent ["child"] expected
+        | resumed <- [False, True],
+          clear <- [False, True]
+        ],
+      testGroup
+        "failed local policy updates are not retained"
+        [ testCase label $ bounded $ do
+            active <- newIORef "root"
+            let plan frame
+                  | field "method" frame == String "droid.update_session_settings",
+                    field "disabledToolIds" (paramsOf frame) == toJSON ["rejected" :: Text] =
+                      pure [respond frame]
+                  | otherwise = engineReplies active "" frame
+            withFixture plan $ \transport sent _ -> withLocalPolicySession False transport $ \parent -> do
+              outcome <- try @RpcResultError (Droid.updateDroidSettings parent (emptySettingsUpdate {updateSettingsToolPolicy = emptyToolPolicy {policyDisabledTools = Just ["rejected"], policyRestrictedTools = Just []}}))
+              case (label, outcome) of
+                ("remote rejection", Left (RpcRemoteFailure _)) -> pure ()
+                ("malformed reply", Left RpcInvalidResult) -> pure ()
+                _ -> assertFailure "Expected the settings failure"
+              Droid.droidSessionStatus parent >>= (@?= Droid.SessionReady)
+              void (atomically (flushTQueue sent))
+              void (Droid.forkDroidSession parent (ForkSessionParams Nothing Nothing mempty))
+              assertLocalLoadPolicy sent ["child"] (loadToolPolicy (policy "initial"))
+        | (label, respond) <- [("remote rejection", rejected), ("malformed reply", \frame -> reply (frameId frame) (Bool False))]
+        ],
+      testCase "rollback replays the latest acknowledged local policy" $ bounded $ do
+        active <- newIORef "root"
+        let plan frame = do
+              current <- readIORef active
+              if current == "child" && field "method" frame == String "droid.update_session_settings"
+                then pure [rejected frame]
+                else engineReplies active "" frame
+            updated = (loadToolPolicy (policy "initial")) {policyDisabledTools = Just ["latest"], policyRestrictedTools = Just ["Read"]}
+        withFixture plan $ \transport sent _ -> withLocalPolicySession False transport $ \parent -> do
+          void (Droid.updateDroidSettings parent (emptySettingsUpdate {updateSettingsToolPolicy = updated}))
+          void (atomically (flushTQueue sent))
+          outcome <- try @Droid.DroidReplacementError (Droid.forkDroidSession parent (ForkSessionParams Nothing Nothing mempty))
+          case outcome of
+            Left failure -> case Droid.replacementRollbackError failure of Nothing -> pure (); Just _ -> assertFailure "Rollback failed"
+            Right _ -> assertFailure "Rejected successor policy was published"
+          Droid.droidSessionStatus parent >>= (@?= Droid.SessionReady)
+          assertLocalLoadPolicy sent ["child", "root"] updated,
+      testCase "concurrent local policy updates retain reply-intake order" $ bounded $ do
+        active <- newIORef "root"
+        submitted <- newEmptyMVar
+        let plan frame
+              | field "method" frame == String "droid.update_session_settings",
+                KeyMap.member "disabledToolIds" (paramsOf frame) =
+                  putMVar submitted frame >> pure []
+              | otherwise = engineReplies active "" frame
+            patch label = emptySettingsUpdate {updateSettingsToolPolicy = emptyToolPolicy {policyDisabledTools = Just [label]}}
+        withFixture plan $ \transport sent feed -> withLocalPolicySession False transport $ \parent -> do
+          withAsync (Droid.updateDroidSettings parent (patch "first")) $ \first -> do
+            request1 <- takeMVar submitted
+            withAsync (Droid.updateDroidSettings parent (patch "second")) $ \second -> do
+              request2 <- takeMVar submitted
+              feed (reply (frameId request2) (object []))
+              feed (reply (frameId request1) (object []))
+              void (wait second)
+              void (wait first)
+          void (atomically (flushTQueue sent))
+          void (Droid.forkDroidSession parent (ForkSessionParams Nothing Nothing mempty))
+          assertLocalLoadPolicy sent ["child"] ((loadToolPolicy (policy "initial")) {policyDisabledTools = Just ["first"]}),
+      testCase "callback settings updates return before observation and replacement waits for that observation" $ bounded $ withEngine $ \transport sent feed ->
+        withLocalPolicySession False transport $ \parent -> do
+          firstEvent <- newIORef True
+          updated <- newEmptyMVar
+          release <- newEmptyMVar
+          let changed = emptyToolPolicy {policyDisabledTools = Just ["callback"]}
+          void $ Droid.onDroidSessionEvent parent $ \_ -> do
+            first <- atomicModifyIORef' firstEvent (False,)
+            when first $ do
+              void (Droid.updateDroidSettings parent (emptySettingsUpdate {updateSettingsToolPolicy = changed}))
+              putMVar updated ()
+              takeMVar release
+          feed (notice False "root" (object ["type" .= String "settings_updated", "settings" .= object ["modelId" .= String "trigger"]]))
+          takeMVar updated
+          void (atomically (flushTQueue sent))
+          withAsync (Droid.forkDroidSession parent (ForkSessionParams Nothing Nothing mempty)) $ \replacing -> do
+            fork <- atomically (readTQueue sent)
+            premature <- timeout 50000 (atomically (readTQueue sent))
+            putMVar release ()
+            void (wait replacing)
+            field "method" fork @?= String "droid.fork_session"
+            premature @?= Nothing
+          assertLocalLoadPolicy sent ["child"] ((loadToolPolicy (policy "initial")) {policyDisabledTools = Just ["callback"]}),
       testCase "local load null and omission remain distinct and never invent launch cwd" $ bounded $ do
         forM_ [Nothing, Just Null] $ \cwd -> do
           active <- newIORef "root"
@@ -416,6 +513,29 @@ loadPolicyTests =
               frames <- atomically (flushTQueue sent)
               map (field "method") frames @?= [String "daemon.load_session"]
     ]
+
+withLocalPolicySession :: Bool -> ObjectTransport -> (Droid.DroidSession -> IO a) -> IO a
+withLocalPolicySession resumed transport =
+  let retained = policy "initial"
+      options = (Droid.defaultDroidSessionOptions ".") {Droid.droidSessionLoadConfiguration = retained}
+   in if resumed
+        then Droid.withResumedDroidSessionOn options transport "root"
+        else Droid.withDroidSessionOn (options {Droid.droidSessionConfiguration = defaultSessionConfiguration {configurationToolPolicy = loadToolPolicy retained}}) transport
+
+assertLocalLoadPolicy :: TQueue Object -> [Text] -> ToolPolicy -> IO ()
+assertLocalLoadPolicy sent identifiers expected = do
+  frames <- atomically (flushTQueue sent)
+  let loads = [paramsOf frame | frame <- frames, field "method" frame == String "droid.load_session"]
+      patches = [paramsOf frame | frame <- frames, field "method" frame == String "droid.update_session_settings"]
+      fields = asObject (toJSON (emptySettingsUpdate {updateSettingsToolPolicy = expected}))
+  map (field "sessionId") loads @?= map String identifiers
+  forM_ loads $ \params -> do
+    forM_ ["additionalToolIds", "enabledToolIds", "disabledToolIds"] $ \key ->
+      KeyMap.lookup key params @?= KeyMap.lookup key fields
+    KeyMap.lookup "restrictToolIds" params @?= Nothing
+    field "messageLimit" params @?= Number 9007199254740993
+    field "loadAllMessages" params @?= Bool False
+  patches @?= maybe [] (replicate (length identifiers) . KeyMap.singleton "restrictToolIds" . toJSON) (policyRestrictedTools expected)
 
 withRestrictionAck :: (Daemon.DaemonConnection -> IO Object -> (Object -> IO ()) -> IO a) -> IO a
 withRestrictionAck action = do

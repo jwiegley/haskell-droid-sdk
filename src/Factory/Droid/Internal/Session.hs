@@ -303,7 +303,7 @@ data SessionConnection = SessionConnection
 -- | Daemon cwd/load state already belongs to its controller. Only the local
 -- backend carries this scoped state; there is no second daemon cwd cache.
 data LocalSessionState = LocalSessionState
-  { localLoadConfiguration :: !Configuration.SessionLoadConfiguration,
+  { localLoadConfiguration :: !(TVar Configuration.SessionLoadConfiguration),
     localWorkingDirectories :: !(TVar (Map Text State.WorkingDirectoryState))
   }
 
@@ -516,7 +516,7 @@ openLocalSession observability options handlers saved mcpOptions rawTransport ac
   let transport = if Obs.observabilityLogTransport observability then Transport.loggedObjectTransport (Obs.observabilityLogger observability) Transport.defaultTransportLogOptions rawTransport else rawTransport
   directory <- makeAbsolute (droidSessionWorkingDirectory options)
   let config = localRetainedLoadConfiguration options saved
-  local <- LocalSessionState config <$> newTVarIO mempty
+  local <- LocalSessionState <$> newTVarIO config <*> newTVarIO mempty
   withObservedRpcChannel observability (transportSendObject transport) (transportReceiveObject transport) $ \channel ->
     withSessionConnection channel (localBackend local) (localAutoReject options handlers) mcpOptions $ \connection -> do
       let dispatcher = connectionDispatcher connection
@@ -642,10 +642,17 @@ missionSnapshotAt connection identifier = do
   either (const (throwSTM DroidInvalidEvent)) (pure . fmap Mission.missionSnapshot) (Mission.lookupMissionStore identifier registry)
 
 -- | Apply a partial settings update and retain the peer's acknowledgement.
+-- Accepted tool-policy overrides are retained in reply-intake order for later
+-- loads. Omission preserves earlier intent; explicit empty lists are retained.
 -- No optimistic settings cache is maintained. Unknown mutation outcomes invalidate
 -- under the same lease rules as other session controls.
 updateDroidSettings :: DroidSession -> UpdateSessionSettingsParams -> IO EmptyObject
-updateDroidSettings session params = sessionRequest MutatingRequest session (\channel options -> Client.updateSessionSettings channel options params)
+updateDroidSettings session params = sessionRequest MutatingRequest session $ \channel options ->
+  Client.callObserved (Proxy @(WithEnvelope (MethodRequest "droid.update_session_settings" UpdateSessionSettingsParams))) channel options params $ \_ ->
+    forM_ (backendLocalState (connectionBackend (sessionConnection session))) $ \local ->
+      modifyTVar' (localLoadConfiguration local) (`Configuration.mergeSessionLoadConfiguration` retained)
+  where
+    retained = Configuration.defaultSessionLoadConfiguration {Configuration.loadToolPolicy = updateSettingsToolPolicy params}
 
 -- | Ask the CLI to change a skill's disabled state; False remains peer data.
 setDroidSkillDisabled :: DroidSession -> SetSkillDisabledParams -> IO SuccessResult
@@ -937,9 +944,11 @@ invalidateSession session = do
 
 loadSession :: SessionConnection -> Text -> IO ()
 loadSession connection identifier = sessionBoundary connection $ do
-  local <- atomically (requireLocalState connection)
-  let config = localLoadConfiguration local
-      (params, patch) = Configuration.prepareLoadSessionParams identifier (connectionMcpOptions connection) (connectionAutoRejectPermissions connection) config
+  -- A callback-safe update can return before its ordered policy observation.
+  -- Drain accepted replies before taking the replacement/rollback snapshot.
+  synchronizeRpcEvents (connectionChannel connection)
+  config <- atomically (requireLocalState connection >>= readTVar . localLoadConfiguration)
+  let (params, patch) = Configuration.prepareLoadSessionParams identifier (connectionMcpOptions connection) (connectionAutoRejectPermissions connection) config
   either throwIO pure (Configuration.validateLoadSessionParams params)
   void (callSettings connection (Just identifier) "droid.load_session" (Configuration.loadSessionFields params))
   forM_ patch $ \update -> void (connectionRequest connection 30000000 (\channel options -> Client.updateSessionSettings channel options update))
