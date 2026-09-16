@@ -126,12 +126,10 @@ validateBase64 value = unless valid (fail "Invalid Base64 content")
         _ -> False
     alphabet char = isAsciiUpper char || isAsciiLower char || isDigit char || char `elem` ("+/" :: String)
 
+-- MCP additionally requires uppercase separators and excludes leap seconds.
+-- Reuse the RFC scalar on the actual wire spelling, without adding seconds.
 validModified :: Text -> Bool
-validModified value = Text.length value >= 17 && Text.index value 10 == 'T' && not (Text.any (== 'z') value) && Text.take 2 (Text.drop 17 normalized) /= "60" && isJust (mkRfc3339Timestamp normalized)
-  where
-    normalized = case Text.uncons (Text.drop 16 value) of
-      Just (zone, _) | zone `elem` ("Z+-" :: String) -> Text.take 16 value <> ":00" <> Text.drop 16 value
-      _ -> value
+validModified value = Text.length value >= 20 && Text.index value 10 == 'T' && not (Text.any (== 'z') value) && Text.take 2 (Text.drop 17 value) /= "60" && isJust (mkRfc3339Timestamp value)
 
 textContent :: Text -> McpContent
 textContent text = McpContent (KeyMap.fromList ["type" .= String "text", "text" .= text])

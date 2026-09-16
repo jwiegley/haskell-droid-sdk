@@ -8548,6 +8548,40 @@ Baseline TS 0.7.0 exposes worktree/worktreeDir via daemon initialization; its pu
 ]
 #+end_src
 
+* DONE [#C] Match MCP lastModified timestamp grammar
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-v68
+:LABELS:   []
+:ISSUE_TYPE: bug
+:CREATED:  [2026-09-16 Wed 12:08]
+:MODIFIED: [2026-09-16 Wed 12:28]
+:CREATED_BY: johnw
+:FINISHED: [2026-09-16 Wed 12:28]
+:CLOSE_REASON: FC-11 repaired by validating the actual MCP timestamp spelling without inserted seconds; shared RFC3339/terminal code unchanged. Initial3/55 hosted failures retained. Seventeen vectors match actual MCP1.29/Zod4.6.5 acceptance/projection; six positive values preserved through native HTTP. Full4002 tests pass on macOS/GNU/Linux ARM64 under GHC9.12.4 -Werror. Evidence/fess: docs/evidence/2026-09-16/fc11. No Factory call or push.
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+FC-11: validModified inserts missing seconds to validate an MCP annotation but emits the original minute-precision string, which the pinned MCP1.29/Zod4.6.5 result validator rejects. Validate the actual wire string, retaining accepted seconds/fraction/colon-offset forms and exact bytes. Add boundary vectors and actual client-schema/hosted checks; do not change general RFC3339 or terminal timestamp semantics. Preserve failing fixtures/receipts, fess, Mac/Linux checks and no-push policy.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-v68",
+    "depends_on_id": "hsdk-mcp-y1i",
+    "type": "discovered-from",
+    "created_at": "2026-09-16T19:08:07.304296Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
 * DEFER [#D] Track upstream WebSocket client helper caveats
 :PROPERTIES:
 :OBR_SCHEMA_VERSION: 17

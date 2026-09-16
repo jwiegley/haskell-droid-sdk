@@ -340,13 +340,49 @@ hostedCases =
           ]
       ],
     testCase "rich content preserves valid variants and rejects malformed media or metadata" $ do
-      let values = [object ["type" .= String "text", "text" .= String "hello", "annotations" .= object ["lastModified" .= String "2025-01-02T03:04Z"]], object ["type" .= String "image", "data" .= String " /x==\n", "mimeType" .= String "image/png"], object ["type" .= String "audio", "data" .= String "Zg", "mimeType" .= String "audio/wav"], object ["type" .= String "resource", "resource" .= object ["uri" .= String "fixture:blob", "blob" .= String "Zg=="]], object ["type" .= String "resource_link", "uri" .= String "fixture:item", "name" .= String "item", "size" .= (2 :: Int), "icons" .= [object ["src" .= String "fixture:icon", "theme" .= String "dark"]]]]
+      let values = [object ["type" .= String "text", "text" .= String "hello", "annotations" .= object ["lastModified" .= String "2025-01-02T03:04:00Z"]], object ["type" .= String "image", "data" .= String " /x==\n", "mimeType" .= String "image/png"], object ["type" .= String "audio", "data" .= String "Zg", "mimeType" .= String "audio/wav"], object ["type" .= String "resource", "resource" .= object ["uri" .= String "fixture:blob", "blob" .= String "Zg=="]], object ["type" .= String "resource_link", "uri" .= String "fixture:item", "name" .= String "item", "size" .= (2 :: Int), "icons" .= [object ["src" .= String "fixture:icon", "theme" .= String "dark"]]]]
       forM_ values $ \value -> case value of
         Object fields -> case jsonContent fields of Right content -> toJSON content @?= value; Left _ -> assertFailure "Valid content rejected"
         _ -> assertFailure "Invalid fixture"
       forM_ [object ["type" .= String "image", "data" .= String "Zg=", "mimeType" .= String "image/png"], object ["type" .= String "audio", "data" .= String "?", "mimeType" .= String "audio/wav"], object ["type" .= String "text", "text" .= String "x", "annotations" .= object ["lastModified" .= String "not-a-date"]], object ["type" .= String "resource_link", "uri" .= String "fixture:x", "name" .= String "x", "size" .= String "invalid"]] $ \case
         Object fields -> case jsonContent fields of Left InvalidMcpToolResult -> pure (); _ -> assertFailure "Malformed content accepted"
         _ -> assertFailure "Invalid fixture",
+    testGroup
+      "MCP annotation timestamp grammar"
+      [ testCase (Text.unpack timestamp) $ bounded $ do
+          let fields = KeyMap.fromList ["type" .= String "text", "text" .= String "fixture", "annotations" .= object ["lastModified" .= timestamp]]
+          if accepted
+            then do
+              content <- either (const (assertFailure "Valid MCP timestamp rejected")) pure (jsonContent fields)
+              toJSON content @?= Object fields
+              let expected = McpToolResult [content] Nothing Nothing mempty
+              tool <- either (const (assertFailure "Tool construction failed")) pure (rawTool "timestamp" "Timestamp result" openObjectSchema (const (pure expected)))
+              server <- newMcpServer (defaultMcpServerOptions "timestamp") [tool]
+              withMcpServer server $ \config -> do
+                manager <- HTTP.newManager HTTP.defaultManagerSettings
+                response <- post manager config (rpc "tools/call" (object ["name" .= String "timestamp"]))
+                resultField response "content" @?= Just (toJSON [content])
+            else jsonContent fields @?= Left InvalidMcpToolResult
+      | (timestamp, accepted) <-
+          [ ("2025-01-02T03:04:05Z", True),
+            ("2025-01-02T03:04:05.12345678901234567890Z", True),
+            ("2020-02-29T23:59:59+01:30", True),
+            ("2025-01-02T03:04:05-00:00", True),
+            ("0000-02-29T00:00:00Z", True),
+            ("9999-12-31T23:59:59+23:59", True),
+            ("2025-01-02T03:04Z", False),
+            ("2025-01-02T03:04+01:00", False),
+            ("2025-01-02T03:04-00:00", False),
+            ("2025-01-02t03:04:05Z", False),
+            ("2025-01-02T03:04:05z", False),
+            ("2025-01-02T03:04:05+0100", False),
+            ("2025-01-02T03:04:05", False),
+            ("2025-01-02T03:04:05.Z", False),
+            ("2016-12-31T23:59:60Z", False),
+            ("2025-02-29T00:00:00Z", False),
+            ("2025-01-02T03:04:05+24:00", False)
+          ]
+      ],
     testCase "escaped pointers select the exact schema target" $ do
       let fields = KeyMap.fromList ["type" .= String "object", "$defs" .= object ["~1" .= object ["type" .= String "integer"], "/" .= object ["type" .= String "string"]], "properties" .= object ["v" .= object ["$ref" .= String "#/$defs/~01"]]]
       schema <- either (const (assertFailure "Schema construction failed")) pure (mkMcpSchema fields)
