@@ -15,7 +15,7 @@ import CwdStateSpec (cwdStateTests)
 import DaemonAttachmentSpec (attachmentTests)
 import DaemonAutomationConfigSpec (automationConfigTests)
 import DaemonAutomationSpec (daemonAutomationTests)
-import DaemonCacheSpec (cacheTests)
+import DaemonCacheSpec (cacheTests, directoryTests)
 import DaemonCatalogSpec (catalogTests)
 import DaemonCronSpec (cronTests)
 import DaemonCustomModelSpec (customModelTests)
@@ -233,6 +233,7 @@ suiteMain = do
         managementTests,
         attachmentTests,
         cacheTests,
+        directoryTests,
         loadCoordinationTests,
         childSessionTests,
         cronTests daemonSchema,

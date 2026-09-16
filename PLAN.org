@@ -3437,15 +3437,17 @@ The native canonical wire codec uses the supplied JSON Schema domain and Bounded
 ]
 #+end_src
 
-* TODO [#C] Complete local daemon session directory and machine administration
+* DONE [#C] Complete local daemon session directory and machine administration
 :PROPERTIES:
 :OBR_SCHEMA_VERSION: 17
 :ID:       hsdk-dko
 :LABELS:   []
 :ISSUE_TYPE: feature
 :CREATED:  [2026-09-16 Wed 15:40]
-:MODIFIED: [2026-09-16 Wed 15:40]
+:MODIFIED: [2026-09-16 Wed 16:46]
 :CREATED_BY: johnw
+:FINISHED: [2026-09-16 Wed 16:46]
+:CLOSE_REASON: Existing-owner local directory/machine association, atomic STM views, active/cwd group queries and epoch-scoped invalidation delivered. Ten regressions,4061 full tests on macOS/Linux ARM64,20 parallel repetitions and public/README examples pass. Actual frozen/current programs agree on8+4 records. Initial invalid-null-cwd fixture corrected against reference wire schema without relaxing decoder. Source-bound fess docs/evidence/2026-09-16/directory. Completes owner milestone with5a7f57c/a35421a; reconnect/SLI remains next. No push.
 :SOURCE_REPO: droid-sdk-haskell
 :SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
 :ORIGINAL_SIZE: 0

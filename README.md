@@ -807,7 +807,7 @@ The public IPC API remains intact, and both transports use the existing RPC pars
 | API | Configuration and scope |
 | --- | --- |
 | `withDroidSessionOn`, `withResumedDroidSessionOn` and handler variants | Local-protocol sessions using `DroidSessionOptions`, without executable or launch settings. `droidSessionOptions` projects existing `DroidOptions`; `defaultDroidSessionOptions` supplies defaults. |
-| `Daemon.withConnectionOn` | Authenticated logical daemon connection using `DaemonClientOptions`, without a fabricated endpoint or root session. Session-specific MCP/creation settings are not applied by connection-only scope. |
+| `Daemon.withConnectionOn` | Authenticated logical daemon connection using `DaemonClientOptions`, without a fabricated endpoint or root session. Machine ID supplies default local-directory association; no session-specific MCP or creation mutation is performed by connection-only scope. |
 | `Daemon.withSessionUsing`, `withResumedSessionUsing` and handler variants | Normal daemon session construction and operations over the supplied transport. Existing WebSocket constructors project into the same implementation. |
 | `Daemon.daemonClientOptions`, `defaultDaemonClientOptions` | Project existing WebSocket/session options or construct transport-independent options with explicit authentication and daemon cwd. |
 
@@ -1158,6 +1158,40 @@ releaseSelected connection = Daemon.setActiveSessionId connection Nothing
 This example is compiled, not executed. `pruneSessionCache` reapplies the limit explicitly; ordinary load, detach and notification boundaries also maintain it. Attached, selected, loading and non-idle entries are protected, as are retiring local operations, unresolved restored requests and deferred decisions. Protected entries can exceed the configured capacity. `removeCachedSession` returns `False` for absent or protected entries. These operations neither close a remote session nor log out, and blank cache identities fail with `InvalidSessionCacheIdentity`.
 
 Retirement discards cached conversation, cwd, child-link and terminal views. It retains independently owned load intent, child summaries and identity counters; an older load receipt or terminal acknowledgement cannot restore or consume a newer cached view. Failed creation removes a fresh provisional entry only while its generation and attachment still own it, preserving previously cached or superseding state. None of this is a hard memory bound: unregistered observations, durable metadata, other owners and caller-held immutable snapshots remain outside this cache.
+
+### Local directory and machine groups
+
+`getSessionDirectory` returns the registered local entries in insertion order, with session ID, machine association, readiness and observed/inherited cwd. This is not `listOpenedSessions`, which queries the daemon. `readSessionDirectory` reads the same owners atomically without cache maintenance and can be composed with STM `check` for observation.
+
+`registerSessionState connection identifier machine` registers an empty, not-yet-loaded local entry without an RPC. It returns `False` for an existing entry without changing its association or recency. `getSessionMachineId` returns `Nothing` for an absent entry. `setSessionMachineId` explicitly reassigns an existing entry and fails with `DaemonSessionNotRegistered` if it is absent. Empty machine IDs remain literal. Neither registration nor reassociation selects a transport, creates a daemon session or moves remote work.
+
+Fresh loads and child registration use `daemonClientMachineId` (or `daemonMachineId` for endpoint options) as their default association. A fresh creation uses `initializeMachineId` from its creation parameters. Existing registrations retain their association through loads; use the setter to change it. Cache retirement removes the association, so later fresh registration applies its own defaults.
+
+```haskell
+module SessionDirectoryExample (associate, watchDirectory) where
+
+import Control.Concurrent.STM (atomically, check)
+import Data.Text (Text)
+import Factory.Droid.Daemon qualified as Daemon
+
+associate :: Daemon.DaemonConnection -> Text -> Text -> IO [Daemon.SessionDirectoryEntry]
+associate connection identifier machine = do
+  _ <- Daemon.registerSessionState connection identifier machine
+  Daemon.setSessionMachineId connection identifier machine
+  Daemon.getSessionDirectory connection
+
+watchDirectory :: Daemon.DaemonConnection -> [Daemon.SessionDirectoryEntry] -> IO [Daemon.SessionDirectoryEntry]
+watchDirectory connection previous = atomically $ do
+  current <- Daemon.readSessionDirectory connection
+  check (current /= previous)
+  pure current
+```
+
+This example is compiled, not executed. Registration remains subject to cache eligibility: pin a future ID first if it must survive a zero-capacity policy. The directory reader reflects local observations, not a network health or machine-ownership authorization check; it cannot extend the physical connection's lifetime.
+
+`hasActiveSessionsForMachine` reports remembered loaded/loading membership, excluding pre-init entries. `countActiveSessionsForCwd` instead counts non-idle entries for an exact machine/cwd pair, also excluding pre-init. Thus an optimistic, not-loaded child with an inherited cwd can count as work without counting as loaded/loading membership. An unreported working state counts as idle; relevant malformed observations fail explicitly instead of silently becoming zero.
+
+`markSessionsNotLoadedForMachine` atomically invalidates only that group's loaded/loading entries and returns their IDs. Existing epochs reject older receipts, while other groups, association, cached history and retained load intent remain intact. Already-not-loaded entries are unchanged. It resets remembered working state for the invalidated entries but does not stop remote work, detach handles or close a transport. Reassignment changes which group a subsequent invalidation selects.
 
 ### Coordinated loading and readiness
 
