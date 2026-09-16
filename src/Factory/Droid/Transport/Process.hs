@@ -61,7 +61,7 @@ import System.IO.Error (isDoesNotExistError)
 import System.Posix.IO qualified as Posix
 import System.Posix.Signals (sigKILL, signalProcess)
 import System.Posix.Types (Fd (..))
-import System.Process (CmdSpec (..), CreateProcess (child_group, child_user, cmdspec, create_group, cwd, delegate_ctlc, env, new_session, std_err, std_in, std_out), ProcessHandle, StdStream (..), createProcess_, getPid, getProcessExitCode, proc, terminateProcess, waitForProcess)
+import System.Process (CmdSpec (..), CreateProcess (child_group, child_user, close_fds, cmdspec, create_group, cwd, delegate_ctlc, env, new_session, std_err, std_in, std_out), ProcessHandle, StdStream (..), createProcess_, getPid, getProcessExitCode, proc, terminateProcess, waitForProcess)
 import System.Process.Internals (ignoreSigPipe, mkProcessHandle, withCEnvironment)
 import System.Timeout (timeout)
 
@@ -86,16 +86,18 @@ defaultDroidLaunchOptions = DroidLaunchOptions [] Nothing [] mempty mempty
 
 -- | Construct, but do not start, a Droid command without a shell. Standard
 -- CreateProcess fields supply cwd/environment; no sanitization or discovery is
--- performed here. Use withJsonLinesProcess to own its pipes and cleanup.
+-- performed here. Unrelated descriptors are closed by default, without changing
+-- explicit stdio routing. Use withJsonLinesProcess to own pipes and cleanup.
 droidProcess :: FilePath -> DroidProcessMode -> CreateProcess
-droidProcess executable mode = proc executable (droidArguments mode)
+droidProcess executable mode = (proc executable (droidArguments mode)) {close_fds = True}
 
 -- | Merge inherited values and ordinary overrides, apply the supplied sanitizer,
 -- then merge trusted overrides. Environment values never become arguments.
--- Prefix arguments belong to the explicitly selected executable.
+-- Prefix arguments belong to the explicitly selected executable. Descriptor
+-- isolation follows 'droidProcess', including when arguments are replaced.
 prepareDroidProcess :: FilePath -> DroidProcessMode -> DroidLaunchOptions -> [(String, String)] -> (Map String String -> Map String String) -> CreateProcess
 prepareDroidProcess executable mode options inherited sanitize =
-  (proc executable arguments) {env = Just (Map.toList environment)}
+  (droidProcess executable mode) {cmdspec = RawCommand executable arguments, env = Just (Map.toList environment)}
   where
     arguments = launchPrefixArguments options <> fromMaybe (droidArguments mode) (launchArguments options) <> launchExtraArguments options
     environment = Map.union (launchTrustedEnvironment options) (sanitize (Map.union (launchEnvironment options) (Map.fromList inherited)))
@@ -133,6 +135,7 @@ data JsonLinesProcess = JsonLinesProcess !Int !Handle !Handle !(MVar ()) !(MVar 
 -- | Open a channel with an explicit positive byte limit per frame, excluding
 -- the newline. Stream settings are replaced by owned pipes and a null stderr
 -- sink; the executable, arguments, environment and cwd are otherwise unchanged.
+-- The supplied close_fds policy is preserved; Droid command builders enable it.
 -- Cleanup requests SIGTERM and allows the specified grace period before SIGKILL
 -- and reaping, then closes the pipes. Nonpositive grace skips the wait. Only the
 -- owned child is signalled; descendants are not managed. Reaping after SIGKILL

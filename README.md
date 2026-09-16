@@ -660,6 +660,8 @@ Replacement, rollback and cancellation behavior is verified with native offline 
 
 `Factory.Droid.Transport.Process.droidProcess executable mode` constructs a shell-free `CreateProcess`: `Acp` selects `exec --output-format acp`; `StreamJsonRpc` selects the ordinary input/output stream-jsonrpc flags. Construction starts nothing. `withJsonLinesProcess` supplies the same bounded JSONL pipes and owned shutdown/reaping for either mode.
 
+Droid command builders set `close_fds = True`: unrelated inheritable parent descriptors are closed in the child, without removing the owned stdio pipes or explicitly routed stderr. `prepareDroidProcess` retains this default even when replacing arguments, so ordinary high-level local sessions use it too. The generic JSONL scope still honors a caller-supplied descriptor policy, including `close_fds = False`; use a Droid builder or explicitly enable isolation when constructing a raw command. The separately owned IPC launcher already isolates unrelated descriptors and is unchanged.
+
 ```haskell
 module AcpExample (withAcp) where
 

@@ -20,14 +20,17 @@ import Factory.Droid.Schema.RPC (BaseNotification (..), BaseResponseSuccess (..)
 import Factory.Droid.Schema.Usage (TokenUsage (..))
 import Factory.Droid.Transport.Process
 import GHC.Clock (getMonotonicTimeNSec)
+import System.Directory (findExecutable)
 import System.Environment (getExecutablePath, lookupEnv)
 import System.Exit (ExitCode (ExitSuccess))
 import System.IO (IOMode (WriteMode), hClose, hFlush, hSetBinaryMode, openBinaryTempFile, stderr, stdin, stdout, withBinaryFile)
 import System.IO.Error (isDoesNotExistError)
-import System.Posix.Files (removeLink)
+import System.Posix.Files (deviceID, fileID, getFdStatus, getFileStatus, removeLink)
+import System.Posix.IO qualified as Posix
 import System.Posix.Process (exitImmediately, getProcessID)
 import System.Posix.Signals (Handler (Catch, Ignore), installHandler, nullSignal, sigKILL, sigTERM, signalProcess)
-import System.Process (CmdSpec (RawCommand), CreateProcess (cmdspec, env, std_err), StdStream (CreatePipe, UseHandle))
+import System.Posix.Types (Fd (..))
+import System.Process (CmdSpec (RawCommand), CreateProcess (close_fds, cmdspec, env, std_err), StdStream (CreatePipe, UseHandle))
 import System.Timeout (timeout)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
@@ -43,6 +46,29 @@ processTests =
               executable @?= "/fixture/droid with spaces"
               arguments @?= expected
             _ -> assertFailure "Droid command used a shell",
+      testGroup
+        "Droid descriptor defaults"
+        [ testCase name $ bounded $ withMarker $ \path ->
+            bracket (Posix.openFd path Posix.ReadOnly (Posix.defaultFileFlags {Posix.cloexec = False})) Posix.closeFd $ \fd@(Fd number) -> do
+              expected <- getFileStatus path
+              actual <- getFdStatus fd
+              (deviceID actual, fileID actual) @?= (deviceID expected, fileID expected)
+              executable <- findExecutable "droid-ipc-test-peer" >>= maybe (assertFailure "Missing native process test peer") pure
+              let configured = (build executable) {env = Just [("DROID_FD_FIXTURE", show number), ("DROID_FD_FIXTURE_PATH", path)]}
+              response <- withJsonLinesProcess 4096 50000 configured receiveObject
+              pid <- maybe (assertFailure "Missing fixture PID") decode (KeyMap.lookup "pid" response)
+              assertReaped pid
+              KeyMap.lookup "inherited" response @?= Just (Bool inherited)
+        | (name, build, inherited) <-
+            [ ("default ACP closes the fixture", (`droidProcess` Acp), False),
+              ("default stream-jsonrpc closes the fixture", (`droidProcess` StreamJsonRpc), False),
+              ("prepared ACP closes the fixture", \executable -> prepareDroidProcess executable Acp defaultDroidLaunchOptions [] id, False),
+              ("prepared replacement arguments still close the fixture", \executable -> prepareDroidProcess executable StreamJsonRpc (defaultDroidLaunchOptions {launchArguments = Just ["--fixture-fd"]}) [] id, False),
+              ("explicit low-level inheritance is preserved", \executable -> (proc executable ["--fixture-fd"]) {close_fds = False}, True),
+              ("explicit low-level isolation is preserved", \executable -> (proc executable ["--fixture-fd"]) {close_fds = True}, False),
+              ("explicit override of a Droid command is preserved", \executable -> (droidProcess executable Acp) {close_fds = False}, True)
+            ]
+        ],
       testCase "launch environment merges ordinary values before sanitization and trusted values after" $ do
         let options = defaultDroidLaunchOptions {launchEnvironment = Map.fromList [("value", "override"), ("drop", "ordinary")], launchTrustedEnvironment = Map.fromList [("drop", "trusted"), ("empty", "")]}
             sanitize = Map.map (<> "-clean") . Map.delete "drop"
@@ -101,7 +127,7 @@ processTests =
         usageOutputTokens (turnTokenUsage completed) @?= 2,
       testCase "explicit stderr pipes drain alongside stdout and retain owned cleanup" $ bounded $ do
         executable <- getExecutablePath
-        let configured = (proc executable ["--jsonl-peer", "stderr"]) {env = Just [("JSONL_FIXTURE", "native")], std_err = CreatePipe}
+        let configured = (prepareDroidProcess executable StreamJsonRpc (defaultDroidLaunchOptions {launchArguments = Just ["--jsonl-peer", "stderr"]}) [("JSONL_FIXTURE", "native")] id) {std_err = CreatePipe}
         (pid, diagnostic) <- withJsonLinesProcessStderr 4096 50000 configured $ \channel errors -> do
           pipe <- maybe (assertFailure "Missing owned stderr pipe") pure errors
           withAsync (BS.hGetContents pipe) $ \draining -> do
@@ -116,7 +142,7 @@ processTests =
       testCase "explicit stderr handles remain borrowed after process scope exit" $ bounded $ withMarker $ \path -> do
         executable <- getExecutablePath
         withBinaryFile path WriteMode $ \sink -> do
-          let configured = (proc executable ["--jsonl-peer", "stderr"]) {env = Just [("JSONL_FIXTURE", "native")], std_err = UseHandle sink}
+          let configured = (prepareDroidProcess executable StreamJsonRpc (defaultDroidLaunchOptions {launchArguments = Just ["--jsonl-peer", "stderr"]}) [("JSONL_FIXTURE", "native")] id) {std_err = UseHandle sink}
           pid <- withJsonLinesProcessStderr 4096 50000 configured $ \channel errors -> do
             errors @?= Nothing
             ready <- receiveObject channel

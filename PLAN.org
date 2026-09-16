@@ -7337,6 +7337,40 @@ Fess completed before closure: no new production stub, availability fallback, wa
 ]
 #+end_src
 
+* DONE [#B] Isolate unrelated descriptors in default Droid launches
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-maf
+:LABELS:   []
+:ISSUE_TYPE: bug
+:CREATED:  [2026-09-16 Wed 10:25]
+:MODIFIED: [2026-09-16 Wed 10:46]
+:CREATED_BY: johnw
+:FINISHED: [2026-09-16 Wed 10:46]
+:CLOSE_REASON: FC-09 repaired in the canonical Droid constructor; preparation inherits isolation while explicit low-level policy remains honored. Four default cases failed before; all seven native descriptor controls and both stderr ownership controls pass. GHC9.12.4 -Werror full3958-test suites pass on macOS/GNU/Linux ARM64; strict C compile/link, Ormolu and HLint pass. Evidence/fess: docs/evidence/2026-09-16/fc09. No secret inspection, live Factory call or push.
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+FC-09: droidProcess and prepareDroidProcess inherit the System.Process.proc close_fds=False default, exposing deliberately inheritable parent descriptors in ordinary high-level sessions. Make SDK-built Droid commands request close_fds=True through their existing constructor, while preserving explicitly supplied low-level CreateProcess behavior and intentional stdio/owned IPC channels. Add a harmless native descriptor-identity regression, explicit opt-out controls and macOS/Linux verification; never inspect unrelated descriptor contents. Keep original audit receipts. Local commits only; no push.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-maf",
+    "depends_on_id": "hsdk-docs-package-signoff-ip3.1.1.2",
+    "type": "discovered-from",
+    "created_at": "2026-09-16T17:25:19.741133Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
 * DONE [#C] Complete hosted MCP validation and native tool integration
 :PROPERTIES:
 :OBR_SCHEMA_VERSION: 17

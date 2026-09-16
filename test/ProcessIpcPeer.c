@@ -38,7 +38,26 @@ static int check_descriptors(void) {
   return result;
 }
 
+/* Inspect only the designated harmless fixture, never arbitrary descriptor data. */
+static int report_fixture_descriptor(void) {
+  const char *number = getenv("DROID_FD_FIXTURE");
+  const char *path = getenv("DROID_FD_FIXTURE_PATH");
+  if (!number || !path) return 2;
+  char *end;
+  errno = 0;
+  long fd = strtol(number, &end, 10);
+  if (errno || end == number || *end || fd < 3 || fd > INT_MAX) return 2;
+  struct stat expected, actual;
+  if (stat(path, &expected) != 0) return 3;
+  int status = fstat((int)fd, &actual);
+  if (status != 0 && errno != EBADF) return 4;
+  int inherited = status == 0 && actual.st_dev == expected.st_dev && actual.st_ino == expected.st_ino;
+  if (printf("{\"inherited\":%s,\"pid\":%ld}\n", inherited ? "true" : "false", (long)getpid()) < 0) return 5;
+  return fflush(stdout) == 0 ? 0 : 6;
+}
+
 int main(int argc, char **argv) {
+  if (argc >= 2 && (strcmp(argv[1], "exec") == 0 || strcmp(argv[1], "--fixture-fd") == 0)) return report_fixture_descriptor();
   if (argc == 2 && strcmp(argv[1], "--check-fds") == 0) return check_descriptors();
   if (argc == 2 && strcmp(argv[1], "--stderr-state") == 0) {
     int flags = fcntl(STDERR_FILENO, F_GETFL);
