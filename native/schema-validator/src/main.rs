@@ -40,6 +40,14 @@ fn validate(request: &Value) -> &'static str {
     let validator = match jsonschema::options()
         .offline()
         .should_validate_formats(false)
+        // Disable every built-in content check in the pinned backend. The SDK
+        // treats these as annotations without changing the schema's dialect.
+        .without_content_encoding_support("base16")
+        .without_content_encoding_support("base32")
+        .without_content_encoding_support("base32hex")
+        .without_content_encoding_support("base64")
+        .without_content_encoding_support("base64url")
+        .without_content_media_type_support("application/json")
         .with_pattern_options(jsonschema::PatternOptions::fancy_regex().backtrack_limit(usize::MAX))
         .build(schema)
     {
@@ -146,6 +154,98 @@ mod tests {
             validate(&serde_json::json!({"schema":true,"value":1})),
             "invalid_request"
         );
+    }
+
+    #[test]
+    fn content_keywords_are_annotations_across_drafts() {
+        for draft in [
+            None,
+            Some("http://json-schema.org/draft-04/schema#"),
+            Some("http://json-schema.org/draft-06/schema#"),
+            Some("http://json-schema.org/draft-07/schema#"),
+            Some("https://json-schema.org/draft/2019-09/schema"),
+            Some("https://json-schema.org/draft/2020-12/schema"),
+        ] {
+            for annotation in [
+                serde_json::json!({"contentEncoding":"base16"}),
+                serde_json::json!({"contentEncoding":"base32"}),
+                serde_json::json!({"contentEncoding":"base32hex"}),
+                serde_json::json!({"contentEncoding":"base64"}),
+                serde_json::json!({"contentEncoding":"base64url"}),
+                serde_json::json!({"contentMediaType":"application/json"}),
+                serde_json::json!({"contentEncoding":"base64","contentMediaType":"application/json"}),
+                serde_json::json!({"contentMediaType":"application/json","contentSchema":false}),
+                serde_json::json!({"contentEncoding":"fixture-unknown"}),
+                serde_json::json!({"contentMediaType":"application/fixture-unknown"}),
+            ] {
+                let mut schema = annotation.clone();
+                schema["type"] = serde_json::json!("string");
+                schema["minLength"] = serde_json::json!(2);
+                let mut negated = serde_json::json!({"not":annotation});
+                if let Some(draft) = draft {
+                    schema["$schema"] = serde_json::json!(draft);
+                    negated["$schema"] = serde_json::json!(draft);
+                }
+                for (value, expected) in [
+                    (serde_json::json!("??"), "valid"),
+                    (serde_json::json!("YQ=="), "valid"),
+                    (serde_json::json!(1), "invalid"),
+                    (serde_json::json!("?"), "invalid"),
+                ] {
+                    let request = serde_json::json!({"protocol":1,"schema":schema,"value":value});
+                    assert_eq!(
+                        validate(&request),
+                        expected,
+                        "draft={draft:?}, schema={schema}"
+                    );
+                }
+                assert_eq!(
+                    validate(&serde_json::json!({"protocol":1,"schema":negated,"value":"??"})),
+                    "invalid",
+                    "draft={draft:?}, negated={negated}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn declared_dialects_and_content_keyword_shapes_are_preserved() {
+        for (draft, expected) in [
+            ("http://json-schema.org/draft-07/schema#", "valid"),
+            ("https://json-schema.org/draft/2020-12/schema", "invalid"),
+        ] {
+            let schema = serde_json::json!({
+                "$schema":draft, "$ref":"#/definitions/integer",
+                "definitions":{"integer":{"type":"integer"}}, "minimum":10
+            });
+            assert_eq!(
+                validate(&serde_json::json!({"protocol":1,"schema":schema,"value":1})),
+                expected
+            );
+        }
+        let schema = serde_json::json!({
+            "$schema":"http://json-schema.org/draft-04/schema#",
+            "type":"number", "minimum":0, "exclusiveMinimum":true
+        });
+        for (value, expected) in [(0, "invalid"), (1, "valid")] {
+            assert_eq!(
+                validate(&serde_json::json!({"protocol":1,"schema":schema,"value":value})),
+                expected
+            );
+        }
+        for draft in [
+            "http://json-schema.org/draft-06/schema#",
+            "http://json-schema.org/draft-07/schema#",
+        ] {
+            for keyword in ["contentEncoding", "contentMediaType"] {
+                let mut schema = serde_json::json!({"$schema":draft});
+                schema[keyword] = serde_json::json!(false);
+                assert_eq!(
+                    validate(&serde_json::json!({"protocol":1,"schema":schema})),
+                    "invalid_schema"
+                );
+            }
+        }
     }
 
     #[test]

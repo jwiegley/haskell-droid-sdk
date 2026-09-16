@@ -389,6 +389,67 @@ hostedCases =
       tool <- either (const (assertFailure "Tool construction failed")) pure (rawTool "pointer" "Pointer" schema (const (pure (textResult "valid"))))
       invokeTool tool (KeyMap.singleton "v" (Number 1)) >>= (\case Right value -> toolResultIsError value @?= Nothing; _ -> assertFailure "Integer pointer target rejected")
       invokeTool tool (KeyMap.singleton "v" (String "wrong")) >>= (\case Right value -> toolResultIsError value @?= Just True; _ -> assertFailure "Wrong pointer target selected"),
+    testGroup
+      "schema content annotations control handler admission"
+      [ testCase label $ bounded $ do
+          let property = KeyMap.insert "type" (String "string") annotation
+              fields = KeyMap.fromList (["type" .= String "object", "properties" .= object ["v" .= Object property], "required" .= [String "v"]] <> maybe [] (\uri -> ["$schema" .= uri]) draft)
+          schema <- either (const (assertFailure "Schema construction failed")) pure (mkMcpSchema fields)
+          calls <- newIORef (0 :: Int)
+          tool <- either (const (assertFailure "Tool construction failed")) pure (rawTool "annotation" "Annotation policy" schema (\_ -> modifyIORef' calls (+ 1) >> pure (textResult "handled")))
+          toolInputSchema tool @?= fields
+          server <- newMcpServer (defaultMcpServerOptions "annotations") [tool]
+          withMcpServer server $ \config -> do
+            manager <- HTTP.newManager HTTP.defaultManagerSettings
+            response <- post manager config (rpc "tools/call" (object ["name" .= String "annotation", "arguments" .= object ["v" .= input]]))
+            resultField response "isError" @?= if rejected then Just (Bool True) else Nothing
+            resultField response "content" @?= Just (toJSON [textContent (if rejected then "Invalid tool arguments" else "handled")])
+            readIORef calls >>= (@?= if rejected then 0 else 1)
+      | (label, draft, annotation, input, rejected) <-
+          let d6 = Just ("http://json-schema.org/draft-06/schema#" :: Text.Text)
+              d7 = Just "http://json-schema.org/draft-07/schema#"
+              encoding name = KeyMap.singleton "contentEncoding" (String name)
+              media = KeyMap.singleton "contentMediaType" (String "application/json")
+              negated value = KeyMap.singleton "not" (Object value)
+           in [ ("default base64 annotation", Nothing, encoding "base64", String "??", False),
+                ("draft6 base64 annotation", d6, encoding "base64", String "??", False),
+                ("draft7 base16 annotation", d7, encoding "base16", String "??", False),
+                ("draft7 base32 annotation", d7, encoding "base32", String "??", False),
+                ("draft7 base32hex annotation", d7, encoding "base32hex", String "??", False),
+                ("draft7 base64 annotation", d7, encoding "base64", String "??", False),
+                ("draft7 base64url annotation", d7, encoding "base64url", String "??", False),
+                ("draft7 valid base64 control", d7, encoding "base64", String "YQ==", False),
+                ("draft7 media annotation", d7, media, String "not JSON", False),
+                ("draft7 valid media control", d7, media, String "{}", False),
+                ("draft7 encoded non-UTF8 media", d7, encoding "base64" <> media, String "/w==", False),
+                ("draft7 format remains annotation", d7, KeyMap.singleton "format" (String "email"), String "not email", False),
+                ("draft7 negated encoding annotation", d7, negated (encoding "base64"), String "??", True),
+                ("draft7 negated media annotation", d7, negated media, String "not JSON", True),
+                ("draft2019 base64 annotation", Just "https://json-schema.org/draft/2019-09/schema", encoding "base64", String "??", False),
+                ("draft2020 base64 annotation", Just "https://json-schema.org/draft/2020-12/schema", encoding "base64", String "??", False)
+              ]
+      ],
+    testGroup
+      "schema content annotations also govern structured output"
+      [ testCase (show negated) $ bounded $ do
+          let keyword = object ["contentEncoding" .= String "base64"]
+              property = if negated then object ["type" .= String "string", "not" .= keyword] else object ["type" .= String "string", "contentEncoding" .= String "base64"]
+              fields = KeyMap.fromList ["$schema" .= String "http://json-schema.org/draft-07/schema#", "type" .= String "object", "properties" .= object ["v" .= property], "required" .= [String "v"]]
+              value = KeyMap.singleton "v" (String "??")
+          schema <- either (const (assertFailure "Output schema construction failed")) pure (mkMcpSchema fields)
+          calls <- newIORef (0 :: Int)
+          raw <- either (const (assertFailure "Tool construction failed")) pure (rawTool "output" "Output annotation" openObjectSchema (\_ -> modifyIORef' calls (+ 1) >> pure (structuredResult value)))
+          server <- newMcpServer (defaultMcpServerOptions "output-annotation") [withToolOutputSchema schema raw]
+          withMcpServer server $ \config -> do
+            manager <- HTTP.newManager HTTP.defaultManagerSettings
+            response <- post manager config (rpc "tools/call" (object ["name" .= String "output"]))
+            readIORef calls >>= (@?= 1)
+            resultField response "isError" @?= Just (Bool negated)
+            if negated
+              then resultField response "content" @?= Just (toJSON [textContent "Invalid structured tool output"])
+              else resultField response "structuredContent" @?= Just (Object value)
+      | negated <- [False, True]
+      ],
     testCase "native schemas enforce ref siblings and evaluated properties" $ do
       schema <- either (const (assertFailure "Schema construction failed")) pure (mkMcpSchema (KeyMap.fromList ["type" .= String "object", "$defs" .= object ["number" .= object ["type" .= String "integer"]], "properties" .= object ["value" .= object ["$ref" .= String "#/$defs/number", "minimum" .= (3 :: Int)]]]))
       tool <- either (const (assertFailure "Tool construction failed")) pure (rawTool "check" "Check" schema (const (pure (textResult "valid"))))

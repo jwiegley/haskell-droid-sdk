@@ -6545,6 +6545,40 @@ Scoped parent fess: no production workaround or altered budget, no mock, vacuous
 ]
 #+end_src
 
+* DONE [#C] Keep schema content keywords nonasserting across drafts
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-gh1
+:LABELS:   []
+:ISSUE_TYPE: bug
+:CREATED:  [2026-09-16 Wed 12:38]
+:MODIFIED: [2026-09-16 Wed 13:16]
+:CREATED_BY: johnw
+:FINISHED: [2026-09-16 Wed 13:16]
+:CLOSE_REASON: FC-12 repaired via standard jsonschema options disabling all five built-in encoding checks and JSON-media assertion; schema dialect, definitions and unrelated constraints retained. Rust and12/73 hosted failures preserved. Final5 Rust tests and4020 Haskell tests pass macOS/GNU/Linux ARM64 GHC9.12.4 -Werror; new worker identities/notices verified. Native/Python hosted/owned-install seven-case results agree. Evidence/fess: docs/evidence/2026-09-16/fc12. No live Factory call or push.
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+FC-12: explicit Draft6/7 contentEncoding/contentMediaType compile to assertions in the native worker, contradicting the annotation contract and Python0.4.0 handler admission, including inverted behavior under not. Use existing pinned jsonschema options to disable all built-in encoding/media checks, preserve schema dialect and unrelated validation, and verify definitions, actual input/output tool behavior and negation. Rebuild/identify the worker on both native platforms; preserve original failures. No reference edits, new runtime, live Factory call or push.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-gh1",
+    "depends_on_id": "hsdk-zpf.2",
+    "type": "discovered-from",
+    "created_at": "2026-09-16T19:38:31.025413Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
 * DONE [#C] Validate embedded MCP resources as text or blob unions
 :PROPERTIES:
 :OBR_SCHEMA_VERSION: 17
