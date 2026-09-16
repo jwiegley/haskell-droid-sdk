@@ -7972,6 +7972,40 @@ Implemented private SystemPromptConfig with custom/appended smart constructors, 
 ]
 #+end_src
 
+* DONE [#C] Retain child exit and signal status in JSONL diagnostics
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-rk7
+:LABELS:   []
+:ISSUE_TYPE: bug
+:CREATED:  [2026-09-16 Wed 10:58]
+:MODIFIED: [2026-09-16 Wed 11:35]
+:CREATED_BY: johnw
+:FINISHED: [2026-09-16 Wed 11:35]
+:CLOSE_REASON: FC-05 repaired through the existing ProcessHandle owner: structured clean/nonzero/signal status, bounded EOF/write settlement, shared IPC status and preserved framing/cancellation. Initial10/59 focused failures retained after declaration-only API preparation. Final3970 tests pass on macOS/GNU/Linux ARM64 with GHC9.12.4 -Werror; 10 parallel five-case repetitions and original diagnostic probes pass. Evidence/fess: docs/evidence/2026-09-16/fc05. No live Factory call or push.
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+FC-05: ordinary JSONL process EOF loses exit37/SIGTERM information even though the existing ProcessHandle owner has the exit status. Preserve structured normal/nonzero/signal status through that owner, including owned IPC channels and send-after-exit behavior. Account for stdout closing before process exit without unbounded waiting; do not replace framing errors, caller cancellation or EOF with cleanup-induced signals. Add reference-directed regressions, Mac/Linux checks and fess; preserve payload-free errors and process cleanup. Local commits only; no push.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-rk7",
+    "depends_on_id": "hsdk-amj",
+    "type": "discovered-from",
+    "created_at": "2026-09-16T17:58:52.706702Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
 * DONE [#C] Expose daemon Git inspection, checkout and PR-status lookup
 :PROPERTIES:
 :OBR_SCHEMA_VERSION: 17

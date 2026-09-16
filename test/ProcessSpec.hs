@@ -4,6 +4,7 @@ module ProcessSpec (processTests, runProcessPeer, withPeer, bounded) where
 
 import Control.Concurrent (forkIO, newEmptyMVar, putMVar, takeMVar, threadDelay)
 import Control.Concurrent.Async (Async, AsyncCancelled (..), cancel, wait, waitCatch, withAsync)
+import Control.Concurrent.STM (atomically, retry)
 import Control.Exception (Exception, IOException, SomeException, bracket, finally, fromException, throwIO, try)
 import Control.Monad (forM_, forever, unless, void, when)
 import Data.Aeson (FromJSON, Object, Result (..), Value (..), eitherDecodeStrict', encode, fromJSON, toJSON, (.=))
@@ -15,6 +16,7 @@ import Data.ByteString.Lazy qualified as BL
 import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as Text
+import Factory.Droid.Protocol qualified as Protocol
 import Factory.Droid.Schema.Notifications (AgentTurnCompleted (..), AgentTurnCompletionReason (..), AssistantTextDelta (..))
 import Factory.Droid.Schema.RPC (BaseNotification (..), BaseResponseSuccess (..), CommandAck (..), WithEnvelope (..))
 import Factory.Droid.Schema.Usage (TokenUsage (..))
@@ -22,7 +24,7 @@ import Factory.Droid.Transport.Process
 import GHC.Clock (getMonotonicTimeNSec)
 import System.Directory (findExecutable)
 import System.Environment (getExecutablePath, lookupEnv)
-import System.Exit (ExitCode (ExitSuccess))
+import System.Exit (ExitCode (..))
 import System.IO (IOMode (WriteMode), hClose, hFlush, hSetBinaryMode, openBinaryTempFile, stderr, stdin, stdout, withBinaryFile)
 import System.IO.Error (isDoesNotExistError)
 import System.Posix.Files (deviceID, fileID, getFdStatus, getFileStatus, removeLink)
@@ -176,9 +178,44 @@ processTests =
         outgoing @?= Left FrameTooLarge,
       testCase "EOF and incomplete final frames are distinct failures" $ bounded $ do
         eof <- try @JsonLinesError (withPeer "eof" 4096 receiveObject)
-        eof @?= Left EndOfStream
+        eof @?= Left (ProcessExited ExitSuccess)
         partial <- try @JsonLinesError (withPeer "partial" 4096 receiveObject)
         partial @?= Left TruncatedFrame,
+      testGroup
+        "process exit diagnostics"
+        [ testCase mode $ bounded $ do
+            result <- try @JsonLinesError (withPeer mode 4096 receiveObject)
+            result @?= Left (ProcessExited status)
+        | (mode, status) <- [("eof", ExitSuccess), ("exit37", ExitFailure 37), ("signal", ExitFailure (negate (fromIntegral sigTERM)))]
+        ],
+      testCase "buffered frames precede exit diagnostics and later sends retain the exit" $ bounded $ withPeer "buffered-exit37" 4096 $ \channel -> do
+        receiveObject channel >>= (@?= KeyMap.singleton "retained" (Bool True))
+        try @JsonLinesError (receiveObject channel) >>= (@?= Left (ProcessExited (ExitFailure 37)))
+        try @JsonLinesError (sendObject channel request) >>= (@?= Left (ProcessExited (ExitFailure 37))),
+      testCase "stdout EOF can precede the actual exit status" $ bounded $ do
+        result <- try @JsonLinesError (withPeer "delayed-exit37" 4096 receiveObject)
+        result @?= Left (ProcessExited (ExitFailure 37)),
+      testCase "a live child closing stdout keeps EOF rather than a cleanup-induced signal" $ bounded $ do
+        result <- try @JsonLinesError (withPeer "close-stdout" 4096 receiveObject)
+        result @?= Left EndOfStream,
+      testGroup
+        "framing errors precede process diagnostics"
+        [ testCase mode $ bounded $ do
+            result <- try @JsonLinesError (withPeer mode 4096 receiveObject)
+            result @?= Left expected
+        | (mode, expected) <- [("partial-exit37", TruncatedFrame), ("invalid-exit37", InvalidJsonObject)]
+        ],
+      testGroup
+        "write failures distinguish a live peer from an exiting peer"
+        [ testCase mode $ bounded $ do
+            result <- try @JsonLinesError (withPeer mode 4096 (`sendObject` request))
+            result @?= Left expected
+        | (mode, expected) <- [("closed-stdin", ProcessWriteFailure), ("closed-stdin-exit37", ProcessExited (ExitFailure 37))]
+        ],
+      testCase "RPC failure cause retains the structured process exit" $ bounded $ withPeer "exit37" 4096 $ \channel ->
+        Protocol.withRpcChannel (sendObject channel) (receiveObject channel) $ \rpc -> do
+          cause <- atomically (Protocol.rpcChannelFailureCause rpc >>= maybe retry pure)
+          fromException cause @?= Just (ProcessExited (ExitFailure 37)),
       testCase "SIGTERM-resistant children are killed and reaped on return" $
         bounded $
           promptCleanup $
@@ -194,15 +231,16 @@ processTests =
         BS.readFile marker >>= (@?= "graceful"),
       testCase "callback exceptions retain their identity and reap the child" $
         bounded $
-          forM_ ["idle", "stubborn"] $ \mode -> promptCleanup $ do
+          forM_ ["idle", "stubborn", "exit37"] $ \mode -> promptCleanup $ do
             result <- try @TestAbort (withPeer mode 4096 (\_ -> throwIO TestAbort) :: IO ())
             result @?= Left TestAbort,
       testCase "cancellation while receiving reaps the child" $
         bounded $
-          forM_ ["idle", "stubborn"] $ \mode -> promptCleanup $ do
+          forM_ ["idle", "stubborn", "close-stdout"] $ \mode -> promptCleanup $ do
             ready <- newEmptyMVar
             withAsync (withPeer mode 4096 $ \channel -> putMVar ready () >> receiveObject channel) $ \worker -> do
               takeMVar ready
+              when (mode == "close-stdout") (threadDelay 50000)
               cancelAndCheck worker,
       testCase "cancellation while writing to a full pipe reaps the child" $
         bounded $
@@ -326,6 +364,7 @@ runProcessPeer mode = do
   when (mode `elem` ["stubborn", "stubborn-write", "graceful", "stop-notice"]) $
     -- Backstop makes a broken parent cleanup fail without leaving a child behind.
     void (forkIO (threadDelay (5 * 1000000) >> signalProcess sigKILL pid))
+  when (mode `elem` ["closed-stdin", "closed-stdin-exit37"]) (hClose stdin)
   writeLine (KeyMap.singleton "pid" (toJSON (fromIntegral pid :: Integer)))
   case mode of
     "acp" -> forever $ do
@@ -381,6 +420,15 @@ runProcessPeer mode = do
     "oversized" -> BS.hPut stdout (BS.replicate 1024 120) >> hFlush stdout
     "partial" -> BS.hPut stdout "{}" >> hFlush stdout
     "eof" -> pure ()
+    "exit37" -> exitImmediately (ExitFailure 37)
+    "signal" -> signalProcess sigTERM pid >> forever (threadDelay 1000000)
+    "buffered-exit37" -> writeLine (KeyMap.singleton "retained" (Bool True)) >> exitImmediately (ExitFailure 37)
+    "delayed-exit37" -> hClose stdout >> threadDelay 50000 >> exitImmediately (ExitFailure 37)
+    "close-stdout" -> hClose stdout >> forever (threadDelay 1000000)
+    "partial-exit37" -> BS.hPut stdout "{}" >> hFlush stdout >> exitImmediately (ExitFailure 37)
+    "invalid-exit37" -> BS.hPut stdout "[]\n" >> hFlush stdout >> exitImmediately (ExitFailure 37)
+    "closed-stdin" -> forever (threadDelay 1000000)
+    "closed-stdin-exit37" -> threadDelay 50000 >> exitImmediately (ExitFailure 37)
     "idle" -> forever (threadDelay 1000000)
     "stubborn" -> forever (threadDelay 1000000)
     "stubborn-write" -> do

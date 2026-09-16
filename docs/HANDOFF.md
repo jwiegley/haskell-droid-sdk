@@ -8,9 +8,9 @@ Updated September 16 after the user authorized completing both SDK repairs and v
 
 ## Read this first
 
-**The SDK is not yet complete against the pinned functional targets.** FC-04 has now been repaired and verified as described below; other confirmed gaps, claim accounting and final calibration remain.
+**The SDK is not yet complete against the pinned functional targets.** FC-04, FC-09 and FC-05 have been repaired and verified below; other confirmed gaps, claim accounting and final calibration remain.
 
-The latest request, “Continue and complete those two separate jobs remaining,” supersedes the earlier read-only/no-fixes boundary. Implement the required repairs and finish verification, working sequentially with local commits. The confirmed goal tree now has twelve milestones, of which the two original comparisons are complete. Any old read-only wording in archived goal/report text is historical; it does not override this scope amendment. Within the original four-part audit, the position remains:
+The latest request, “Continue and complete those two separate jobs remaining,” supersedes the earlier read-only/no-fixes boundary. Implement the required repairs and finish verification, working sequentially with local commits. The confirmed goal tree has twelve milestones: the two original comparisons are complete, and the first repair milestone is now verified. Any old read-only wording in archived goal/report text is historical; it does not override this scope amendment. Within the original four-part audit, the position remains:
 
 1. Frozen Python/TypeScript comparison — complete.
 2. Pinned current Python/TypeScript comparison — complete.
@@ -31,7 +31,8 @@ Work state and complete execution receipts: `~/Products/droid-sdk-haskell/comple
 
 - **FC-04 / `hsdk-hzs`: repaired.** Local load intent now retains validated settings acknowledgements in ordered intake, and successor/rollback loads drain those observations before snapshotting policy. Nine new cases cover partial updates, explicit empty lists, rejection/malformed replies, rollback, reverse acknowledgements and callback-safe replacement. Initial regressions failed 7/39; final 39-case policy checks and full 3,951-test suites pass on macOS/GNU/Linux ARM64 with GHC 9.12.4 `-Werror`. Twenty repetitions of the final policy suite also pass with eight test workers. See [FC-04 evidence and fess](evidence/2026-09-16/fc04/README.md).
 - **FC-09 / `hsdk-maf`: repaired.** SDK-built Droid commands request descriptor isolation; preparation inherits that default while the generic JSONL owner retains caller-supplied `CreateProcess` policy. Four native default cases failed before the correction; all seven descriptor cases and the 31-case process group now pass. Full 3,958-test suites pass on macOS/GNU/Linux ARM64, including explicit stdio and existing IPC ownership checks. See [FC-09 evidence and fess](evidence/2026-09-16/fc09/README.md).
-- **Next:** FC-05 exit/signal diagnostics, the remaining item in the active `repair-policy-process` milestone.
+- **FC-05 / `hsdk-rk7`: repaired.** The existing process owner now supplies structured clean/nonzero/signal exit diagnostics, with bounded EOF/write settlement, buffered-frame and framing-error precedence, and unchanged cancellation identity. Both owned IPC channels share the status. Ten of 59 focused tests failed before behavior was wired; final 3,970-test suites pass on macOS/GNU/Linux ARM64 under GHC 9.12.4 `-Werror`. Ten parallel repetitions of five selected exit/cancellation cases pass. See [FC-05 evidence and fess](evidence/2026-09-16/fc05/README.md).
+- **Next:** `repair-mcp-contracts`, covering FC-10/11/12 rich-result, timestamp and content-annotation semantics. The retained-policy/descriptor/process-diagnostic milestone has its three required repairs verified.
 - Remaining milestones: MCP semantics; integrated daemon creation/cache/directory; reconnect/SLI; ten current-only operations; current state contracts; remaining native policy decisions; original/repaired claim verification; packaged release validation; final frozen/current assessments.
 
 The September 15 recovery kit describes the pre-repair checkpoint. Its bytes and historical receipts are not rewritten to imply that these later repairs were already present. The external roadmap remains the work inventory, with its former no-repair/push instructions superseded by this section.
@@ -96,7 +97,7 @@ All main README and archived September 8 evidence documents are accounted for. T
 
 - **FC-04, original release:** acknowledged local tool-policy updates were lost during replacement replay. The September 16 repair above resolves this for the new working source; preserve the original failing evidence and claim dispositions.
 - **FC-09, original release:** SDK-default launches inherited an unrelated inheritable fixture descriptor. The September 16 default-constructor repair above resolves that boundary; explicitly supplied low-level descriptor policy is still honored. No real secret was read.
-- **FC-05:** exit/signal diagnostics collapse to `EndOfStream` instead of retaining reference exit/signal detail.
+- **FC-05, original release:** exit/signal diagnostics collapsed to `EndOfStream`. The September 16 repair retains them at the process boundary and through the public RPC failure-cause accessor; the existing RPC request-error taxonomy remains unchanged.
 - **FC-10/11/12:** hosted rich-resource union validation, MCP timestamp grammar and Draft 7 content-annotation policy differ from the evaluated reference behavior. The annotation discrepancy changes actual handler admission, including under negation.
 - Integrated creation on an existing daemon owner, cache administration, retained-policy administration and specialized SLI semantics remain missing or partial in the identified contracts. Generic RPC or unrelated application copies do not automatically satisfy them.
 - TypeScript 0.9.1 adds ten actual operations without native callers and changes child-summary freshness, ancestry and ordering policies. Keep those current-only changes separate from frozen defects.

@@ -24,14 +24,14 @@ import Network.Socket qualified as Socket
 import ProcessSpec (bounded)
 import System.Directory (canonicalizePath, findExecutable, getCurrentDirectory, getTemporaryDirectory, removePathForcibly)
 import System.Environment (getEnv, getExecutablePath, lookupEnv)
-import System.Exit (ExitCode (ExitSuccess))
+import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 import System.IO (BufferMode (BlockBuffering), Handle, IOMode (ReadWriteMode, WriteMode), hClose, hFlush, hIsClosed, hSetBinaryMode, hSetBuffering, stderr, stdin, stdout, withBinaryFile)
 import System.IO.Error (isFullError)
 import System.Posix.Directory qualified as PosixDirectory
 import System.Posix.IO (fdToHandle)
 import System.Posix.IO qualified as Posix
-import System.Posix.Process (getProcessID)
+import System.Posix.Process (exitImmediately, getProcessID)
 import System.Posix.Temp (mkdtemp)
 import System.Posix.Types (Fd (..))
 import System.Process (CmdSpec (ShellCommand), CreateProcess (child_group, child_user, close_fds, cmdspec, create_group, cwd, delegate_ctlc, env, new_session, std_err), StdStream (..), readCreateProcessWithExitCode)
@@ -109,6 +109,18 @@ ownedIpcTests =
             unless group (KeyMap.lookup "session" received @?= KeyMap.lookup "pid" received)
             peerIdentifier received
           assertReaped identifier,
+      testCase "stdio and IPC retain the same owned process exit status" $ bounded $ do
+        executable <- getExecutablePath
+        identifier <- withJsonLinesProcessIpc 4096 0 defaultIpcProcessOptions ((proc executable ["--owned-ipc-peer", "exit37"]) {std_err = NoStream}) $ \stdio ipc _ -> do
+          pid <- receiveObject stdio >>= peerIdentifier
+          withAsync (try @JsonLinesError (receiveObject stdio)) $ \stdioExit ->
+            withAsync (try @JsonLinesError (receiveObject ipc)) $ \ipcExit -> do
+              sendObject stdio payload
+              wait stdioExit >>= (@?= Left (ProcessExited (ExitFailure 37)))
+              wait ipcExit >>= (@?= Left (ProcessExited (ExitFailure 37)))
+          try @JsonLinesError (sendObject ipc payload) >>= (@?= Left (ProcessExited (ExitFailure 37)))
+          pure pid
+        assertReaped identifier,
       testCase "callback exceptions preserve identity and reap the owned PID" $ bounded $ do
         executable <- getExecutablePath
         ready <- newEmptyMVar
@@ -361,6 +373,11 @@ runOwnedIpcPeer arguments = do
       hFlush stderr
       writeValue stdout (object ["echo" .= stdioValue, "pid" .= show pid, "cwd" .= directory, "arguments" .= supplied, "empty" .= empty])
       writeValue ipc ipcValue
+    ["exit37"] -> do
+      pid <- getProcessID
+      writeValue stdout (object ["pid" .= show pid])
+      void (readValue stdin)
+      exitImmediately (ExitFailure 37)
     ["wait"] -> do
       pid <- getProcessID
       writeValue stdout (object ["pid" .= show pid])

@@ -662,6 +662,10 @@ Replacement, rollback and cancellation behavior is verified with native offline 
 
 Droid command builders set `close_fds = True`: unrelated inheritable parent descriptors are closed in the child, without removing the owned stdio pipes or explicitly routed stderr. `prepareDroidProcess` retains this default even when replacing arguments, so ordinary high-level local sessions use it too. The generic JSONL scope still honors a caller-supplied descriptor policy, including `close_fds = False`; use a Droid builder or explicitly enable isolation when constructing a raw command. The separately owned IPC launcher already isolates unrelated descriptors and is unchanged.
 
+`JsonLinesError` includes `ProcessExited ExitCode`, retaining clean exit (`ExitSuccess`), nonzero exit, or a POSIX signal (the platform-specific negative `ExitFailure` convention from `System.Process`). Buffered objects are delivered before clean-EOF diagnostics. Clean EOF and failed writes use a two-second exit-settling budget, separate from shutdown grace; if the child remains live, they retain `EndOfStream` or `ProcessWriteFailure` instead of attributing a later cleanup signal. Known exits reject later sends. Framing errors and caller cancellation remain primary, and these diagnostics contain no stderr, argv or environment payload.
+
+When this transport is wrapped in `RpcChannel`, its existing request-error classification is unchanged; `rpcChannelFailureCause` exposes the original typed process diagnostic through the public channel API. The settling budget is not a hard OS/scheduler deadline and does not replace caller deadlines.
+
 ```haskell
 module AcpExample (withAcp) where
 

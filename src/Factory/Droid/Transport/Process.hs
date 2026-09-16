@@ -56,6 +56,7 @@ import GHC.IO.Handle.Internals (wantWritableHandle, withAllHandles__)
 import GHC.IO.Handle.Types (Handle__ (..))
 import System.Directory (findExecutable)
 import System.Environment (getEnvironment)
+import System.Exit (ExitCode)
 import System.IO (Handle, IOMode (ReadMode, ReadWriteMode, WriteMode), hClose, hFlush, hSetBinaryMode, withBinaryFile)
 import System.IO.Error (isDoesNotExistError)
 import System.Posix.IO qualified as Posix
@@ -120,9 +121,11 @@ instance Show IpcProcessOptions where show _ = "IpcProcessOptions <redacted>"
 defaultIpcProcessOptions :: IpcProcessOptions
 defaultIpcProcessOptions = IpcProcessOptions "factory-droid-launcher" 5000000
 
--- | Payload-free transport failures. EOF is always visible to the caller;
--- an unterminated final frame is not accepted as a complete protocol message.
-data JsonLinesError = InvalidFrameLimit | FrameTooLarge | InvalidJsonObject | EndOfStream | TruncatedFrame | ProcessStartFailure | ProcessSetupFailure | ProcessReadFailure | ProcessWriteFailure | ProcessCleanupFailure | InvalidIpcProcessOptions | IpcLauncherUnavailable | IpcStartupTimedOut
+-- | Payload-free transport failures. 'ProcessExited' retains the owned child's
+-- 'ExitCode'; on Unix a negative @ExitFailure@ value denotes a signal.
+-- 'EndOfStream' means clean EOF without a settled exit status in the diagnostic
+-- budget. An unterminated final frame remains 'TruncatedFrame'.
+data JsonLinesError = InvalidFrameLimit | FrameTooLarge | InvalidJsonObject | EndOfStream | ProcessExited !ExitCode | TruncatedFrame | ProcessStartFailure | ProcessSetupFailure | ProcessReadFailure | ProcessWriteFailure | ProcessCleanupFailure | InvalidIpcProcessOptions | IpcLauncherUnavailable | IpcStartupTimedOut
   deriving stock (Eq, Show)
 
 instance Exception JsonLinesError
@@ -130,7 +133,7 @@ instance Exception JsonLinesError
 -- | Valid only inside its process scope. Sends and receives are serialized
 -- independently; cancellation or a framing/I/O error must end the exchange.
 -- Callers must finish their send/receive threads before leaving the callback.
-data JsonLinesProcess = JsonLinesProcess !Int !Handle !Handle !(MVar ()) !(MVar BS.ByteString)
+data JsonLinesProcess = JsonLinesProcess !Int !Handle !Handle !(MVar ()) !(MVar BS.ByteString) !ProcessHandle
 
 -- | Open a channel with an explicit positive byte limit per frame, excluding
 -- the newline. Stream settings are replaced by owned pipes and a null stderr
@@ -210,8 +213,8 @@ withJsonLinesProcessIpc limit grace options config action = do
               output <- ipcHandle state handles 1 ReadMode
               errors <- case std_err config of CreatePipe -> Just <$> ipcHandle state handles 2 ReadMode; _ -> pure Nothing
               ipc <- ipcHandle state handles 3 ReadWriteMode
-              stdio <- JsonLinesProcess limit input output <$> newMVar () <*> newMVar BS.empty
-              channel <- JsonLinesProcess limit ipc ipc <$> newMVar () <*> newMVar BS.empty
+              stdio <- JsonLinesProcess limit input output <$> newMVar () <*> newMVar BS.empty <*> pure process
+              channel <- JsonLinesProcess limit ipc ipc <$> newMVar () <*> newMVar BS.empty <*> pure process
               pure (stdio, channel, errors)
           case ready of
             Nothing -> throwIO IpcStartupTimedOut
@@ -296,13 +299,13 @@ withJsonLinesProcessStderr :: Int -> Int -> CreateProcess -> (JsonLinesProcess -
 withJsonLinesProcessStderr limit grace config action = do
   when (limit <= 0) (throwIO InvalidFrameLimit)
   let configured = config {std_in = CreatePipe, std_out = CreatePipe}
-  bracket (ioBoundary ProcessStartFailure (createProcess_ "JSONL process" configured)) (cleanup grace) $ \(mInput, mOutput, errors, _) -> do
+  bracket (ioBoundary ProcessStartFailure (createProcess_ "JSONL process" configured)) (cleanup grace) $ \(mInput, mOutput, errors, process) -> do
     input <- maybe (throwIO ProcessSetupFailure) pure mInput
     output <- maybe (throwIO ProcessSetupFailure) pure mOutput
     ioBoundary ProcessSetupFailure $ hSetBinaryMode input True >> hSetBinaryMode output True >> mapM_ (`hSetBinaryMode` True) errors
     writer <- newMVar ()
     reader <- newMVar BS.empty
-    action (JsonLinesProcess limit input output writer reader) errors
+    action (JsonLinesProcess limit input output writer reader process) errors
 
 -- Stop before hClose: cancelled writes can leave a buffered flush blocked on stdin.
 cleanup :: Int -> (Maybe Handle, Maybe Handle, Maybe Handle, ProcessHandle) -> IO ()
@@ -316,32 +319,54 @@ cleanupHandles grace process handles =
 
 stopOwnedProcess :: Int -> ProcessHandle -> IO ()
 stopOwnedProcess grace process =
-  (terminateProcess process >> when (grace > 0) (void (timeout grace awaitExit)))
+  (terminateProcess process >> when (grace > 0) (void (timeout grace (awaitProcessExit process))))
     `finally` uninterruptibleMask_
       ( do
           getPid process >>= mapM_ kill
           void (waitForProcess process)
       )
   where
-    -- Polling may be interrupted; cancelling waitForProcess can lose reaped status.
-    awaitExit = getProcessExitCode process >>= maybe (threadDelay 10000 >> awaitExit) (const (pure ()))
     -- No other thread can reap this child between obtaining its PID and signalling.
     kill pid = signalProcess sigKILL pid `catch` \err -> unless (isDoesNotExistError err) (throwIO err)
 
+-- Polling can be cancelled without interrupting waitForProcess after reaping.
+-- Mask the nonblocking query so its status-cache update completes before a
+-- pending asynchronous exception is delivered.
+awaitProcessExit :: ProcessHandle -> IO ExitCode
+awaitProcessExit process = mask_ (getProcessExitCode process) >>= maybe (threadDelay 10000 >> awaitProcessExit process) pure
+
+-- EOF can arrive before the exit notification. Match the Python transport's
+-- two-second settling budget, without letting a live child's closed stream
+-- wait indefinitely or treating a later cleanup signal as the original error.
+reportProcessExit :: ProcessHandle -> JsonLinesError -> IO a
+reportProcessExit process failure = do
+  status <- ioBoundary ProcessReadFailure (timeout 2000000 (awaitProcessExit process))
+  throwIO (maybe failure ProcessExited status)
+
 -- | Write and flush one UTF-8 JSON object atomically with respect to other
 -- sends on this channel. No protocol/version or attribution fields are added.
+-- A known exit is reported before writing; a failed write uses the same
+-- diagnostic settling budget as clean EOF.
 sendObject :: JsonLinesProcess -> Object -> IO ()
-sendObject (JsonLinesProcess limit input _ writer _) value = withMVar writer $ \() -> do
+sendObject (JsonLinesProcess limit input _ writer _ process) value = withMVar writer $ \() -> do
   let bytes = encode value
   when (BL.length bytes > fromIntegral limit) (throwIO FrameTooLarge)
-  ioBoundary ProcessWriteFailure $ BL.hPutStr input (bytes <> "\n") >> hFlush input
+  ioBoundary ProcessWriteFailure (mask_ (getProcessExitCode process)) >>= mapM_ (throwIO . ProcessExited)
+  ioBoundary ProcessWriteFailure (BL.hPutStr input (bytes <> "\n") >> hFlush input) `catch` \case
+    ProcessWriteFailure -> reportProcessExit process ProcessWriteFailure
+    failure -> throwIO failure
 
 -- | Read one complete JSON object, retaining subsequent bytes for the next
 -- call. Partial reads and UTF-8 splits are handled before JSON decoding.
 -- Malformed JSON, non-object JSON and blank lines fail rather than being skipped.
+-- Buffered frames precede exit diagnostics. Clean EOF uses a two-second exit
+-- settling budget; framing errors and caller cancellation retain their identity.
 receiveObject :: JsonLinesProcess -> IO Object
-receiveObject (JsonLinesProcess limit _ output _ reader) = modifyMVar reader $ \buffer -> do
-  (line, rest) <- ioBoundary ProcessReadFailure (readFrame limit output buffer)
+receiveObject (JsonLinesProcess limit _ output _ reader process) = modifyMVar reader $ \buffer -> do
+  (line, rest) <-
+    ioBoundary ProcessReadFailure (readFrame limit output buffer) `catch` \case
+      EndOfStream -> reportProcessExit process EndOfStream
+      failure -> throwIO failure
   value <- either (const (throwIO InvalidJsonObject)) pure (eitherDecodeStrict' line)
   pure (rest, value)
 
