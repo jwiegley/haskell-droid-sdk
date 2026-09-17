@@ -12,6 +12,7 @@ import ContentSpec (contentTests)
 import ContextSpec (contextTests)
 import Control.Monad (forM_)
 import ControlSpec (controlTests)
+import CurrentOperationsSpec (currentOperationTests)
 import CwdStateSpec (cwdStateTests)
 import DaemonAttachmentSpec (attachmentTests)
 import DaemonAutomationConfigSpec (automationConfigTests)
@@ -211,6 +212,7 @@ suiteMain = do
         retryTests,
         connectionReadinessTests,
         daemonStateTests,
+        currentOperationTests,
         processTests,
         protocolTests,
         connectionHookTests,

@@ -14,28 +14,42 @@ module Factory.Droid.Schema.Daemon.Worktree
     WorktreeProfileContents (..),
     WorktreeProfile (..),
     ListWorktreeProfilesParams (..),
+    SaveWorktreeProfileParams (..),
+    defaultSaveWorktreeProfileParams,
+    WorktreeProfileError (..),
+    validateSaveWorktreeProfileParams,
     DeleteWorktreeProfileParams (..),
     ListWorktreeProfilesResult (..),
     SaveWorktreeProfileResult (..),
+    parseWorktreeSetupProfilesResult,
+    parseSavedWorktreeSetupProfileResult,
     ManagedWorktreeSession (..),
     ManagedWorktree (..),
     ListManagedWorktreesParams (..),
     ListManagedWorktreesResult (..),
     CleanupWorktreeParams (..),
     CleanupWorktreeResult (..),
+    InspectWorktreeDeletionParams (..),
+    WorktreePullRequestState (..),
+    WorktreePullRequest (..),
+    InspectWorktreeDeletionResult (..),
     SessionArchiveStateChanged (..),
     WorktreeBranchChanged (..),
     WorktreeRemoved (..),
   )
 where
 
-import Control.Monad (guard)
-import Data.Aeson (FromJSON (..), Object, ToJSON (..), Value (String), object, withObject, withText, (.:), (.:!), (.=))
+import Control.Exception (Exception)
+import Control.Monad (forM, forM_, guard, unless, when)
+import Data.Aeson (FromJSON (..), Object, ToJSON (..), Value (..), object, withObject, withText, (.:), (.:!), (.=))
 import Data.Aeson.Key (Key)
+import Data.Aeson.KeyMap qualified as KeyMap
+import Data.Aeson.Types (Parser)
+import Data.Maybe (catMaybes)
 import Data.Scientific (Scientific)
 import Data.Text (Text)
 import Data.Text qualified as Text
-import Factory.Droid.Internal.JSON (additionalFields, objectWithAdditionalFields, optionalField, rejectUnknownFields)
+import Factory.Droid.Internal.JSON (additionalFields, isEcmaWhitespace, objectWithAdditionalFields, optionalField, rejectUnknownFields)
 import Factory.Droid.Schema.Enums (WorktreeLifecycle)
 import Factory.Droid.Schema.Primitives (BoundedText, NonEmptyText, Rfc3339Timestamp, UUIDText, boundedTextValue, mkBoundedText)
 import Numeric.Natural (Natural)
@@ -159,6 +173,49 @@ instance FromJSON ListWorktreeProfilesParams where
 instance ToJSON ListWorktreeProfilesParams where
   toJSON params = object ["cwd" .= profilesCwd params]
 
+-- | A save request accepts raw text; the SDK operation validates and trims
+-- name/content before admission. The cwd and optional UUID are not trimmed.
+data SaveWorktreeProfileParams = SaveWorktreeProfileParams
+  { saveProfileCwd :: !Text,
+    saveProfileName :: !Text,
+    saveProfileScript :: !(Maybe Text),
+    saveProfileCleanupScript :: !(Maybe Text),
+    saveProfileInitialPrompt :: !(Maybe Text),
+    saveProfileId :: !(Maybe UUIDText)
+  }
+  deriving stock (Eq)
+
+instance Show SaveWorktreeProfileParams where show _ = "SaveWorktreeProfileParams <redacted>"
+
+-- | Set at least one nonempty content field before submitting this template.
+defaultSaveWorktreeProfileParams :: Text -> Text -> SaveWorktreeProfileParams
+defaultSaveWorktreeProfileParams cwd name = SaveWorktreeProfileParams cwd name Nothing Nothing Nothing Nothing
+
+data WorktreeProfileError = InvalidWorktreeProfileName | WorktreeProfileContentTooLong | WorktreeProfileContentRequired
+  deriving stock (Eq, Show)
+
+instance Exception WorktreeProfileError
+
+-- | Match SDK preparation without changing the raw protocol codecs' Unicode
+-- code-point bounds: trim ECMAScript whitespace, then count UTF-16 code units.
+validateSaveWorktreeProfileParams :: SaveWorktreeProfileParams -> Either WorktreeProfileError SaveWorktreeProfileParams
+validateSaveWorktreeProfileParams params = do
+  name <- normalizedProfileName (saveProfileName params)
+  script <- traverse normalizedProfileContent (saveProfileScript params)
+  cleanup <- traverse normalizedProfileContent (saveProfileCleanupScript params)
+  prompt <- traverse normalizedProfileContent (saveProfileInitialPrompt params)
+  when (all Text.null (catMaybes [script, cleanup, prompt])) (Left WorktreeProfileContentRequired)
+  pure params {saveProfileName = name, saveProfileScript = script, saveProfileCleanupScript = cleanup, saveProfileInitialPrompt = prompt}
+
+instance FromJSON SaveWorktreeProfileParams where
+  parseJSON = withObject "SaveWorktreeProfileParams" $ \fields -> do
+    rejectUnknownFields saveProfileKeys fields
+    params <- SaveWorktreeProfileParams <$> fields .: "cwd" <*> fields .: "name" <*> fields .:! "script" <*> fields .:! "cleanupScript" <*> fields .:! "initialPrompt" <*> fields .:! "profileId"
+    either (fail . show) pure (validateSaveWorktreeProfileParams params)
+
+instance ToJSON SaveWorktreeProfileParams where
+  toJSON params = object (["cwd" .= saveProfileCwd params, "name" .= saveProfileName params] <> optionalField "script" (saveProfileScript params) <> optionalField "cleanupScript" (saveProfileCleanupScript params) <> optionalField "initialPrompt" (saveProfileInitialPrompt params) <> optionalField "profileId" (saveProfileId params))
+
 -- | Closed profile-delete parameters, without deleting any profile.
 data DeleteWorktreeProfileParams = DeleteWorktreeProfileParams
   { deletedProfileCwd :: !Text,
@@ -210,6 +267,19 @@ instance FromJSON SaveWorktreeProfileResult where
 
 instance ToJSON SaveWorktreeProfileResult where
   toJSON result = objectWithAdditionalFields ["profile"] (savedProfileAdditionalFields result) ["profile" .= savedWorktreeProfile result]
+
+-- | SDK result preparation followed by the existing wire decoder. Unlike
+-- TypeScript's stripping, native outer and nested extensions remain preserved.
+parseWorktreeSetupProfilesResult :: Value -> Parser ListWorktreeProfilesResult
+parseWorktreeSetupProfilesResult = withObject "ListWorktreeProfilesResult" $ \fields -> do
+  original <- fields .: "profiles" :: Parser [Value]
+  profiles <- traverse normalizeSdkProfile original
+  parseJSON (Object (KeyMap.insert "profiles" (toJSON profiles) fields))
+
+parseSavedWorktreeSetupProfileResult :: Value -> Parser SaveWorktreeProfileResult
+parseSavedWorktreeSetupProfileResult = withObject "SaveWorktreeProfileResult" $ \fields -> do
+  profile <- fields .: "profile" >>= normalizeSdkProfile
+  parseJSON (Object (KeyMap.insert "profile" profile fields))
 
 -- | Worktree-linked session metadata. Both ID and title are nonempty here;
 -- updatedAt is a JSON number rather than a date-time string.
@@ -331,6 +401,69 @@ instance FromJSON CleanupWorktreeResult where
 instance ToJSON CleanupWorktreeResult where
   toJSON result = objectWithAdditionalFields cleanupResultKeys (cleanupResultAdditionalFields result) (["worktreePath" .= cleanupReportedPath result, "archivedSessionIds" .= cleanupArchivedSessionIds result, "worktreeRemoved" .= cleanupWorktreeRemoved result, "localBranchDeleted" .= cleanupLocalBranchDeleted result, "remoteBranchDeleted" .= cleanupRemoteBranchDeleted result, "warnings" .= cleanupWarnings result] <> optionalField "branch" (cleanupBranch result) <> optionalField "preservedReason" (cleanupPreservedReason result))
 
+-- | Closed inspection parameters. Nonempty does not establish an absolute or
+-- existing path; this codec performs no filesystem or Git inspection.
+newtype InspectWorktreeDeletionParams = InspectWorktreeDeletionParams {inspectWorktreePath :: NonEmptyText}
+  deriving stock (Eq)
+
+instance Show InspectWorktreeDeletionParams where show _ = "InspectWorktreeDeletionParams <redacted>"
+
+instance FromJSON InspectWorktreeDeletionParams where
+  parseJSON = withObject "InspectWorktreeDeletionParams" $ \fields -> rejectUnknownFields ["worktreePath"] fields >> InspectWorktreeDeletionParams <$> fields .: "worktreePath"
+
+instance ToJSON InspectWorktreeDeletionParams where
+  toJSON params = object ["worktreePath" .= inspectWorktreePath params]
+
+data WorktreePullRequestState = WorktreePullRequestOpen | WorktreePullRequestMerged | WorktreePullRequestClosed
+  deriving stock (Eq, Ord, Show, Enum, Bounded)
+
+instance FromJSON WorktreePullRequestState where
+  parseJSON = withText "WorktreePullRequestState" $ \case "open" -> pure WorktreePullRequestOpen; "merged" -> pure WorktreePullRequestMerged; "closed" -> pure WorktreePullRequestClosed; _ -> fail "Unknown worktree pull-request state"
+
+instance ToJSON WorktreePullRequestState where
+  toJSON = String . \case WorktreePullRequestOpen -> "open"; WorktreePullRequestMerged -> "merged"; WorktreePullRequestClosed -> "closed"
+
+data WorktreePullRequest = WorktreePullRequest
+  { worktreePullRequestState :: !WorktreePullRequestState,
+    worktreePullRequestUrl :: !(Maybe Text),
+    worktreePullRequestTitle :: !(Maybe Text),
+    worktreePullRequestAdditionalFields :: !Object
+  }
+  deriving stock (Eq)
+
+instance Show WorktreePullRequest where show _ = "WorktreePullRequest <redacted>"
+
+instance FromJSON WorktreePullRequest where
+  parseJSON = withObject "WorktreePullRequest" $ \fields -> WorktreePullRequest <$> fields .: "state" <*> fields .:! "url" <*> fields .:! "title" <*> pure (additionalFields ["state", "url", "title"] fields)
+
+instance ToJSON WorktreePullRequest where
+  toJSON result = objectWithAdditionalFields ["state", "url", "title"] (worktreePullRequestAdditionalFields result) (["state" .= worktreePullRequestState result] <> optionalField "url" (worktreePullRequestUrl result) <> optionalField "title" (worktreePullRequestTitle result))
+
+-- | Counts are reported JSON numbers, not locally inferred nonnegative sizes.
+-- An absent pull request or commit count does not imply an empty/zero report.
+data InspectWorktreeDeletionResult = InspectWorktreeDeletionResult
+  { inspectedWorktreePath :: !Text,
+    inspectedChangedFiles :: !Scientific,
+    inspectedAdditions :: !Scientific,
+    inspectedDeletions :: !Scientific,
+    inspectedUntrackedFiles :: !Scientific,
+    inspectedHasRemoteBranch :: !Bool,
+    inspectedRemoteRefsStale :: !Bool,
+    inspectedBranch :: !(Maybe Text),
+    inspectedLocalOnlyCommits :: !(Maybe Scientific),
+    inspectedPullRequest :: !(Maybe WorktreePullRequest),
+    inspectedWorktreeAdditionalFields :: !Object
+  }
+  deriving stock (Eq)
+
+instance Show InspectWorktreeDeletionResult where show _ = "InspectWorktreeDeletionResult <redacted>"
+
+instance FromJSON InspectWorktreeDeletionResult where
+  parseJSON = withObject "InspectWorktreeDeletionResult" $ \fields -> InspectWorktreeDeletionResult <$> fields .: "worktreePath" <*> fields .: "changedFiles" <*> fields .: "additions" <*> fields .: "deletions" <*> fields .: "untrackedFiles" <*> fields .: "hasRemoteBranch" <*> fields .: "remoteRefsStale" <*> fields .:! "branch" <*> fields .:! "localOnlyCommits" <*> fields .:! "pullRequest" <*> pure (additionalFields inspectionKeys fields)
+
+instance ToJSON InspectWorktreeDeletionResult where
+  toJSON result = objectWithAdditionalFields inspectionKeys (inspectedWorktreeAdditionalFields result) (["worktreePath" .= inspectedWorktreePath result, "changedFiles" .= inspectedChangedFiles result, "additions" .= inspectedAdditions result, "deletions" .= inspectedDeletions result, "untrackedFiles" .= inspectedUntrackedFiles result, "hasRemoteBranch" .= inspectedHasRemoteBranch result, "remoteRefsStale" .= inspectedRemoteRefsStale result] <> optionalField "branch" (inspectedBranch result) <> optionalField "localOnlyCommits" (inspectedLocalOnlyCommits result) <> optionalField "pullRequest" (inspectedPullRequest result))
+
 -- | An archive-state notification body. Optional fields do not imply an action
 -- when absent, and archivedAt remains an unparsed string in this schema.
 data SessionArchiveStateChanged = SessionArchiveStateChanged
@@ -393,3 +526,38 @@ managedKeys = ["path", "repoRoot", "lifecycle", "sessions", "branch", "isClean",
 cleanupKeys = ["worktreePath", "deleteLocalBranch", "deleteRemoteBranch", "force"]
 cleanupResultKeys = ["worktreePath", "archivedSessionIds", "worktreeRemoved", "localBranchDeleted", "remoteBranchDeleted", "warnings", "branch", "preservedReason"]
 archiveKeys = ["sessionId", "title", "archivedAt", "cwd", "repoRoot", "worktreeRemoved"]
+
+saveProfileKeys, inspectionKeys :: [Key]
+saveProfileKeys = ["cwd", "name", "script", "cleanupScript", "initialPrompt", "profileId"]
+inspectionKeys = ["worktreePath", "changedFiles", "additions", "deletions", "untrackedFiles", "hasRemoteBranch", "remoteRefsStale", "branch", "localOnlyCommits", "pullRequest"]
+
+normalizedProfileName :: Text -> Either WorktreeProfileError Text
+normalizedProfileName raw = case normalizeProfileText 100 raw of
+  Just name | not (Text.null name) -> Right name
+  _ -> Left InvalidWorktreeProfileName
+
+normalizedProfileContent :: Text -> Either WorktreeProfileError Text
+normalizedProfileContent = maybe (Left WorktreeProfileContentTooLong) Right . normalizeProfileText 100000
+
+normalizeProfileText :: Int -> Text -> Maybe Text
+normalizeProfileText limit raw = do
+  let value = Text.dropAround isEcmaWhitespace raw
+      size = Text.foldl' (\count char -> count + if char > '\xffff' then 2 else 1) 0 value
+  guard (size <= limit)
+  pure value
+
+-- Normalize before the raw bounded decoders so trim-before-length accepts
+-- long whitespace padding. Do not alter the supplied 1.205.0 wire codecs.
+normalizeSdkProfile :: Value -> Parser Value
+normalizeSdkProfile = withObject "WorktreeProfile" $ \fields -> do
+  name <- fields .: "name" >>= either (fail . show) pure . normalizedProfileName
+  content <- forM ["script", "cleanupScript", "initialPrompt"] $ \key -> do
+    original <- fields .:! key
+    normalized <- traverse (either (fail . show) pure . normalizedProfileContent) original
+    pure (optionalField key normalized)
+  forM_ ["createdAt", "updatedAt"] $ \key -> do
+    text <- fields .: key
+    -- SDK datetime is UTC with seconds; the raw timestamp decoder below also
+    -- validates calendar/time syntax. No offset/minute/leap-second rewriting.
+    unless (Text.length text >= 20 && Text.index text 10 == 'T' && Text.isSuffixOf "Z" text && Text.take 2 (Text.drop 17 text) /= "60") (fail "Expected an SDK UTC profile timestamp with seconds")
+  pure (Object (KeyMap.union (KeyMap.fromList ("name" .= name : concat content)) fields))

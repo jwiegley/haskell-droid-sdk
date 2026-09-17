@@ -1755,6 +1755,8 @@ Software Factory operations use the existing authenticated daemon connection. `S
 | `sfCreateWorkstream` | Title and goal are required; `defaultSfCreateWorkstreamParams` leaves all other options absent. |
 | `sfUpdateWorkstream` | Partial update from `defaultSfUpdateWorkstreamParams`; omitted fields are not synthesized. Only the supplied icon-clear field accepts explicit null. |
 | `sfDeleteWorkstream` | Returns the pre-deletion row, reported automation counts and actual directory-deletion flag. |
+| `sfPublishWorkstreamContent` | Explicit workstream ID and nonnegative expected generation; a successful receipt has a positive generation. Conflicts propagate without forced retry. |
+| `sfHydrateWorkstreamContent` | Explicit workstream ID, not `idOrSlug`; generation zero is a valid receipt. Counts and directory are remote reports, not local file verification. |
 | `sfListSignals`, `sfListChanges` | Share `SfListParams` with their respective status types; filters and limits are optional. |
 | `sfListActivities` | Optional workstream/change/review-queue filters and limit; results include change context. |
 | `sfResolveActivityReview` | Approved, declined or commented decision, optional comment, and an optional reported follow-up activity. |
@@ -1972,9 +1974,37 @@ Input and reported sources are different types. Their source objects project dec
 
 Do not default missing `active`, `managed`, `reason`, `provisionedBy` or `removable` fields into policy. In particular, removal UI/automation must require explicit removable permission rather than infer it from absent provenance. Explicit mutation methods forward the request; the daemon enforces policy. Empty optional update targets are not expanded through a local cache. No Git clone, filesystem installation, plugin execution, optimistic update or retry is performed by the SDK. Cancellation follows the existing read-versus-mutation policy and does not undo external installation work. See [plugin verification](docs/development.md#daemon-plugin-and-marketplace-delivery).
 
+## Daemon worktree management
+
+`listWorktreeSetupProfiles`, `saveWorktreeSetupProfile`, `deleteWorktreeSetupProfile`, `listManagedWorktrees`, `cleanupWorktree` and `inspectWorktreeDeletion` use the existing authenticated connection. Their request/result records are in `Schema.Daemon.Worktree`; deletion reuses `Schema.RPC.SuccessResult`, where explicit false remains a result rather than an invented exception. `ListManagedWorktreesParams Nothing` omits `includeSizes`; explicit false and true are forwarded.
+
+```haskell
+module WorktreeOperationsExample (inspect, saveSetup) where
+
+import Data.Text (Text)
+import Factory.Droid.Daemon qualified as Daemon
+import Factory.Droid.Schema.Daemon.Worktree
+import Factory.Droid.Schema.Primitives (NonEmptyText)
+
+inspect :: Daemon.DaemonConnection -> NonEmptyText -> IO InspectWorktreeDeletionResult
+inspect connection path =
+  Daemon.inspectWorktreeDeletion connection (InspectWorktreeDeletionParams path)
+
+saveSetup :: Daemon.DaemonConnection -> Text -> Text -> Text -> IO SaveWorktreeProfileResult
+saveSetup connection cwd name script =
+  Daemon.saveWorktreeSetupProfile connection
+    ((defaultSaveWorktreeProfileParams cwd name) {saveProfileScript = Just script})
+```
+
+This example is compiled, not executed. Calling `saveSetup` requests a change to the daemon's profile store; inspection does not authorize or trigger cleanup. Save preparation trims ECMAScript whitespace from the name and content fields, then enforces the SDK's UTF-16 limits (100 for names, 100,000 for each script/prompt). At least one content field must remain nonempty. An absent profile ID requests creation; a supplied UUID requests an update. Cwd is not trimmed. `validateSaveWorktreeProfileParams` exposes the same pure preparation used by the operation.
+
+Profile list/save operations also normalize returned names/content and require UTC timestamps with seconds. The separate raw 1.205.0 wire codecs retain their existing code-point/literal-string contracts; SDK normalization does not change `BoundedText` globally. Native open-record extensions remain preserved rather than adopting TypeScript's field stripping.
+
+Cleanup is an explicit remote mutation with a three-minute RPC exchange budget, not a hard wall-clock bound. Low-level `Client` callers retain their chosen `CallOptions`. Flags are not escalated, warnings and partial outcomes are returned, and cancellation does not undo deletion. Inspection preserves optional/zero values and unconstrained numeric reports without inventing branch, URL or filesystem validity. The SDK process runs neither Git nor profile scripts and maintains no second resource cache; remote actions remain daemon-owned.
+
 ## Daemon catalogs, history and archival
 
-`Daemon.withConnection` authenticates without initializing or loading a session. Its catalog operations return wire data, not live session handles. The following example is compiled without execution; calling it contacts the selected daemon.
+`Daemon.withConnection` authenticates without initializing or loading a session. Its catalog operations return wire data, not live session handles. `Daemon.listModels` accepts `Schema.Models.ListModelsOptions`; `ListModelsOptions Nothing mempty` leaves `includeDisabled` absent, while explicit false or true is retained. The following example is compiled without execution; calling it contacts the selected daemon.
 
 ```haskell
 module CatalogExample (inspectSaved) where
@@ -2086,7 +2116,9 @@ Priority zero is reviewable, not missing. Classification and this pure view neit
 
 ## Daemon workspace and file operations
 
-The authenticated `DaemonConnection` also exposes `checkFolderTrust`, `trustFolder`, `validateWorkingDirectory`, `changeWorkingDirectory`, `listFiles`, `searchFiles`, `getWorkspaceFileContent`, `pushCwdFileToUrl` and `pullUrlToCwdFile`. Parameter/result records live in `Schema.Daemon.Workspace`; directory validation/change reuse `Schema.Control` results. The target session must be known to the daemon. These calls do not implicitly load a session, inspect local paths or change the SDK process cwd. A validated `changeWorkingDirectory` result also updates the observed cwd described below; validation and trust reports do not.
+The authenticated `DaemonConnection` also exposes `checkFolderTrust`, `trustFolder`, `validateWorkingDirectory`, `changeWorkingDirectory`, `listFiles`, `searchFiles`, `getWorkspaceFileContent`, `writeWorkspaceFileContent`, `pushCwdFileToUrl` and `pullUrlToCwdFile`. Parameter/result records live in `Schema.Daemon.Workspace`; directory validation/change reuse `Schema.Control` results. The target session must be known to the daemon. Calls share the connection's readiness/authentication policy: file-content reads and writes do not load a worker, while other session-scoped calls retain the configured readiness guard. They do not inspect local paths or change the SDK process cwd. A validated `changeWorkingDirectory` result also updates the observed cwd described below; validation and trust reports do not.
+
+`writeWorkspaceFileContent` forwards full UTF-8 text, including empty content, and an optional opaque base fingerprint. Absence and an explicit empty fingerprint remain distinct. The daemon owns conflict detection and returns the written byte length/fingerprint; the SDK does not calculate these, silently retry a conflict or write the client's filesystem. Session identity is used for cwd resolution, without resurrecting a cached inactive session.
 
 ```haskell
 module WorkspaceExample (inspectFile) where

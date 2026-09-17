@@ -20,6 +20,8 @@ module Factory.Droid.Schema.Daemon.SoftwareFactory
     SfEvent (..),
     SfListWorkstreamsParams (..),
     SfWorkstreamTarget (..),
+    SfPublishWorkstreamContentParams (..),
+    SfHydrateWorkstreamContentParams (..),
     SfCreateWorkstreamParams (..),
     defaultSfCreateWorkstreamParams,
     SfUpdateWorkstreamParams (..),
@@ -39,6 +41,8 @@ module Factory.Droid.Schema.Daemon.SoftwareFactory
     SfGetWorkstreamResult (..),
     SfWorkstreamResult (..),
     SfDeleteWorkstreamResult (..),
+    SfWorkstreamContentResult (..),
+    parseSfPublishedWorkstreamContentResult,
     SfListSignalsResult (..),
     SfListChangesResult (..),
     SfListActivitiesResult (..),
@@ -50,9 +54,11 @@ where
 
 import Data.Aeson (FromJSON (..), Object, ToJSON (..), Value (..), object, withObject, withText, (.:), (.:!), (.=))
 import Data.Aeson.Key (Key)
+import Data.Aeson.Types (Parser)
 import Data.Scientific (Scientific)
 import Data.Text (Text)
 import Factory.Droid.Internal.JSON (additionalFields, objectWithAdditionalFields, optionalField)
+import Numeric.Natural (Natural)
 
 data SfWorkstreamState = SfDraft | SfActive | SfPaused | SfCanceled | SfArchived deriving stock (Eq, Ord, Show, Enum, Bounded)
 
@@ -308,6 +314,37 @@ instance FromJSON SfWorkstreamTarget where parseJSON = withObject "SfWorkstreamT
 
 instance ToJSON SfWorkstreamTarget where toJSON value = objectWithAdditionalFields ["idOrSlug"] (sfWorkstreamTargetAdditionalFields value) ["idOrSlug" .= sfWorkstreamIdOrSlug value]
 
+-- | Content synchronization uses a workstream ID, not the get/delete idOrSlug.
+-- Expected generation zero is valid; the daemon owns conflict detection.
+data SfPublishWorkstreamContentParams = SfPublishWorkstreamContentParams
+  { sfPublishWorkstreamId :: !Text,
+    sfExpectedContentGeneration :: !Natural,
+    sfPublishContentAdditionalFields :: !Object
+  }
+  deriving stock (Eq)
+
+instance Show SfPublishWorkstreamContentParams where show _ = "SfPublishWorkstreamContentParams <redacted>"
+
+instance FromJSON SfPublishWorkstreamContentParams where
+  parseJSON = withObject "SfPublishWorkstreamContentParams" $ \fields -> SfPublishWorkstreamContentParams <$> fields .: "workstreamId" <*> fields .: "expectedGeneration" <*> pure (additionalFields ["workstreamId", "expectedGeneration"] fields)
+
+instance ToJSON SfPublishWorkstreamContentParams where
+  toJSON value = objectWithAdditionalFields ["workstreamId", "expectedGeneration"] (sfPublishContentAdditionalFields value) ["workstreamId" .= sfPublishWorkstreamId value, "expectedGeneration" .= sfExpectedContentGeneration value]
+
+data SfHydrateWorkstreamContentParams = SfHydrateWorkstreamContentParams
+  { sfHydrateWorkstreamId :: !Text,
+    sfHydrateContentAdditionalFields :: !Object
+  }
+  deriving stock (Eq)
+
+instance Show SfHydrateWorkstreamContentParams where show _ = "SfHydrateWorkstreamContentParams <redacted>"
+
+instance FromJSON SfHydrateWorkstreamContentParams where
+  parseJSON = withObject "SfHydrateWorkstreamContentParams" $ \fields -> SfHydrateWorkstreamContentParams <$> fields .: "workstreamId" <*> pure (additionalFields ["workstreamId"] fields)
+
+instance ToJSON SfHydrateWorkstreamContentParams where
+  toJSON value = objectWithAdditionalFields ["workstreamId"] (sfHydrateContentAdditionalFields value) ["workstreamId" .= sfHydrateWorkstreamId value]
+
 data SfCreateWorkstreamParams = SfCreateWorkstreamParams
   { sfCreateTitle :: !Text,
     sfCreateGoal :: !Text,
@@ -536,6 +573,30 @@ instance FromJSON SfDeleteWorkstreamResult where
 
 instance ToJSON SfDeleteWorkstreamResult where
   toJSON value = objectWithAdditionalFields ["workstream", "automationsDeleted", "workstreamDirDeleted", "remoteAutomationsDeleted"] (sfDeleteResultAdditionalFields value) (["workstream" .= sfDeletedWorkstream value, "automationsDeleted" .= sfAutomationsDeleted value, "workstreamDirDeleted" .= sfWorkstreamDirDeleted value] <> optionalField "remoteAutomationsDeleted" (sfRemoteAutomationsDeleted value))
+
+-- | Reported synchronization totals, not local file inspection. Hydration may
+-- report generation zero; the publish operation uses the stricter parser below.
+data SfWorkstreamContentResult = SfWorkstreamContentResult
+  { sfContentGeneration :: !Natural,
+    sfContentFileCount :: !Natural,
+    sfContentTotalBytes :: !Natural,
+    sfContentWorkstreamDir :: !Text,
+    sfContentResultAdditionalFields :: !Object
+  }
+  deriving stock (Eq)
+
+instance Show SfWorkstreamContentResult where show _ = "SfWorkstreamContentResult <redacted>"
+
+instance FromJSON SfWorkstreamContentResult where
+  parseJSON = withObject "SfWorkstreamContentResult" $ \fields -> SfWorkstreamContentResult <$> fields .: "generation" <*> fields .: "fileCount" <*> fields .: "totalBytes" <*> fields .: "workstreamDir" <*> pure (additionalFields ["generation", "fileCount", "totalBytes", "workstreamDir"] fields)
+
+instance ToJSON SfWorkstreamContentResult where
+  toJSON value = objectWithAdditionalFields ["generation", "fileCount", "totalBytes", "workstreamDir"] (sfContentResultAdditionalFields value) ["generation" .= sfContentGeneration value, "fileCount" .= sfContentFileCount value, "totalBytes" .= sfContentTotalBytes value, "workstreamDir" .= sfContentWorkstreamDir value]
+
+parseSfPublishedWorkstreamContentResult :: Value -> Parser SfWorkstreamContentResult
+parseSfPublishedWorkstreamContentResult value = do
+  result <- parseJSON value
+  if sfContentGeneration result > 0 then pure result else fail "A published content generation must be positive"
 
 data SfListSignalsResult = SfListSignalsResult {sfSignals :: ![SfSignal], sfSignalsResultAdditionalFields :: !Object} deriving stock (Eq)
 

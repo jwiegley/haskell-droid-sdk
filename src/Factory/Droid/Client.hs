@@ -35,6 +35,8 @@ module Factory.Droid.Client
     createDaemonSfWorkstream,
     updateDaemonSfWorkstream,
     deleteDaemonSfWorkstream,
+    publishDaemonSfWorkstreamContent,
+    hydrateDaemonSfWorkstreamContent,
     listDaemonSfSignals,
     listDaemonSfChanges,
     listDaemonSfActivities,
@@ -50,6 +52,12 @@ module Factory.Droid.Client
     getDaemonRelayStatus,
     listDaemonGitBranches,
     checkoutDaemonGitBranch,
+    listDaemonWorktreeSetupProfiles,
+    saveDaemonWorktreeSetupProfile,
+    deleteDaemonWorktreeSetupProfile,
+    listDaemonManagedWorktrees,
+    cleanupDaemonWorktree,
+    inspectDaemonWorktreeDeletion,
     getDaemonGitBranchDivergence,
     getDaemonGitDiff,
     resolveDaemonPullRequestStatuses,
@@ -103,6 +111,7 @@ module Factory.Droid.Client
     setDaemonSkillDisabled,
     listDaemonOpenedSessions,
     listDaemonAvailableSessions,
+    listDaemonModels,
     getDaemonSessionMessages,
     searchDaemonSessions,
     archiveDaemonSession,
@@ -114,6 +123,7 @@ module Factory.Droid.Client
     listDaemonFiles,
     searchDaemonFiles,
     getDaemonWorkspaceFileContent,
+    writeDaemonWorkspaceFileContent,
     pushDaemonCwdFileToUrl,
     pullDaemonUrlToCwdFile,
     createDaemonTerminal,
@@ -161,7 +171,7 @@ import Control.Concurrent.STM (STM)
 import Control.Exception (throwIO)
 import Data.Aeson (FromJSON (..), Object, ToJSON (..), Value (String))
 import Data.Aeson.KeyMap qualified as KeyMap
-import Data.Aeson.Types (parseEither)
+import Data.Aeson.Types (Parser, parseEither)
 import Data.Maybe (fromMaybe)
 import Data.Proxy (Proxy (..))
 import Data.Text (Text)
@@ -196,9 +206,10 @@ import Factory.Droid.Schema.Daemon.Management (InstallSshKeyParams, InstallSshKe
 import Factory.Droid.Schema.Daemon.Plugin (AddMarketplaceParams, AddMarketplaceResult, InstallPluginParams, InstallPluginResult, ListAvailablePluginsResult, ListInstalledPluginsResult, ListMarketplacesResult, MarketplaceNameParams, PluginScopeParams, PluginTargetParams, SetPluginEnabledParams, UpdateMarketplaceParams, UpdateMarketplaceResult, UpdatePluginParams, UpdatePluginResult)
 import Factory.Droid.Schema.Daemon.Session (ArchiveSessionParams, ArchiveSessionResult, DaemonCloseSessionParams, GetSessionMessagesParams, GetSessionMessagesResult, ListAvailableSessionsParams, ListAvailableSessionsResult, ListOpenedSessionsParams, ListOpenedSessionsResult, SearchSessionsParams, SearchSessionsResult)
 import Factory.Droid.Schema.Daemon.Settings (DefaultSettings, DeleteCustomModelParams, ListCustomModelsResult, UpdateCustomModelsResult, UpdateSessionDefaultsParams, UpdateSessionDefaultsResult, UpsertCustomModelParams)
-import Factory.Droid.Schema.Daemon.SoftwareFactory (SfCreateWorkstreamParams, SfDeleteWorkstreamResult, SfGetWorkstreamResult, SfListActivitiesParams, SfListActivitiesResult, SfListChangesParams, SfListChangesResult, SfListEventsParams, SfListEventsResult, SfListSignalsParams, SfListSignalsResult, SfListWorkstreamsParams, SfListWorkstreamsResult, SfMarkEventsReadParams, SfMarkEventsUnreadParams, SfMarkedEventsResult, SfResolveActivityReviewParams, SfResolveActivityReviewResult, SfUpdateWorkstreamParams, SfWorkstreamResult, SfWorkstreamTarget)
+import Factory.Droid.Schema.Daemon.SoftwareFactory (SfCreateWorkstreamParams, SfDeleteWorkstreamResult, SfGetWorkstreamResult, SfHydrateWorkstreamContentParams, SfListActivitiesParams, SfListActivitiesResult, SfListChangesParams, SfListChangesResult, SfListEventsParams, SfListEventsResult, SfListSignalsParams, SfListSignalsResult, SfListWorkstreamsParams, SfListWorkstreamsResult, SfMarkEventsReadParams, SfMarkEventsUnreadParams, SfMarkedEventsResult, SfPublishWorkstreamContentParams, SfResolveActivityReviewParams, SfResolveActivityReviewResult, SfUpdateWorkstreamParams, SfWorkstreamContentResult, SfWorkstreamResult, SfWorkstreamTarget, parseSfPublishedWorkstreamContentResult)
 import Factory.Droid.Schema.Daemon.Terminal (CreateTerminalResult, DaemonCloseTerminalParams, DaemonCreateTerminalParams, DaemonListTerminalsParams, DaemonResizeTerminalParams, DaemonWriteTerminalDataParams, ListTerminalsResult)
-import Factory.Droid.Schema.Daemon.Workspace (ChangeSessionWorkingDirectoryParams, CheckFolderTrustParams, CheckFolderTrustResult, GetWorkspaceFileContentParams, GetWorkspaceFileContentResult, ListFilesParams (..), ListFilesResult, PullUrlToCwdFileParams, PullUrlToCwdFileResult, PushCwdFileToUrlParams, PushCwdFileToUrlResult, SearchFilesParams (..), SearchFilesResult, TrustFolderParams, TrustFolderResult)
+import Factory.Droid.Schema.Daemon.Workspace (ChangeSessionWorkingDirectoryParams, CheckFolderTrustParams, CheckFolderTrustResult, GetWorkspaceFileContentParams, GetWorkspaceFileContentResult, ListFilesParams (..), ListFilesResult, PullUrlToCwdFileParams, PullUrlToCwdFileResult, PushCwdFileToUrlParams, PushCwdFileToUrlResult, SearchFilesParams (..), SearchFilesResult, TrustFolderParams, TrustFolderResult, WriteWorkspaceFileContentParams, WriteWorkspaceFileContentResult)
+import Factory.Droid.Schema.Daemon.Worktree (CleanupWorktreeParams, CleanupWorktreeResult, DeleteWorktreeProfileParams, InspectWorktreeDeletionParams, InspectWorktreeDeletionResult, ListManagedWorktreesParams, ListManagedWorktreesResult, ListWorktreeProfilesParams, ListWorktreeProfilesResult, SaveWorktreeProfileParams, SaveWorktreeProfileResult, parseSavedWorktreeSetupProfileResult, parseWorktreeSetupProfilesResult, validateSaveWorktreeProfileParams)
 import Factory.Droid.Schema.Discovery (ListCommandsResult, ListSkillsResult, ListToolsResult, SetSkillDisabledParams)
 import Factory.Droid.Schema.Local
 import Factory.Droid.Schema.MCP
@@ -316,6 +327,12 @@ updateDaemonSfWorkstream = call (Proxy @(WithEnvelope (MethodRequest "daemon.sf.
 deleteDaemonSfWorkstream :: RpcChannel -> CallOptions -> SfWorkstreamTarget -> IO SfDeleteWorkstreamResult
 deleteDaemonSfWorkstream = call (Proxy @(WithEnvelope (MethodRequest "daemon.sf.delete_workstream" SfWorkstreamTarget)))
 
+publishDaemonSfWorkstreamContent :: RpcChannel -> CallOptions -> SfPublishWorkstreamContentParams -> IO SfWorkstreamContentResult
+publishDaemonSfWorkstreamContent = callParsed parseSfPublishedWorkstreamContentResult (Proxy @(WithEnvelope (MethodRequest "daemon.sf.publish_workstream_content" SfPublishWorkstreamContentParams)))
+
+hydrateDaemonSfWorkstreamContent :: RpcChannel -> CallOptions -> SfHydrateWorkstreamContentParams -> IO SfWorkstreamContentResult
+hydrateDaemonSfWorkstreamContent = call (Proxy @(WithEnvelope (MethodRequest "daemon.sf.hydrate_workstream_content" SfHydrateWorkstreamContentParams)))
+
 listDaemonSfSignals :: RpcChannel -> CallOptions -> SfListSignalsParams -> IO SfListSignalsResult
 listDaemonSfSignals = call (Proxy @(WithEnvelope (MethodRequest "daemon.sf.list_signals" SfListSignalsParams)))
 
@@ -348,6 +365,29 @@ listDaemonGitBranches = call (Proxy @(WithEnvelope (MethodRequest "daemon.list_g
 
 checkoutDaemonGitBranch :: RpcChannel -> CallOptions -> CheckoutBranchParams -> IO CheckoutBranchResult
 checkoutDaemonGitBranch = call (Proxy @(WithEnvelope (MethodRequest "daemon.checkout_git_branch" CheckoutBranchParams)))
+
+-- | Profile operations apply SDK preparation, retaining the separate raw wire
+-- codecs. All requests use the existing correlation, hooks and error path.
+listDaemonWorktreeSetupProfiles :: RpcChannel -> CallOptions -> ListWorktreeProfilesParams -> IO ListWorktreeProfilesResult
+listDaemonWorktreeSetupProfiles = callParsed parseWorktreeSetupProfilesResult (Proxy @(WithEnvelope (MethodRequest "daemon.list_worktree_setup_profiles" ListWorktreeProfilesParams)))
+
+saveDaemonWorktreeSetupProfile :: RpcChannel -> CallOptions -> SaveWorktreeProfileParams -> IO SaveWorktreeProfileResult
+saveDaemonWorktreeSetupProfile channel options params = do
+  prepared <- either throwIO pure (validateSaveWorktreeProfileParams params)
+  callParsed parseSavedWorktreeSetupProfileResult (Proxy @(WithEnvelope (MethodRequest "daemon.save_worktree_setup_profile" SaveWorktreeProfileParams))) channel options prepared
+
+deleteDaemonWorktreeSetupProfile :: RpcChannel -> CallOptions -> DeleteWorktreeProfileParams -> IO SuccessResult
+deleteDaemonWorktreeSetupProfile = call (Proxy @(WithEnvelope (MethodRequest "daemon.delete_worktree_setup_profile" DeleteWorktreeProfileParams)))
+
+listDaemonManagedWorktrees :: RpcChannel -> CallOptions -> ListManagedWorktreesParams -> IO ListManagedWorktreesResult
+listDaemonManagedWorktrees = call (Proxy @(WithEnvelope (MethodRequest "daemon.list_managed_worktrees" ListManagedWorktreesParams)))
+
+-- | The low-level caller owns the deadline; the Daemon helper selects 180 s.
+cleanupDaemonWorktree :: RpcChannel -> CallOptions -> CleanupWorktreeParams -> IO CleanupWorktreeResult
+cleanupDaemonWorktree = call (Proxy @(WithEnvelope (MethodRequest "daemon.cleanup_worktree" CleanupWorktreeParams)))
+
+inspectDaemonWorktreeDeletion :: RpcChannel -> CallOptions -> InspectWorktreeDeletionParams -> IO InspectWorktreeDeletionResult
+inspectDaemonWorktreeDeletion = call (Proxy @(WithEnvelope (MethodRequest "daemon.inspect_worktree_deletion" InspectWorktreeDeletionParams)))
 
 getDaemonGitBranchDivergence :: RpcChannel -> CallOptions -> GitBranchParams -> IO GitBranchDivergence
 getDaemonGitBranchDivergence = call (Proxy @(WithEnvelope (MethodRequest "daemon.get_git_branch_divergence" GitBranchParams)))
@@ -549,6 +589,10 @@ listDaemonOpenedSessions = call (Proxy @(WithEnvelope (MethodRequest "daemon.lis
 listDaemonAvailableSessions :: RpcChannel -> CallOptions -> ListAvailableSessionsParams -> IO ListAvailableSessionsResult
 listDaemonAvailableSessions = call (Proxy @(WithEnvelope (MethodRequest "daemon.list_available_sessions" ListAvailableSessionsParams)))
 
+-- | Sessionless daemon model discovery; Nothing leaves includeDisabled absent.
+listDaemonModels :: RpcChannel -> CallOptions -> ListModelsOptions -> IO ListModelsResult
+listDaemonModels = call (Proxy @(WithEnvelope (MethodRequest "daemon.list_models" ListModelsOptions)))
+
 getDaemonSessionMessages :: RpcChannel -> CallOptions -> GetSessionMessagesParams -> IO GetSessionMessagesResult
 getDaemonSessionMessages = call (Proxy @(WithEnvelope (MethodRequest "daemon.get_session_messages" GetSessionMessagesParams)))
 
@@ -584,6 +628,9 @@ searchDaemonFiles channel options params = call (Proxy @(WithEnvelope (MethodReq
 
 getDaemonWorkspaceFileContent :: RpcChannel -> CallOptions -> GetWorkspaceFileContentParams -> IO GetWorkspaceFileContentResult
 getDaemonWorkspaceFileContent = call (Proxy @(WithEnvelope (MethodRequest "daemon.get_workspace_file_content" GetWorkspaceFileContentParams)))
+
+writeDaemonWorkspaceFileContent :: RpcChannel -> CallOptions -> WriteWorkspaceFileContentParams -> IO WriteWorkspaceFileContentResult
+writeDaemonWorkspaceFileContent = call (Proxy @(WithEnvelope (MethodRequest "daemon.write_workspace_file_content" WriteWorkspaceFileContentParams)))
 
 -- | Transfer URLs are explicit caller data. The daemon transfers bytes; the
 -- low-level caller still owns this request's deadline and cancellation.
@@ -766,6 +813,13 @@ callWithHookPolicy = callWithAdmission (pure ())
 callWithAdmission :: forall method params result. (KnownSymbol method, ToJSON params, FromJSON result) => STM () -> RpcHookPolicy -> Proxy (WithEnvelope (MethodRequest method params)) -> RpcChannel -> CallOptions -> params -> IO result
 callWithAdmission admit policy method channel options params =
   requestReplyWithAdmission channel policy admit (callTimeoutMicros options) (requestEnvelope method options params) >>= either throwIO pure . decodeRpcResult
+
+-- Domain preparation composes with the same call: remote/missing-result errors
+-- retain precedence, and parser failures use the existing result-error category.
+callParsed :: forall method params result. (KnownSymbol method, ToJSON params) => (Value -> Parser result) -> Proxy (WithEnvelope (MethodRequest method params)) -> RpcChannel -> CallOptions -> params -> IO result
+callParsed parser method channel options params = do
+  value <- call method channel options params
+  either (const (throwIO RpcInvalidResult)) pure (parseEither parser value)
 
 -- | Queue validated result observation at its ordered intake position. The
 -- observer must be total and nonblocking. Return does not imply publication;

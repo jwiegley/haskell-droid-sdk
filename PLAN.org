@@ -82,15 +82,17 @@ Fess self-audit completed before closure: no production stubs, suppressed warnin
 ]
 #+end_src
 
-* DOING [#C] Deliver the ten pinned current daemon operations
+* DONE [#C] Deliver the ten pinned current daemon operations
 :PROPERTIES:
 :OBR_SCHEMA_VERSION: 17
 :ID:       hsdk-116c
 :LABELS:   []
 :ISSUE_TYPE: feature
 :CREATED:  [2026-09-16 Wed 21:43]
-:MODIFIED: [2026-09-16 Wed 21:44]
+:MODIFIED: [2026-09-16 Wed 23:24]
 :CREATED_BY: johnw
+:FINISHED: [2026-09-16 Wed 23:24]
+:CLOSE_REASON: Delivered all ten CC-01 named Client/Daemon operations through existing owners. Added only required data/preparation: SDK profile normalization/refinement without changing raw wire codecs, inspection and content synchronization, cleanup budget and workspace no-load policy. 88 new controlled-peer/codec cases; 4198 strict tests and 2 compiled examples on macOS/Linux ARM64; 20x88 focused parallel checks. Actual pinned methods/schemas: 12+25+8 scoped cases; no live mutations. Evidence/fess docs/evidence/2026-09-17/current-operations/README.md. hsdk-w50g preserves original-readiness-claim follow-up; no push.
 :SOURCE_REPO: droid-sdk-haskell
 :SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
 :ORIGINAL_SIZE: 0
@@ -8910,6 +8912,38 @@ Source distribution was independently built and tested in a separate unpacked tr
     "depends_on_id": "hsdk-sessions-streams-d0f",
     "type": "discovered-from",
     "created_at": "2026-09-07T21:29:24.304845Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
+* TODO [#C] Reconcile the original workspace no-autoload documentation claim
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-w50g
+:LABELS:   []
+:ISSUE_TYPE: task
+:CREATED:  [2026-09-16 Wed 22:58]
+:MODIFIED: [2026-09-16 Wed 22:58]
+:CREATED_BY: johnw
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+While documenting CC-01 workspace writes, README at fcb2b98:2089 claimed all listed workspace operations do not implicitly load a session. Existing default before-request policy installs ensureSessionLoaded for known inactive session IDs except skipEnsureLoaded methods; file-content read/write are exempt, but list/search/directory/transfer methods can use the readiness guard. Current README is narrowed in the operations repair; no unrelated runtime change is needed. At verify-sdk-claims, locate the corresponding original September15 claim ID/source/code binding and reconcile its disposition if the same contradiction exists there. Preserve original evidence and do not infer an original finding from current code alone. Record the correction separately from new write-operation delivery; no live call or push.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-w50g",
+    "depends_on_id": "hsdk-116c",
+    "type": "discovered-from",
+    "created_at": "2026-09-17T05:58:17.176160Z",
     "created_by": "johnw",
     "metadata": "{}",
     "thread_id": ""

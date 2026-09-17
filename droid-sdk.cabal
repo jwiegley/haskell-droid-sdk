@@ -191,6 +191,7 @@ test-suite droid-sdk-test
     ContentSpec
     ContextSpec
     ControlSpec
+    CurrentOperationsSpec
     CwdStateSpec
     DaemonAttachmentSpec
     DaemonAutomationConfigSpec

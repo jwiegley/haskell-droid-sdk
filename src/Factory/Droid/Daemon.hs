@@ -96,6 +96,8 @@ module Factory.Droid.Daemon
     sfCreateWorkstream,
     sfUpdateWorkstream,
     sfDeleteWorkstream,
+    sfPublishWorkstreamContent,
+    sfHydrateWorkstreamContent,
     sfListSignals,
     sfListChanges,
     sfListActivities,
@@ -112,6 +114,12 @@ module Factory.Droid.Daemon
     onRelayStatusChanged,
     listGitBranches,
     checkoutGitBranch,
+    listWorktreeSetupProfiles,
+    saveWorktreeSetupProfile,
+    deleteWorktreeSetupProfile,
+    listManagedWorktrees,
+    cleanupWorktree,
+    inspectWorktreeDeletion,
     getGitBranchDivergence,
     getGitDiff,
     resolvePullRequestStatuses,
@@ -160,6 +168,7 @@ module Factory.Droid.Daemon
     sendQueuedUserMessage,
     listOpenedSessions,
     listAvailableSessions,
+    listModels,
     getSessionMessages,
     searchSessions,
     archiveSession,
@@ -174,6 +183,7 @@ module Factory.Droid.Daemon
     listFiles,
     searchFiles,
     getWorkspaceFileContent,
+    writeWorkspaceFileContent,
     pushCwdFileToUrl,
     pullUrlToCwdFile,
     onSetupStepProgress,
@@ -337,16 +347,18 @@ import Factory.Droid.Schema.Daemon.Management (InstallSshKeyParams (..), Install
 import Factory.Droid.Schema.Daemon.Plugin (AddMarketplaceParams (..), AddMarketplaceResult, InstallPluginParams, InstallPluginResult, ListAvailablePluginsResult, ListInstalledPluginsResult, ListMarketplacesResult, MarketplaceNameParams (..), MarketplaceSource, PluginScopeParams (..), PluginTargetParams, SetPluginEnabledParams, UpdateMarketplaceParams (..), UpdateMarketplaceResult, UpdatePluginParams, UpdatePluginResult)
 import Factory.Droid.Schema.Daemon.Session (ArchiveSessionParams, ArchiveSessionResult, DaemonCloseSessionParams, GetSessionMessagesParams, GetSessionMessagesResult, ListAvailableSessionsParams, ListAvailableSessionsResult, ListOpenedSessionsParams, ListOpenedSessionsResult, LoadedSessionState (..), SearchSessionsParams, SearchSessionsResult, SessionArchiveStateChanged, defaultDaemonCloseSessionParams)
 import Factory.Droid.Schema.Daemon.Settings (DefaultSettings, DeleteCustomModelParams, ListCustomModelsResult, UpdateCustomModelsResult, UpdateSessionDefaultsParams, UpdateSessionDefaultsResult, UpsertCustomModelParams)
-import Factory.Droid.Schema.Daemon.SoftwareFactory (SfCreateWorkstreamParams, SfDeleteWorkstreamResult, SfGetWorkstreamResult, SfListActivitiesParams, SfListActivitiesResult, SfListChangesParams, SfListChangesResult, SfListEventsParams, SfListEventsResult, SfListSignalsParams, SfListSignalsResult, SfListWorkstreamsParams, SfListWorkstreamsResult, SfMarkEventsReadParams, SfMarkEventsUnreadParams, SfMarkedEventsResult, SfResolveActivityReviewParams, SfResolveActivityReviewResult, SfUpdateWorkstreamParams, SfWorkstreamResult, SfWorkstreamTarget)
+import Factory.Droid.Schema.Daemon.SoftwareFactory (SfCreateWorkstreamParams, SfDeleteWorkstreamResult, SfGetWorkstreamResult, SfHydrateWorkstreamContentParams, SfListActivitiesParams, SfListActivitiesResult, SfListChangesParams, SfListChangesResult, SfListEventsParams, SfListEventsResult, SfListSignalsParams, SfListSignalsResult, SfListWorkstreamsParams, SfListWorkstreamsResult, SfMarkEventsReadParams, SfMarkEventsUnreadParams, SfMarkedEventsResult, SfPublishWorkstreamContentParams, SfResolveActivityReviewParams, SfResolveActivityReviewResult, SfUpdateWorkstreamParams, SfWorkstreamContentResult, SfWorkstreamResult, SfWorkstreamTarget)
 import Factory.Droid.Schema.Daemon.Terminal (CloseTerminalParams, CreateTerminalParams, CreateTerminalResult, DaemonCloseTerminalParams (..), DaemonCreateTerminalParams (..), DaemonResizeTerminalParams (..), DaemonWriteTerminalDataParams (..), ListTerminalsResult, ResizeTerminalParams, TerminalNotification, WriteTerminalDataParams)
 import Factory.Droid.Schema.Daemon.Terminal qualified as Terminal
-import Factory.Droid.Schema.Daemon.Workspace (ChangeSessionWorkingDirectoryParams (..), CheckFolderTrustResult, FolderPathParams (..), GetWorkspaceFileContentParams, GetWorkspaceFileContentResult, ListFilesParams, ListFilesResult, PullUrlToCwdFileParams, PullUrlToCwdFileResult, PushCwdFileToUrlParams, PushCwdFileToUrlResult, SearchFilesParams (..), SearchFilesResult, SetupStepProgress, TrustFolderResult)
+import Factory.Droid.Schema.Daemon.Workspace (ChangeSessionWorkingDirectoryParams (..), CheckFolderTrustResult, FolderPathParams (..), GetWorkspaceFileContentParams, GetWorkspaceFileContentResult, ListFilesParams, ListFilesResult, PullUrlToCwdFileParams, PullUrlToCwdFileResult, PushCwdFileToUrlParams, PushCwdFileToUrlResult, SearchFilesParams (..), SearchFilesResult, SetupStepProgress, TrustFolderResult, WriteWorkspaceFileContentParams, WriteWorkspaceFileContentResult)
+import Factory.Droid.Schema.Daemon.Worktree (CleanupWorktreeParams, CleanupWorktreeResult, DeleteWorktreeProfileParams, InspectWorktreeDeletionParams, InspectWorktreeDeletionResult, ListManagedWorktreesParams, ListManagedWorktreesResult, ListWorktreeProfilesParams, ListWorktreeProfilesResult, SaveWorktreeProfileParams, SaveWorktreeProfileResult)
 import Factory.Droid.Schema.Discovery (GetUserInfoResult (..), ListCommandsResult, ListSkillsResult, SetSkillDisabledParams)
 import Factory.Droid.Schema.Enums qualified as Enums
 import Factory.Droid.Schema.Interaction (AskUserResult, RequestPermissionResult, askUserToolCallId, confirmationInfoToolUse, permissionToolUses)
 import Factory.Droid.Schema.MCP (ListMcpRegistryResult, ListMcpServersResult, ListMcpToolsResult, McpServerNameParams (..), RemoveMcpServerParams (..), SubmitMcpAuthCodeParams, SubmitMcpAuthErrorParams, ToggleMcpServerParams (..), ToggleMcpToolParams (..))
 import Factory.Droid.Schema.MCP.Config (AddMcpServerParams, GetMcpConfigResult, McpConfigurationError (..), McpSessionOptions (..), UpdateMcpConfigParams, UpdateMcpConfigResult, defaultMcpSessionOptions, validateMcpConfiguration)
 import Factory.Droid.Schema.Mission (MissionSnapshot, SubagentInvocationSummary (..))
+import Factory.Droid.Schema.Models (ListModelsOptions, ListModelsResult)
 import Factory.Droid.Schema.Notifications (ChildSessionAvailable (..), CreateMessage (..), DroidWorkingState (..), DroidWorkingStateChanged (..), PermissionResolved (..), SessionTitleUpdated, SessionWorkingDirectoryChanged (..))
 import Factory.Droid.Schema.Primitives (NonEmptyText)
 import Factory.Droid.Schema.RPC
@@ -1698,6 +1710,32 @@ listGitBranches connection cwd = connectionOperation connection Client.listDaemo
 checkoutGitBranch :: DaemonConnection -> CheckoutBranchParams -> IO CheckoutBranchResult
 checkoutGitBranch connection = connectionOperation connection Client.checkoutDaemonGitBranch
 
+-- | Query daemon-managed profiles without reading local files. Returned names
+-- and content receive SDK normalization; raw wire codecs remain available.
+listWorktreeSetupProfiles :: DaemonConnection -> ListWorktreeProfilesParams -> IO ListWorktreeProfilesResult
+listWorktreeSetupProfiles connection = connectionOperation connection Client.listDaemonWorktreeSetupProfiles
+
+-- | Explicit remote profile save. Validation precedes request admission; this
+-- does not run its scripts, grant repository trust or create a worktree.
+saveWorktreeSetupProfile :: DaemonConnection -> SaveWorktreeProfileParams -> IO SaveWorktreeProfileResult
+saveWorktreeSetupProfile connection = connectionOperation connection Client.saveDaemonWorktreeSetupProfile
+
+deleteWorktreeSetupProfile :: DaemonConnection -> DeleteWorktreeProfileParams -> IO SuccessResult
+deleteWorktreeSetupProfile connection = connectionOperation connection Client.deleteDaemonWorktreeSetupProfile
+
+-- | Nothing in ListManagedWorktreesParams leaves includeSizes absent.
+listManagedWorktrees :: DaemonConnection -> ListManagedWorktreesParams -> IO ListManagedWorktreesResult
+listManagedWorktrees connection = connectionOperation connection Client.listDaemonManagedWorktrees
+
+-- | Explicit remote cleanup with a three-minute request budget. Flags are
+-- never escalated and partial-success warnings remain in the returned report.
+cleanupWorktree :: DaemonConnection -> CleanupWorktreeParams -> IO CleanupWorktreeResult
+cleanupWorktree connection = connectionOperationWithTimeout 180000000 connection Client.cleanupDaemonWorktree
+
+-- | Inspect a prospective deletion; no cleanup or branch deletion is sent.
+inspectWorktreeDeletion :: DaemonConnection -> InspectWorktreeDeletionParams -> IO InspectWorktreeDeletionResult
+inspectWorktreeDeletion connection = connectionOperation connection Client.inspectDaemonWorktreeDeletion
+
 getGitBranchDivergence :: DaemonConnection -> GitBranchParams -> IO GitBranchDivergence
 getGitBranchDivergence connection = connectionOperation connection Client.getDaemonGitBranchDivergence
 
@@ -1812,6 +1850,14 @@ sfUpdateWorkstream connection = connectionOperation connection Client.updateDaem
 
 sfDeleteWorkstream :: DaemonConnection -> SfWorkstreamTarget -> IO SfDeleteWorkstreamResult
 sfDeleteWorkstream connection = connectionOperation connection Client.deleteDaemonSfWorkstream
+
+-- | Explicit publish with caller-supplied optimistic generation. A conflict
+-- remains the original RPC error; the SDK does not fetch, retry or force it.
+sfPublishWorkstreamContent :: DaemonConnection -> SfPublishWorkstreamContentParams -> IO SfWorkstreamContentResult
+sfPublishWorkstreamContent connection = connectionOperation connection Client.publishDaemonSfWorkstreamContent
+
+sfHydrateWorkstreamContent :: DaemonConnection -> SfHydrateWorkstreamContentParams -> IO SfWorkstreamContentResult
+sfHydrateWorkstreamContent connection = connectionOperation connection Client.hydrateDaemonSfWorkstreamContent
 
 sfListSignals :: DaemonConnection -> SfListSignalsParams -> IO SfListSignalsResult
 sfListSignals connection = connectionOperation connection Client.listDaemonSfSignals
@@ -1953,6 +1999,11 @@ listOpenedSessions connection = connectionOperation connection Client.listDaemon
 listAvailableSessions :: DaemonConnection -> ListAvailableSessionsParams -> IO ListAvailableSessionsResult
 listAvailableSessions connection = connectionOperation connection Client.listDaemonAvailableSessions
 
+-- | Sessionless model discovery. ListModelsOptions Nothing mempty selects
+-- the daemon's default without inventing an explicit includeDisabled value.
+listModels :: DaemonConnection -> ListModelsOptions -> IO ListModelsResult
+listModels connection = connectionOperation connection Client.listDaemonModels
+
 getSessionMessages :: DaemonConnection -> GetSessionMessagesParams -> IO GetSessionMessagesResult
 getSessionMessages connection = connectionOperation connection Client.getDaemonSessionMessages
 
@@ -2006,6 +2057,12 @@ searchFiles connection params = connectionOperation connection Client.searchDaem
 
 getWorkspaceFileContent :: DaemonConnection -> GetWorkspaceFileContentParams -> IO GetWorkspaceFileContentResult
 getWorkspaceFileContent connection = connectionOperation connection Client.getDaemonWorkspaceFileContent
+
+-- | Explicit daemon-side write. The optional base fingerprint is opaque and
+-- conflicts propagate without replay. Session identity resolves cwd only: no
+-- live session worker is loaded and the SDK never writes its local filesystem.
+writeWorkspaceFileContent :: DaemonConnection -> WriteWorkspaceFileContentParams -> IO WriteWorkspaceFileContentResult
+writeWorkspaceFileContent connection = connectionOperation connection Client.writeDaemonWorkspaceFileContent
 
 -- | Fifteen-minute RPC budget, matching the reference presigned-URL lifetime.
 -- Cancelling the wait does not promise rollback of the daemon's transfer.
@@ -2331,6 +2388,7 @@ skipEnsureLoaded =
       "daemon.update_marketplace",
       "daemon.get_automation_visual",
       "daemon.get_workspace_file_content",
+      "daemon.write_workspace_file_content",
       "daemon.list_crons",
       "daemon.create_cron",
       "daemon.update_cron",
