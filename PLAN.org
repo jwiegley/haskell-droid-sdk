@@ -157,6 +157,38 @@ Write a Markdown handoff for optional later exhaustive protocol-1.205.0 codec wo
 ]
 #+end_src
 
+* TODO [#C] Preserve logical daemon state across connection generations
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-25l6
+:LABELS:   []
+:ISSUE_TYPE: feature
+:CREATED:  [2026-09-16 Wed 16:56]
+:MODIFIED: [2026-09-16 Wed 16:56]
+:CREATED_BY: johnw
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+First remaining owner-continuity requirement within complete-reconnect-observability. Explicit reconnect/poll/resume already exists and must be credited. Extend existing Daemon/Connection owners so required directory/cache, pending/default/observer state can survive physical generations without a second router, identical-handle requirement, stale authority or cross-principal leakage. Compare actual pinned shared-manager lifetime, validate generation handoff/cancellation/failed authentication/old callbacks and ownership; no implicit forever loop or credential-file access. Preserve original partial finding and run fess. No push.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-25l6",
+    "depends_on_id": "hsdk-dko",
+    "type": "discovered-from",
+    "created_at": "2026-09-16T23:56:40.682573Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
 * DONE [#C] Expose validated loaded snapshots and queued-message access
 :PROPERTIES:
 :OBR_SCHEMA_VERSION: 17
@@ -7784,6 +7816,40 @@ Implement remaining baselined resource methods git_push, git_commit, create_pr, 
     "depends_on_id": "hsdk-rnl",
     "type": "discovered-from",
     "created_at": "2026-09-09T12:13:54.972187Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
+* DONE [#C] Add specialized computer-connect SLI through existing observability
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-of9m
+:LABELS:   []
+:ISSUE_TYPE: feature
+:CREATED:  [2026-09-16 Wed 16:56]
+:MODIFIED: [2026-09-16 Wed 17:53]
+:CREATED_BY: johnw
+:FINISHED: [2026-09-16 Wed 17:53]
+:CLOSE_REASON: Specialized computer-connect SLI delivered through Connection and a separate Observability active-span sink.28 focused cases,4089 full Mac/Linux ARM64 tests,20 Mac parallel repetitions and2 public examples per platform pass. Nine public cases match actual frozen/current helpers and native platforms after explicit UUID/duration normalization. Anonymous timeout method context is explicit; private reference timeout branches are static source plus native tests. Probe/README failures retained. Source-bound fess docs/evidence/2026-09-17/sli. Logical-state continuity hsdk-25l6 still required; milestone5/12. No push.
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Implement the frozen/current recordComputerConnectSli contract over existing Observability/Connection: attempt UUID/trigger, mutable start type, result predicate, exact metric names/labels, active-span attributes, classified failures and unchanged exception identity. Generic observeDroidOperation is correct but not this wrapper. Native anonymous RpcRequestTimedOut cannot reveal method; represent explicit known request context rather than guessing, changing global timeout constructors or spoofing TypeScript identity. Reuse sink delivery/failure policy; no global telemetry backend or new dependency. Exercise actual reference memory-only cases, auth/general timeout, abort, compute limit, predicate error and telemetry failures. Logical-state continuity remains required in the same milestone. Fess, local commit, no push.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-of9m",
+    "depends_on_id": "hsdk-dko",
+    "type": "discovered-from",
+    "created_at": "2026-09-16T23:56:40.971169Z",
     "created_by": "johnw",
     "metadata": "{}",
     "thread_id": ""

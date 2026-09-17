@@ -5,6 +5,7 @@ module Main (main) where
 import AutomationSpec (automationTests)
 import ChildSessionSpec (childSessionTests)
 import ClientSpec (clientTests)
+import ComputerConnectSpec (computerConnectTests)
 import ConnectionHooksSpec (connectionHookTests)
 import ConnectionReadinessSpec (connectionReadinessTests)
 import ContentSpec (contentTests)
@@ -252,6 +253,7 @@ suiteMain = do
         savedSessionTests,
         savedSelectionTests,
         loggingTests,
+        computerConnectTests,
         validatorTests,
         ownedIpcTests,
         restTests

@@ -186,6 +186,7 @@ test-suite droid-sdk-test
     AutomationSpec
     ChildSessionSpec
     ClientSpec
+    ComputerConnectSpec
     ConnectionReadinessSpec
     ContentSpec
     ContextSpec
@@ -302,6 +303,7 @@ test-suite droid-sdk-test
     time >=1.12.2 && <1.13,
     tls >=2.3 && <2.5,
     unix >=2.8.7 && <2.9,
+    uuid-types >=1.0.6.1 && <1.1,
     wai >=3.2.4 && <3.3,
     warp >=3.4.7 && <3.5,
     websockets >=0.13 && <0.14,

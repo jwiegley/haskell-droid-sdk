@@ -15,6 +15,11 @@ module Factory.Droid.Connection
     daemonConnectionPlan,
     relayConnectionPlan,
     classifyConnectionFailure,
+    ComputerConnectSliOptions (..),
+    defaultComputerConnectSliOptions,
+    ComputerConnectAttempt (..),
+    computerConnectFailureReason,
+    recordComputerConnectSli,
     withConnectionController,
     pollUntilConnected,
     attemptInitialConnection,
@@ -28,14 +33,22 @@ where
 
 import Control.Concurrent.Async (cancel, withAsync)
 import Control.Concurrent.STM (STM, TMVar, TVar, atomically, check, modifyTVar', newEmptyTMVar, newTVarIO, orElse, readTMVar, readTVar, readTVarIO, retry, throwSTM, tryPutTMVar)
-import Control.Exception (Exception, SomeAsyncException, SomeException, catch, fromException, throwIO, toException, try)
+import Control.Exception (Exception, SomeAsyncException, SomeException, catch, evaluate, fromException, mask, throwIO, toException, try)
 import Control.Monad (forM_, unless, void, when)
-import Data.Maybe (isJust)
+import Data.Aeson (Object, Value (String))
+import Data.Aeson.Key (Key)
+import Data.Aeson.KeyMap qualified as KeyMap
+import Data.IORef (newIORef, readIORef, writeIORef)
+import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
+import Data.Text qualified as Text
+import Data.UUID.Types qualified as UUID
+import Data.UUID.V4 (nextRandom)
 import Factory.Droid.Daemon qualified as Daemon
 import Factory.Droid.Internal.Exception (finallyPreserving, trySync)
 import Factory.Droid.Internal.Wait qualified as Wait
-import Factory.Droid.Protocol (RpcResultError (..))
+import Factory.Droid.Observability qualified as Obs
+import Factory.Droid.Protocol (RpcChannelError (RpcRequestTimedOut), RpcResultError (..))
 import Factory.Droid.Schema.Discovery (GetUserInfoResult (reportedOrgId, reportedUserId))
 import Factory.Droid.Schema.RPC (JsonRpcError (rpcErrorCode), JsonRpcErrorCode (RpcAuthenticationError))
 import Factory.Droid.Transport.Relay qualified as Relay
@@ -59,6 +72,84 @@ data ConnectionFailure = ConnectionFailure
 instance Show ConnectionFailure where show _ = "ConnectionFailure <redacted>"
 
 instance Exception ConnectionFailure
+
+-- | Explicit sinks and labels for one connect attempt. No global telemetry is
+-- configured. The optional method is context supplied by a caller that knows
+-- which RPC timed out; an anonymous native timeout cannot reveal that fact.
+data ComputerConnectSliOptions = ComputerConnectSliOptions
+  { computerConnectSurface :: !Text,
+    computerConnectProvider :: !(Maybe Text),
+    computerConnectAttemptTrigger :: !(Maybe Text),
+    computerConnectRequestMethod :: !(Maybe Text),
+    computerConnectMetricSink :: !(Maybe Obs.DroidMetricSink),
+    computerConnectSpanSink :: !(Maybe Obs.DroidSpanAttributesSink)
+  }
+
+instance Show ComputerConnectSliOptions where show _ = "ComputerConnectSliOptions <redacted>"
+
+defaultComputerConnectSliOptions :: Text -> ComputerConnectSliOptions
+defaultComputerConnectSliOptions surface = ComputerConnectSliOptions surface Nothing Nothing Nothing Nothing Nothing
+
+data ComputerConnectAttempt = ComputerConnectAttempt
+  { connectAttemptId :: !Text,
+    connectAttemptTrigger :: !Text,
+    setConnectStartType :: !(Maybe Text -> IO ())
+  }
+
+instance Show ComputerConnectAttempt where show _ = "ComputerConnectAttempt <redacted>"
+
+-- | Keep structured connection reasons, including caller-reported compute
+-- limits, and reuse native transport/auth classification. RPC method identity
+-- is never inferred from exception text. Standard async cancellation is aborted.
+computerConnectFailureReason :: Maybe Text -> SomeException -> Text
+computerConnectFailureReason method cause
+  | Just failure <- fromException cause =
+      if connectionFailureReason failure == "daemon_timeout" && method == Just "daemon.authenticate" && maybe False isRpcTimeout (connectionFailureCause failure)
+        then "daemon_auth_timeout"
+        else connectionFailureReason failure
+  | isRpcTimeout cause = if method == Just "daemon.authenticate" then "daemon_auth_timeout" else "daemon_timeout"
+  | Just (_ :: SomeAsyncException) <- fromException cause = "aborted"
+  | otherwise = connectionFailureReason (classifyConnectionFailure cause)
+
+isRpcTimeout :: SomeException -> Bool
+isRpcTimeout cause = case fromException cause of Just RpcRequestTimedOut -> True; _ -> False
+
+-- | Observe one operation and evaluate its success predicate. False records
+-- not_fully_connected but returns the same result; action/predicate exceptions
+-- are classified and rethrown unchanged. This does not retry or connect itself.
+-- Duration uses a monotonic clock and includes initial span delivery, unlike
+-- wall-clock Date.now arithmetic. Sinks follow the existing observability policy.
+-- Bracket resources inside the action: a reporting callback can still cancel
+-- after it returns. The generic observeDroidOperation remains unchanged.
+recordComputerConnectSli :: ComputerConnectSliOptions -> (a -> Bool) -> (ComputerConnectAttempt -> IO a) -> IO a
+recordComputerConnectSli options successful action = mask $ \restore -> do
+  identifier <- UUID.toText <$> nextRandom
+  startType <- newIORef Nothing
+  let attempt = ComputerConnectAttempt identifier (fromMaybe "unknown" (computerConnectAttemptTrigger options)) (writeIORef startType)
+  started <- getMonotonicTimeNSec
+  restore (void (Obs.setDroidSpanAttributes (computerConnectSpanSink options) (computerConnectTraceAttributes attempt Nothing Nothing)))
+  result <- try @SomeException $ restore $ do
+    value <- action attempt
+    accepted <- evaluate (successful value)
+    pure (value, accepted)
+  let report outcome reason = do
+        selectedStartType <- readIORef startType
+        finished <- getMonotonicTimeNSec
+        let elapsed = fromInteger (toInteger finished - toInteger started) / 1000000
+            labels = KeyMap.fromList ([("surface", String (computerConnectSurface options)), ("attemptTrigger", String (connectAttemptTrigger attempt)), ("outcome", String outcome)] <> nonemptySliField "providerType" (computerConnectProvider options) <> nonemptySliField "startType" selectedStartType <> nonemptySliField "failureReason" reason)
+        void (Obs.setDroidSpanAttributes (computerConnectSpanSink options) (computerConnectTraceAttributes attempt (Just outcome) reason))
+        void (Obs.recordDroidMetric (computerConnectMetricSink options) (Obs.DroidMetricEvent "factory_app_computer_connect_sli_attempt_count" Obs.MetricCounter 1 Obs.MetricCount (Just labels)))
+        void (Obs.recordDroidMetric (computerConnectMetricSink options) (Obs.DroidMetricEvent "factory_app_computer_connect_sli_duration_ms" Obs.MetricHistogram elapsed Obs.MetricMilliseconds (Just labels)))
+  case result of
+    Left cause -> finallyPreserving (throwIO cause) (restore (report "failure" (Just (computerConnectFailureReason (computerConnectRequestMethod options) cause))))
+    Right (value, accepted) -> restore (if accepted then report "success" Nothing else report "failure" (Just "not_fully_connected")) >> pure value
+
+computerConnectTraceAttributes :: ComputerConnectAttempt -> Maybe Text -> Maybe Text -> Object
+computerConnectTraceAttributes attempt outcome reason =
+  KeyMap.fromList ([("factory.computer.connect.attempt_id", String (connectAttemptId attempt)), ("factory.computer.connect.attempt_trigger", String (connectAttemptTrigger attempt))] <> nonemptySliField "factory.computer.connect.outcome" outcome <> nonemptySliField "factory.computer.connect.failure_reason" reason)
+
+nonemptySliField :: Key -> Maybe Text -> [(Key, Value)]
+nonemptySliField key value = case value of Just text | not (Text.null text) -> [(key, String text)]; _ -> []
 
 data ConnectionPollOptions = ConnectionPollOptions
   { connectionPollAttempts :: !Int,

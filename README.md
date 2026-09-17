@@ -2364,8 +2364,40 @@ Trace providers run afresh, and only successfully evaluated `traceparent`/`trace
 
 Sinks/providers run on the existing emitting, writer or reader thread. They must be cooperative, thread-safe, and must not reenter the same observed operation or await its future traffic. Ordinary callback failures are isolated and optionally reported through the component's failure observer; standard asynchronous exceptions propagate. An already-failed operation retains its original exception over a later telemetry failure, and cleanup remains with the existing owner. See [batch evidence and limitations](docs/development.md#observability-integration).
 
+### Computer-connect SLI
+
+`Connection.recordComputerConnectSli options predicate action` observes a connect operation without performing or retrying it itself. Each invocation supplies a fresh UUID attempt ID, a trigger (`"unknown"` when omitted), and `setConnectStartType`. A false predicate records failure with `not_fully_connected` but returns the same value; action or predicate exceptions are classified and rethrown unchanged. This is distinct from `observeDroidOperation`, whose `returned` outcome still does not mean remote success.
+
+Configure optional `computerConnectMetricSink` and `computerConnectSpanSink` explicitly. `DroidSpanAttributesSink` / `setDroidSpanAttributes` extend observability with active-span attribute delivery, separately from trace-context injection. They neither create a span nor install a global backend; successful delivery means only that the supplied callback returned.
+
+```haskell
+{-# LANGUAGE OverloadedStrings #-}
+module ComputerConnectMetricsExample (pollObserved) where
+
+import Data.Aeson (Object)
+import Data.Text (Text)
+import Factory.Droid.Connection qualified as Connection
+import Factory.Droid.Observability qualified as Obs
+
+pollObserved :: (Obs.DroidMetricEvent -> IO ()) -> (Object -> IO ()) -> Connection.ConnectionController -> Maybe Text -> IO Bool
+pollObserved recordMetric setSpan controller startType =
+  let options = (Connection.defaultComputerConnectSliOptions "native")
+        { Connection.computerConnectMetricSink = Just (Obs.droidMetricSink recordMetric)
+        , Connection.computerConnectSpanSink = Just (Obs.droidSpanAttributesSink setSpan)
+        }
+  in Connection.recordComputerConnectSli options id $ \attempt -> do
+       Connection.setConnectStartType attempt startType
+       Connection.pollUntilConnected controller Connection.defaultConnectionPollOptions
+```
+
+This example is compiled, not executed. Supply start type from known facts; the SDK does not infer whether a computer was cold or warm. Here one SLI invocation surrounds the whole poll, not each internal retry. It emits `factory_app_computer_connect_sli_attempt_count` followed by `factory_app_computer_connect_sli_duration_ms`. The latest nonempty start type, surface, optional provider type, trigger and outcome are metric labels; attempt ID/trigger and final outcome/reason are active-span attributes. Empty provider/start labels are omitted, while an explicit empty trigger remains explicit.
+
+Native `RpcRequestTimedOut` has no method field. Set `computerConnectRequestMethod` only when that failing request's method is known: `daemon.authenticate` then yields `daemon_auth_timeout`; an anonymous timeout remains `daemon_timeout`. Structured `ConnectionFailure` reasons, including already-reported compute limits, are preserved; native transport/auth classification is reused and standard asynchronous cancellation is `aborted`. Exception text is not inspected to invent missing context.
+
+Duration is monotonic milliseconds, potentially fractional, including initial span delivery; it is not JavaScript wall-clock arithmetic. Existing sink failure isolation and cancellation rules apply. Keep resource brackets inside the action: reporting can cancel after a successful action, and an already-failed action retains its original exception over later reporting failure. No telemetry persistence, model success or hard connection/time bound is implied.
+
 ## Scope
 
-The current delivery implements local and daemon sessions, external and hosted MCP with native validation, REST/resources/coordinated state, owned and supplied IPC, relay orchestration, configuration, stream/helpers, saved-session scanning/selection/native timestamps and injectable observability. Timestamp and attribution policies follow the documented user-approved choices. GHC 9.12.4 builds and full suites pass on the observed macOS/GNU/Linux ARM64 targets; bounded local/daemon interoperability and a separately unpacked source-distribution build are verified. The [parity matrix](docs/parity.md) records coverage and verification limits, including unexecuted platforms and live operations. Exhaustive schema/codec coverage is a separate [opt-in backlog](docs/exhaustive-codec-backlog.md), not a completion gate.
+The repository implements local and daemon sessions, external and hosted MCP with native validation, REST/resources/coordinated state, owned and supplied IPC, relay orchestration, configuration, stream/helpers, saved-session scanning/selection/native timestamps and explicit observability. Current repairs and remaining functional/native-contract work are tracked in [HANDOFF.md](docs/HANDOFF.md). Per-unit GHC 9.12.4 builds and full-suite receipts cover the observed macOS/GNU/Linux ARM64 targets. Earlier live interoperability and separately unpacked source-distribution checks are historical evidence for their recorded inputs, not release signoff for the repaired tree; final packaged-release validation remains pending. The [parity matrix](docs/parity.md) and retained evidence distinguish scope and unexecuted operations/platforms. Exhaustive schema/codec coverage remains a separate [opt-in backlog](docs/exhaustive-codec-backlog.md), not a completion gate.
 
 See [development notes](docs/development.md) for retained build evidence. Licenses and upstream notices are in [LICENSE](LICENSE) and [NOTICE](NOTICE).

@@ -18,6 +18,9 @@ module Factory.Droid.Observability
     droidTraceContextProvider,
     getDroidTraceContext,
     injectDroidTraceContext,
+    DroidSpanAttributesSink (..),
+    droidSpanAttributesSink,
+    setDroidSpanAttributes,
     DroidLogLevel (..),
     DroidSerializedError (..),
     DroidLogEvent (..),
@@ -214,6 +217,32 @@ injectDroidTraceContext provider carrier = do
       let parent = maybe carrier (\text -> KeyMap.insert "traceparent" (String text) carrier) (traceContextParent value)
           combined = maybe parent (\text -> KeyMap.insert "tracestate" (String text) parent) (traceContextState value)
        in (combined, True)
+
+-- | Explicit integration with a backend's currently active span. This neither
+-- creates a span nor supplies a propagation context. Callbacks follow the same
+-- cooperative, thread-safe delivery and failure rules as other sinks.
+data DroidSpanAttributesSink = DroidSpanAttributesSink
+  { spanSetAttributes :: !(Object -> IO ()),
+    spanOnFailure :: !(Maybe (SomeException -> IO ()))
+  }
+
+instance Show DroidSpanAttributesSink where show _ = "DroidSpanAttributesSink <redacted>"
+
+droidSpanAttributesSink :: (Object -> IO ()) -> DroidSpanAttributesSink
+droidSpanAttributesSink sink = DroidSpanAttributesSink sink Nothing
+
+-- | True means the sink returned, not that a span existed or was persisted.
+-- Scalar normalization is shared with metrics, not a secret scrubber.
+setDroidSpanAttributes :: Maybe DroidSpanAttributesSink -> Object -> IO Bool
+setDroidSpanAttributes Nothing _ = pure False
+setDroidSpanAttributes (Just sink) attributes =
+  isJust
+    <$> deliver
+      (spanOnFailure sink)
+      ( do
+          prepared <- evaluate (force (fromMaybe mempty (sanitizeDroidAttributes (Just attributes))))
+          spanSetAttributes sink prepared
+      )
 
 data DroidObservability = DroidObservability
   { observabilityLogger :: !(Maybe DroidLogger),
