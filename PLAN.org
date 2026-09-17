@@ -141,15 +141,17 @@ User explicitly narrowed delivery to the local prompt/stream/result/session path
 ]
 #+end_src
 
-* TODO [#B] Remove load-sensitive assumptions from native test reliability checks
+* DONE [#B] Remove load-sensitive assumptions from native test reliability checks
 :PROPERTIES:
 :OBR_SCHEMA_VERSION: 17
 :ID:       hsdk-1rd7
 :LABELS:   []
 :ISSUE_TYPE: bug
 :CREATED:  [2026-09-17 Thu 12:30]
-:MODIFIED: [2026-09-17 Thu 12:30]
+:MODIFIED: [2026-09-17 Thu 13:41]
 :CREATED_BY: johnw
+:FINISHED: [2026-09-17 Thu 13:41]
+:CLOSE_REASON: Five fixture files repaired, no SDK/runtime/dependency change or concurrency cap. Cleanup still<=2s now excludes startup/callback; watchdog-origin negative and2.1s callback controls added. Test-only watchdog60s; requested validator2s/REST1s/retry1s allow startup, with non-premature timeout assertions and PID/connection cleanup retained. Init/cache cancellation now fences actual writer completion viaexisting serializedRPC; original channel-poisoning behavior unchanged. Final4370 pass Mac32workers3runs41.59/41.63/41.93s, Linux8workers2runs66.22/66.08s;388-input mirror;format/lint0. All original/intermediate failures retained; fess docs/evidence/2026-09-17/release-reliability. Newpackage stillpending; no live/push.
 :SOURCE_REPO: droid-sdk-haskell
 :SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
 :ORIGINAL_SIZE: 0

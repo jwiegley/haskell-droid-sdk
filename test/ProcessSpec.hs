@@ -101,18 +101,17 @@ processTests =
           forM_ [("malformed", InvalidJsonObject), ("eof", EndOfStream), ("partial", TruncatedFrame), ("oversized", FrameTooLarge)] $ \(mode, expected) -> do
             result <- try @JsonLinesError $ withAcpPeer 128 $ \channel -> sendObject channel (KeyMap.singleton "fixtureControl" (String mode)) >> receiveObject channel
             result @?= Left expected,
-      testCase "ACP callback exceptions retain identity and reap the child" $ bounded $ promptCleanup $ do
+      testCase "ACP callback exceptions retain identity and reap the child" $ bounded $ do
         result <- try @TestAbort (withAcpPeer 4096 (\_ -> throwIO TestAbort) :: IO ())
         result @?= Left TestAbort,
-      testCase "ACP cancellation kills and reaps a SIGTERM-resistant child" $ bounded $ promptCleanup $ do
+      testCase "ACP cancellation kills and reaps a SIGTERM-resistant child" $ bounded $ do
         ready <- newEmptyMVar
         withAsync (withAcpPeer 4096 $ \channel -> stallAcp channel >> putMVar ready () >> receiveObject channel) $ \worker -> do
           takeMVar ready
           cancelAndCheck worker,
       testCase "ACP normal scope exit kills and reaps a SIGTERM-resistant child" $
         bounded $
-          promptCleanup $
-            withAcpPeer 4096 stallAcp,
+          withAcpPeer 4096 stallAcp,
       testCase "current-version request, acknowledgement, deltas and completion" $ bounded $ withPeer "exchange" 4096 $ \channel -> do
         sendObject channel request
         ackMessage <- decode . Object =<< receiveObject channel
@@ -218,25 +217,23 @@ processTests =
           fromException cause @?= Just (ProcessExited (ExitFailure 37)),
       testCase "SIGTERM-resistant children are killed and reaped on return" $
         bounded $
-          promptCleanup $
-            withPeer "stubborn" 4096 (\_ -> pure ()),
+          withPeer "stubborn" 4096 (\_ -> pure ()),
       testCase "nonpositive grace escalates immediately, including natural-exit races" $
         bounded $
           forM_ [-1, 0] $ \grace ->
             forM_ ["eof", "stubborn"] $ \mode ->
-              promptCleanup $
-                withPeerSettings mode 4096 grace Nothing (\_ -> pure ()),
+              withPeerSettings mode 4096 grace Nothing (\_ -> pure ()),
       testCase "cooperative shutdown receives its grace period" $ bounded $ withMarker $ \marker -> do
         withPeerSettings "graceful" 4096 1000000 (Just marker) (\_ -> pure ())
         BS.readFile marker >>= (@?= "graceful"),
       testCase "callback exceptions retain their identity and reap the child" $
         bounded $
-          forM_ ["idle", "stubborn", "exit37"] $ \mode -> promptCleanup $ do
+          forM_ ["idle", "stubborn", "exit37"] $ \mode -> do
             result <- try @TestAbort (withPeer mode 4096 (\_ -> throwIO TestAbort) :: IO ())
             result @?= Left TestAbort,
       testCase "cancellation while receiving reaps the child" $
         bounded $
-          forM_ ["idle", "stubborn", "close-stdout"] $ \mode -> promptCleanup $ do
+          forM_ ["idle", "stubborn", "close-stdout"] $ \mode -> do
             ready <- newEmptyMVar
             withAsync (withPeer mode 4096 $ \channel -> putMVar ready () >> receiveObject channel) $ \worker -> do
               takeMVar ready
@@ -244,7 +241,7 @@ processTests =
               cancelAndCheck worker,
       testCase "cancellation while writing to a full pipe reaps the child" $
         bounded $
-          forM_ [128, 4 * 1024 * 1024] $ \size -> promptCleanup $ do
+          forM_ [128, 4 * 1024 * 1024] $ \size -> do
             ready <- newEmptyMVar
             let payload = KeyMap.singleton "text" (String (Text.replicate size "x"))
                 exchange = withPeer "stubborn-write" (8 * 1024 * 1024) $ \channel ->
@@ -264,6 +261,13 @@ processTests =
                 unless (notice == "stopping") (threadDelay 10000 >> awaitNotice)
           awaitNotice
           promptCleanup (cancelAndCheck worker),
+      testCase "the fixture watchdog cannot be credited as SDK cleanup" $ bounded $ do
+        result <- try @PeerWatchdogFired $ withPeer "watchdog" 4096 $ \channel ->
+          try @JsonLinesError (receiveObject channel) >>= (@?= Left (ProcessExited (ExitFailure (-9))))
+        result @?= Left PeerWatchdogFired,
+      testCase "cleanup timing excludes time spent in the caller callback" $
+        bounded $
+          withPeer "idle" 4096 (\_ -> threadDelay 2100000),
       testCase "invalid limits and startup failures remain payload-free" $ do
         result <- try @JsonLinesError (withJsonLinesProcess 0 50000 (proc "/not/a/real/executable" []) (\_ -> pure ()))
         result @?= Left InvalidFrameLimit
@@ -271,8 +275,11 @@ processTests =
         failedStart @?= Left ProcessStartFailure
     ]
 
+-- This is a deadlock backstop, not an SDK response-time assertion. A test can
+-- launch several peers or use the validator's thirty-second job deadline.
+-- Operation-specific deadlines and cleanup bounds are asserted separately.
 bounded :: IO () -> IO ()
-bounded action = timeout (10 * 1000000) action >>= maybe (assertFailure "Offline exchange timed out") pure
+bounded action = timeout (60 * 1000000) action >>= maybe (assertFailure "Offline exchange timed out") pure
 
 promptCleanup :: IO () -> IO ()
 promptCleanup action = do
@@ -308,17 +315,23 @@ stallAcp channel = do
   receiveObject channel >>= (@?= KeyMap.singleton "ready" (Bool True))
 
 withPeerCommand :: (FilePath -> CreateProcess) -> Int -> Int -> Maybe FilePath -> (JsonLinesProcess -> IO a) -> IO a
-withPeerCommand command limit grace marker action = do
+withPeerCommand command limit grace marker action = withMarker $ \watchdogMarker -> do
   executable <- getExecutablePath
   pidRef <- newIORef Nothing
-  let environment = [("JSONL_FIXTURE", "native")] <> maybe [] (\path -> [("JSONL_MARKER", path)]) marker
+  cleanupStart <- newIORef Nothing
+  let environment = [("JSONL_FIXTURE", "native"), ("JSONL_WATCHDOG", watchdogMarker)] <> maybe [] (\path -> [("JSONL_MARKER", path)]) marker
       config = (command executable) {env = Just environment}
   result <- try @SomeException $ withJsonLinesProcess limit grace config $ \channel -> do
     ready <- receiveObject channel
     pid <- maybe (assertFailure "Missing peer PID") decode (KeyMap.lookup "pid" ready) :: IO Integer
     writeIORef pidRef (Just pid)
-    action channel
+    -- The old outer timer charged loader/startup and caller work to cleanup.
+    action channel `finally` (getMonotonicTimeNSec >>= writeIORef cleanupStart . Just)
+  finished <- getMonotonicTimeNSec
   readIORef pidRef >>= mapM_ assertReaped
+  fired <- BS.readFile watchdogMarker
+  unless (BS.null fired) (throwIO PeerWatchdogFired)
+  readIORef cleanupStart >>= mapM_ (\started -> assertBool "SDK cleanup exceeded two seconds after the callback ended" (finished - started < 2 * 1000000000))
   either throwIO pure result
 
 assertReaped :: Integer -> IO ()
@@ -344,6 +357,10 @@ data TestAbort = TestAbort deriving stock (Eq, Show)
 
 instance Exception TestAbort
 
+data PeerWatchdogFired = PeerWatchdogFired deriving stock (Eq, Show)
+
+instance Exception PeerWatchdogFired
+
 -- Test-only control handshake identifies the exact child for cleanup checks.
 -- Later exchanges use Factory or raw JSONL fixture frames; no Factory process runs.
 runProcessPeer :: String -> IO ()
@@ -353,6 +370,9 @@ runProcessPeer mode = do
   expectedEnv <- lookupEnv "JSONL_FIXTURE"
   unless (expectedEnv == Just "native") (throwIO TestAbort)
   pid <- getProcessID
+  let watchdog =
+        (lookupEnv "JSONL_WATCHDOG" >>= mapM_ (`BS.writeFile` "fired"))
+          `finally` signalProcess sigKILL pid
   when (mode `elem` ["stubborn", "stubborn-write"]) $ void (installHandler sigTERM Ignore Nothing)
   when (mode `elem` ["graceful", "stop-notice"]) $ do
     marker <- lookupEnv "JSONL_MARKER" >>= maybe (throwIO TestAbort) pure
@@ -363,10 +383,11 @@ runProcessPeer mode = do
     void (installHandler sigTERM (Catch onTerminate) Nothing)
   when (mode `elem` ["stubborn", "stubborn-write", "graceful", "stop-notice"]) $
     -- Backstop makes a broken parent cleanup fail without leaving a child behind.
-    void (forkIO (threadDelay (5 * 1000000) >> signalProcess sigKILL pid))
+    void (forkIO (threadDelay (5 * 1000000) >> watchdog))
   when (mode `elem` ["closed-stdin", "closed-stdin-exit37"]) (hClose stdin)
   writeLine (KeyMap.singleton "pid" (toJSON (fromIntegral pid :: Integer)))
   case mode of
+    "watchdog" -> watchdog >> forever (threadDelay 1000000)
     "acp" -> forever $ do
       received <- readObject
       case KeyMap.lookup "fixtureControl" received of
@@ -376,7 +397,7 @@ runProcessPeer mode = do
         Just (String "oversized") -> BS.hPut stdout (BS.replicate 1024 120) >> hFlush stdout
         Just (String "stubborn") -> do
           void (installHandler sigTERM Ignore Nothing)
-          void (forkIO (threadDelay (5 * 1000000) >> signalProcess sigKILL pid))
+          void (forkIO (threadDelay (5 * 1000000) >> watchdog))
           writeLine (KeyMap.singleton "ready" (Bool True))
           forever (threadDelay 1000000)
         _ -> writeLine received

@@ -3,7 +3,7 @@
 module RESTSpec (restTests) where
 
 import Control.Concurrent (MVar, newEmptyMVar, putMVar, takeMVar, threadDelay)
-import Control.Concurrent.Async (AsyncCancelled (..), cancel, waitCatch, withAsync)
+import Control.Concurrent.Async (AsyncCancelled (..), cancel, wait, waitCatch, withAsync)
 import Control.Exception (IOException, fromException, throwIO, try)
 import Control.Monad (forM_, unless, void, when)
 import Data.Aeson (FromJSON, Result (..), Value (..), eitherDecode, encode, fromJSON, object, toJSON, (.=))
@@ -22,6 +22,7 @@ import Data.Version (showVersion)
 import Factory.Droid.REST
 import Factory.Droid.Schema.REST
 import Factory.Droid.Transport.WebSocket (WebSocketTarget (..))
+import GHC.Clock (getMonotonicTimeNSec)
 import Network.HTTP.Types (Method, Query, RequestHeaders, hAccept, hAuthorization, hContentType, hLocation, status200, status204, status302, status401, status403, status422, status500)
 import Network.Socket qualified as Socket
 import Network.Socket.ByteString qualified as Socket
@@ -231,9 +232,16 @@ cancellationTests =
         started <- newEmptyMVar
         closed <- newEmptyMVar
         withSocketPeer (slowResponse started closed) $ \target -> do
-          client <- newRestClient ((optionsFor (webSocketPort target)) {restTimeoutMicros = Just 100000})
-          expectRest RestTimedOut (listComputers client)
-          takeMVar started
+          -- A startup timeout does not exercise unfinished-response cleanup.
+          -- Observe response admission and keep a lower bound on the deadline.
+          client <- newRestClient ((optionsFor (webSocketPort target)) {restTimeoutMicros = Just 1000000})
+          began <- getMonotonicTimeNSec
+          withAsync (expectRest RestTimedOut (listComputers client)) $ \call -> do
+            takeMVar started
+            wait call
+          finished <- getMonotonicTimeNSec
+          assertBool "REST timeout expired before its configured deadline" (finished - began >= 1000000000)
+          assertBool "REST timeout exceeded deadline plus cleanup allowance" (finished - began < 3000000000)
           takeMVar closed
     ]
 

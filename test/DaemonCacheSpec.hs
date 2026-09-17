@@ -115,6 +115,8 @@ cacheTests =
           request <- nextRequest peer "daemon.load_session" "held"
           Daemon.getCachedSessionIds connection >>= (@?= ["held"])
           Daemon.removeCachedSession connection "held" >>= (@?= False)
+          -- Cancel response waiting, not the fixture's still-running writer.
+          void (Daemon.getProxyToken connection)
           cancel worker
           waitCatch worker >>= \case Left cause -> fromException cause @?= Just AsyncCancelled; Right _ -> assertFailure "Cancellation lost"
           Daemon.getCachedSessionIds connection >>= (@?= [])
@@ -137,6 +139,8 @@ cacheTests =
         setRule peer "daemon.initialize_session" "fresh" Hold
         withAsync (Daemon.withSessionOn connection (creationOptions "fresh") (const (assertFailure "Cancelled creation published"))) $ \worker -> do
           void (nextRequest peer "daemon.initialize_session" "fresh")
+          -- A serialized RPC confirms the initialization write has finished.
+          void (Daemon.getProxyToken connection)
           cancel worker
           waitCatch worker >>= \case Left cause -> fromException cause @?= Just AsyncCancelled; Right _ -> assertFailure "Cancellation lost"
         Daemon.getCachedSessionIds connection >>= (@?= [])

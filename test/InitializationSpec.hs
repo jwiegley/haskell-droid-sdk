@@ -168,7 +168,9 @@ initializationTests =
       testCase "daemon timeout retry keeps the same session and parameters but uses a fresh request ID" $ bounded $ withInitPeer DelayFirst $ \transport sent count -> do
         gates <- newTQueueIO
         let observed = transport {transportPendingSessionReady = Just (\identifier gate -> atomically (writeTQueue gates (identifier, gate)))}
-            options = clientOptions {Daemon.daemonClientInitializationTimeoutMicros = Just 50000}
+            -- The first reply is withheld; the second must have scheduling
+            -- headroom. This tests retry identity, not a 50ms response-time SLA.
+            options = clientOptions {Daemon.daemonClientInitializationTimeoutMicros = Just 1000000}
         Daemon.withSessionUsing options observed $ \session -> do
           first <- atomically (readTQueue sent)
           second <- atomically (readTQueue sent)
@@ -300,6 +302,10 @@ borrowedCreationTests =
         let options = creationOptions "cancelled"
         withAsync (Daemon.withSessionOn connection options (const (assertFailure "Cancelled initialization published"))) $ \worker -> do
           void (atomically (readTQueue sent))
+          -- Queue publication precedes the fixture writer's return. A later
+          -- serialized RPC proves cancellation occurs during response wait,
+          -- not during a potentially partial write that must retire the owner.
+          void (Daemon.getProxyToken connection)
           cancel worker
           waitCatch worker >>= \case Left cause -> fromException cause @?= Just AsyncCancelled; Right _ -> assertFailure "Cancellation lost"
         try @RpcChannelError (Daemon.withSessionOn connection (options {Daemon.daemonSessionInitializationTimeoutMicros = Just 0}) (const (pure ()))) >>= (@?= Left RpcRequestTimedOut)
@@ -459,7 +465,6 @@ withInitPeer mode action = do
   pending <- newEmptyTMVarIO
   let feed = atomically . writeTQueue incoming
       send frame = do
-        atomically (writeTQueue sent frame)
         case field "method" frame of
           String "daemon.get_proxy_token" -> feed (reply (frameId frame) (object ["token" .= String "fixture"]))
           String "daemon.load_session" -> feed (reply (frameId frame) (initializationResult ReplyNormally "" frame))
@@ -476,6 +481,9 @@ withInitPeer mode action = do
                   feed (asObject (object ["jsonrpc" .= String "2.0", "factoryApiVersion" .= String "1.0.0", "factoryProtocolVersion" .= String "1.205.0", "type" .= String "request", "id" .= String "init-question", "method" .= String "daemon.ask_user", "params" .= object ["sessionId" .= field "sessionId" (paramsOf frame), "toolCallId" .= String "tool", "questions" .= ([] :: [Value])]]))
                 else feed response
           _ -> assertFailure "Unexpected fixture frame"
+        -- Observers may now inspect the updated fixture count. This trace is
+        -- not a write-completion barrier; response-wait cancellation uses one.
+        atomically (writeTQueue sent frame)
   action (objectTransport send (atomically (readTQueue incoming))) sent count
 
 initializationResult :: PeerMode -> Text -> Object -> Value

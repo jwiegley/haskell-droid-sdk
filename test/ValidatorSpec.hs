@@ -61,13 +61,16 @@ validatorTests =
       testCase "hostile schema compilation times out and the native worker is reaped" $
         bounded $
           withReadyPidWorker $ \configured pidFile -> do
+            -- Allow launch under parallel load; still assert the requested
+            -- deadline itself, rather than accepting an early timeout.
             started <- getMonotonicTimeNSec
-            result <- try @SchemaValidatorError (validateSchemaValue (configured {schemaValidatorTimeoutMicros = 500000}) hostileSchema (object ["v" .= Number 1]))
+            result <- try @SchemaValidatorError (validateSchemaValue (configured {schemaValidatorTimeoutMicros = 2000000}) hostileSchema (object ["v" .= Number 1]))
             result @?= Left ValidatorTimedOut
             finished <- getMonotonicTimeNSec
-            assertBool "Validator exceeded bounded termination time" (finished - started < 2000000000)
+            assertBool "Validator expired before its configured deadline" (finished - started >= 2000000000)
+            assertBool "Validator exceeded deadline plus cleanup allowance" (finished - started < 4000000000)
             startedWorker <- doesFileExist pidFile
-            assertBool "Deadline expired before the worker executed" startedWorker
+            assertBool "Deadline expired before the timed worker launcher ran" startedWorker
             identifier <- workerIdentifier pidFile
             assertReaped identifier,
       testCase "caller cancellation preserves its identity and reaps the worker" $
@@ -91,10 +94,11 @@ validatorTests =
           withReadyPidWorker $ \configured pidFile -> do
             let schema = object ["type" .= String "string", "pattern" .= String "^(a|aa)+\\1b|a+$"]
             started <- getMonotonicTimeNSec
-            try @SchemaValidatorError (validateSchemaValue (configured {schemaValidatorTimeoutMicros = 500000}) schema (String (Text.replicate 80 "a"))) >>= (@?= Left ValidatorTimedOut)
+            try @SchemaValidatorError (validateSchemaValue (configured {schemaValidatorTimeoutMicros = 2000000}) schema (String (Text.replicate 80 "a"))) >>= (@?= Left ValidatorTimedOut)
             finished <- getMonotonicTimeNSec
-            assertBool "Regex execution exceeded bounded termination time" (finished - started < 2000000000)
-            doesFileExist pidFile >>= assertBool "Deadline expired before the worker executed"
+            assertBool "Regex execution expired before its configured deadline" (finished - started >= 2000000000)
+            assertBool "Regex execution exceeded deadline plus cleanup allowance" (finished - started < 4000000000)
+            doesFileExist pidFile >>= assertBool "Deadline expired before the timed worker launcher ran"
             workerIdentifier pidFile >>= assertReaped,
       testCase "regex engine failures cannot become success under negation" $
         bounded $
@@ -117,8 +121,8 @@ hostileSchema = object ["type" .= String "object", "$defs" .= Object definitions
   where
     definitions = KeyMap.fromList (("n0", object ["type" .= String "integer"]) : [(Key.fromString ("n" <> show depth), object ["allOf" .= replicate 2 (object ["$ref" .= ("#/$defs/n" <> show (depth - 1))])]) | depth <- [1 .. 35 :: Int]])
 
--- Time engine work after the unique launcher has run; cold startup can itself
--- consume the whole deadline. Remove its marker so only the timed PID counts.
+-- Warm this exact launcher path, not the subsequent timed process. Its deadline
+-- still includes startup. Remove the old marker so only the timed job's PID counts.
 withReadyPidWorker :: (SchemaValidatorOptions -> FilePath -> IO a) -> IO a
 withReadyPidWorker action = withPidWorker $ \configured pidFile -> do
   validateSchemaValue configured (Bool True) Null >>= (@?= True)
