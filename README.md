@@ -1284,6 +1284,27 @@ The example is compiled, not executed. After discovery, `ensureChildSessionAttac
 
 `setSubagentInvocationSummary` and `hydrateSubagentInvocationSummaries` update reported summaries without registering or loading children. Bulk hydration preserves unrelated entries and skips blank IDs. A new availability notice reopens a terminal summary as running; a turn-completion event refreshes observed tool count and positive duration only for an existing summary tagged `subagent`. Turn completion does not manufacture a terminal task status.
 
+Loads and initialization now capture child-summary freshness at their existing atomic admission point. A summary changed after that capture wins over the late snapshot, even if its count decreased or its value was reasserted unchanged. Unchanged children can still hydrate; the parent load epoch continues to protect the rest of the receipt. The immutable returned load report is not rewritten to pretend the daemon sent the newer local summary.
+
+For caller-owned snapshot I/O, the same guard is available on the logical owner:
+
+```haskell
+module SummaryHydrationExample (refreshSummary) where
+
+import Factory.Droid.Daemon qualified as Daemon
+import Factory.Droid.Schema.Mission (SubagentInvocationSummary)
+
+refreshSummary :: Daemon.DaemonState -> IO [SubagentInvocationSummary] -> IO ()
+refreshSummary shared fetch = do
+  revision <- Daemon.captureSubagentInvocationSummaryRevision shared
+  summaries <- fetch
+  Daemon.hydrateSubagentInvocationSummariesWithRevision shared revision summaries
+```
+
+This example is compiled, not executed. Keep the logical scope open until it returns. `setDaemonStateSubagentInvocationSummary` and `hydrateDaemonStateSubagentInvocationSummaries` provide unconditional local administration before a connection exists or between generations; existing connection-scoped setters retain their physical-handle checks. These methods share the same stored summaries, not an offline mirror. Disconnected readers can use `getDaemonStateSnapshot`.
+
+`SubagentSummaryRevision` is an opaque logical-owner watermark, not a server version, timestamp, authentication or reply permission. It survives reconnection of that owner but cannot hydrate a different/reset owner. Cache retirement does not reset freshness. Every accepted row advances its child's revision: guarded duplicate rows keep the first accepted row, while unconditional hydration remains last-row-wins. This selects by observed revision, not by terminal status or maximum counters. See [summary-freshness verification](docs/evidence/2026-09-17/cc15/README.md).
+
 `SessionState.sessionChildLoadError` distinguishes not-found, interrupted and other failed loads. Explicit callers retain their original errors, and retry clears the observation. Scope exit cancels owned hydration jobs without remote close/logout; cancellation does not undo a remote effect. Explicit state fields and summaries remain sensitive despite redacted state `Show`. Provisional cwd inheritance is described under observed working directories below. See [contracts, regressions and fess](docs/development.md#child-session-hydration-delivery).
 
 ### Subagent tag metadata

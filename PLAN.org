@@ -7893,6 +7893,24 @@ Implement remaining baselined resource methods git_push, git_commit, create_pr, 
 ]
 #+end_src
 
+* DONE [#C] Fence parent-load child-summary hydration by freshness
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-nha6
+:LABELS:   []
+:ISSUE_TYPE: feature
+:CREATED:  [2026-09-17 Thu 00:31]
+:MODIFIED: [2026-09-17 Thu 02:15]
+:CREATED_BY: johnw
+:FINISHED: [2026-09-17 Thu 02:15]
+:CLOSE_REASON: Implemented logical-owner summary epoch/revisions and per-child admission at existing load/initialization boundaries. Payload stays in SessionState; explicit/equal-value hydration, availability and tagged refresh participate. Added offline logical-state administration and opaque capture APIs while preserving legacy physical checks. Original native/frozen running1 overwrite reproduced; repaired native retainscompleted9.16 tests/full4223 both ARM64 platforms,20x16 parallel,9-row actual-current/native matrix and2examplesboth pass. Partial300sbuildtimeout andbadfixtureenvelopes retained. Fess docs/evidence/2026-09-17/cc15/README.md. hsdk-ooh6 terminal-transition candidate stillrequired beforecombinedstateclosure. No live calls/push.
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Resolve current-only CC-15: a parent load captured before a newer child-summary update must not overwrite that child with its stale receipt, while unrelated children may still hydrate. Reuse existing Daemon load/summary state ownership, including actual summary mutation paths, cache retirement and physical-generation fencing; no competing payload cache or router. Compare pinned TypeScript 0.9.1 epoch/revision behavior and frozen 0.7 baseline, preserve original evidence, add controlled race and failure controls, verify both platforms and run fess. Local commit only; no live calls or push.
+
 * DONE [#C] Add specialized computer-connect SLI through existing observability
 :PROPERTIES:
 :OBR_SCHEMA_VERSION: 17
@@ -7920,6 +7938,38 @@ Implement the frozen/current recordComputerConnectSli contract over existing Obs
     "depends_on_id": "hsdk-dko",
     "type": "discovered-from",
     "created_at": "2026-09-16T23:56:40.971169Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
+* TODO [#C] Verify current child-summary terminal status transitions
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-ooh6
+:LABELS:   []
+:ISSUE_TYPE: feature
+:CREATED:  [2026-09-17 Thu 00:40]
+:MODIFIED: [2026-09-17 Thu 00:40]
+:CREATED_BY: johnw
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+While tracing CC-15 summary mutation paths, current TypeScript0.9.1 controller updateSubagentInvocationSummaryFromState takes completionReason and assigns taskInvocationStatusForCompletionReason; frozen0.7/native refresh paths retain status and update counts/duration only. Current call sites include turn completion and session-process exit. Verify this current-only default behavior with actual exported controller/manager composition or bounded source-backed probes, then implement required native owned-state transitions and tests without changing unrelated pure helper contracts. Account for tag/manager/summary eligibility, no-message cancellation and later child restart. Complete within current-state milestone before its closure; no live calls or push.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-ooh6",
+    "depends_on_id": "hsdk-nha6",
+    "type": "discovered-from",
+    "created_at": "2026-09-17T07:40:01.144115Z",
     "created_by": "johnw",
     "metadata": "{}",
     "thread_id": ""

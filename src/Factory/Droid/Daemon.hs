@@ -259,6 +259,11 @@ module Factory.Droid.Daemon
     getSubagentInvocationSummary,
     setSubagentInvocationSummary,
     hydrateSubagentInvocationSummaries,
+    setDaemonStateSubagentInvocationSummary,
+    hydrateDaemonStateSubagentInvocationSummaries,
+    SubagentSummaryRevision,
+    captureSubagentInvocationSummaryRevision,
+    hydrateSubagentInvocationSummariesWithRevision,
     markSessionNotLoaded,
     clearSessionNotFound,
     setSessionPreInit,
@@ -518,6 +523,7 @@ data DaemonState = DaemonState
     sharedCoreState :: !Core.SessionStore,
     sharedLoads :: !(TVar (Map Text SessionLoadEntry)),
     sharedSessionStates :: !(TVar (Map Text SessionState.SessionState)),
+    sharedSummaryVersions :: !(TVar InvocationSummaryVersions),
     sharedCache :: !(TVar DaemonSessionCache),
     sharedChildOrder :: !(TVar [Text]),
     sharedInteractions :: !Interaction.PendingInteractions
@@ -557,10 +563,12 @@ withDaemonState action = mask $ \restore -> do
   core <- Core.newSessionStore
   loads <- newTVarIO mempty
   sessions <- newTVarIO mempty
+  summaryEpoch <- newUnique
+  summaryVersions <- newTVarIO (InvocationSummaryVersions summaryEpoch 0 mempty)
   cache <- newTVarIO (DaemonSessionCache (Just 20) Nothing [] [] mempty)
   order <- newTVarIO []
   pending <- Interaction.newPendingInteractions
-  let shared = DaemonState open lease principal generation core loads sessions cache order pending
+  let shared = DaemonState open lease principal generation core loads sessions summaryVersions cache order pending
   finallyPreserving (restore (action shared)) (closeDaemonState shared)
 
 closeDaemonState :: DaemonState -> IO ()
@@ -1195,6 +1203,7 @@ registerChildMetadata state parent available = do
       let parentCwd = maybe SessionState.WorkingDirectoryUnknown SessionState.sessionWorkingDirectory (Map.lookup parent states)
           discovered = SessionState.observeChildAvailable parent available previous
       writeTVar (connectionSessionStates state) (Map.insert identifier (SessionState.inheritWorkingDirectory parentCwd discovered) states)
+      when (SessionState.sessionInvocationSummary previous /= SessionState.sessionInvocationSummary discovered) (recordInvocationSummaryRevision (connectionLogicalState state) identifier)
       rememberChildOrder state identifier
       modifyTVar' (connectionLoads state) $ Map.alter (Just . seed . fromMaybe emptyLoadEntry) identifier
       void (pruneRegisteredSessions state)
@@ -1253,12 +1262,75 @@ setSubagentInvocationSummary connection summary = do
 -- | Hydrate reported summaries only, without registering links or starting
 -- children. Invalid blank identities are skipped, as in the source bulk API.
 hydrateSubagentInvocationSummaries :: DaemonConnection -> [SubagentInvocationSummary] -> IO ()
-hydrateSubagentInvocationSummaries connection@(DaemonConnection _ state) summaries = atomically (checkConnection connection >> hydrateInvocationSummaries state summaries)
+hydrateSubagentInvocationSummaries connection@(DaemonConnection _ state) summaries = atomically (checkConnection connection >> hydrateInvocationSummaries (connectionLogicalState state) Nothing summaries)
 
-hydrateInvocationSummaries :: DaemonContext -> [SubagentInvocationSummary] -> STM ()
-hydrateInvocationSummaries state summaries = forM_ summaries $ \summary ->
-  when (validChildIdentity (invocationChildSessionId summary)) $
-    modifySessionState (connectionSessionStates state) (invocationChildSessionId summary) (SessionState.setInvocationSummary summary)
+-- | Edit client-local summary observations without acquiring a transport.
+-- The logical owner must remain open; this grants no remote authority.
+setDaemonStateSubagentInvocationSummary :: DaemonState -> SubagentInvocationSummary -> IO ()
+setDaemonStateSubagentInvocationSummary shared summary = do
+  unless (validChildIdentity (invocationChildSessionId summary)) (throwIO InvalidChildSessionIdentity)
+  hydrateDaemonStateSubagentInvocationSummaries shared [summary]
+
+hydrateDaemonStateSubagentInvocationSummaries :: DaemonState -> [SubagentInvocationSummary] -> IO ()
+hydrateDaemonStateSubagentInvocationSummaries shared summaries = atomically (checkDaemonState shared >> hydrateInvocationSummaries shared Nothing summaries)
+
+-- | An opaque logical-owner watermark, not a server revision, timestamp or
+-- reply permission. Captures survive physical reconnects of the same owner.
+data SubagentSummaryRevision = SubagentSummaryRevision !Unique !Integer
+  deriving stock (Eq)
+
+instance Show SubagentSummaryRevision where show _ = "SubagentSummaryRevision <redacted>"
+
+-- Summary payloads remain in the existing SessionState map. This is only the
+-- owner identity and modification index needed to admit an older snapshot.
+data InvocationSummaryVersions = InvocationSummaryVersions
+  { summaryRevisionEpoch :: !Unique,
+    summaryRevisionClock :: !Integer,
+    summaryLastModified :: !(Map Text Integer)
+  }
+
+-- | Capture immediately before caller-owned snapshot I/O. No physical
+-- connection is needed, and later connection generations retain this owner.
+captureSubagentInvocationSummaryRevision :: DaemonState -> IO SubagentSummaryRevision
+captureSubagentInvocationSummaryRevision shared = atomically (checkDaemonState shared >> captureSummaryRevision shared)
+
+-- | Apply only children unchanged since the capture. Unrelated updates do not
+-- block hydration. A token from another logical owner is stale and applies
+-- nothing. Every accepted row advances freshness, so guarded duplicates keep
+-- the first accepted row; the unguarded bulk operation retains last-row wins.
+hydrateSubagentInvocationSummariesWithRevision :: DaemonState -> SubagentSummaryRevision -> [SubagentInvocationSummary] -> IO ()
+hydrateSubagentInvocationSummariesWithRevision shared revision summaries = atomically (checkDaemonState shared >> hydrateInvocationSummaries shared (Just revision) summaries)
+
+captureSummaryRevision :: DaemonState -> STM SubagentSummaryRevision
+captureSummaryRevision shared = do
+  versions <- readTVar (sharedSummaryVersions shared)
+  pure (SubagentSummaryRevision (summaryRevisionEpoch versions) (summaryRevisionClock versions))
+
+recordInvocationSummaryRevision :: DaemonState -> Text -> STM ()
+recordInvocationSummaryRevision shared identifier = modifyTVar' (sharedSummaryVersions shared) $ \versions ->
+  let next = summaryRevisionClock versions + 1
+   in versions {summaryRevisionClock = next, summaryLastModified = Map.insert identifier next (summaryLastModified versions)}
+
+hydrateInvocationSummaries :: DaemonState -> Maybe SubagentSummaryRevision -> [SubagentInvocationSummary] -> STM ()
+hydrateInvocationSummaries shared expected summaries = forM_ summaries $ \summary -> do
+  let identifier = invocationChildSessionId summary
+  when (validChildIdentity identifier) $ do
+    versions <- readTVar (sharedSummaryVersions shared)
+    let eligible = case expected of
+          Nothing -> True
+          Just (SubagentSummaryRevision epoch revision) -> epoch == summaryRevisionEpoch versions && Map.findWithDefault 0 identifier (summaryLastModified versions) <= revision
+    when eligible $ do
+      modifySessionState (sharedSessionStates shared) identifier (SessionState.setInvocationSummary summary)
+      recordInvocationSummaryRevision shared identifier
+
+-- A completion refresh is an observation even when it recomputes the same
+-- summary. Preserve the existing count/duration policy; status is separate.
+refreshObservedInvocationSummary :: DaemonContext -> Text -> STM ()
+refreshObservedInvocationSummary state identifier = do
+  states <- readTVar (connectionSessionStates state)
+  forM_ (Map.lookup identifier states >>= SessionState.sessionInvocationSummary) $ \_ -> do
+    modifySessionState (connectionSessionStates state) identifier SessionState.refreshInvocationSummary
+    recordInvocationSummaryRevision (connectionLogicalState state) identifier
 
 -- Seal the owned job map before cancellation. Every worker waits at a local
 -- gate until it has been registered, so closing intake cannot orphan a launch.
@@ -1398,10 +1470,10 @@ invalidateStoredSessionLoad stored identifier removeKnown = do
         next = entry {entryEpoch = entryEpoch entry + 1, entryFlight = Nothing, entryRestoredRequests = mempty, entryLoadPolicy = if removeKnown then Nothing else entryLoadPolicy entry, entryReadiness = previous {readinessPhase = SessionNotLoaded, readinessLoading = False, readinessKnown = not removeKnown && readinessKnown previous, readinessPreInit = not removeKnown && readinessPreInit previous, readinessWorkingState = Right Nothing}}
     writeTVar stored (Map.insert identifier next entries)
 
-startSessionLoad :: DaemonContext -> Text -> STM (Integer, SessionLoadTicket, DaemonLoadPolicy)
+startSessionLoad :: DaemonContext -> Text -> STM (Integer, SessionLoadTicket, DaemonLoadPolicy, SubagentSummaryRevision)
 startSessionLoad state identifier = startSessionLoadForMachine state identifier (connectionDefaultMachineId state)
 
-startSessionLoadForMachine :: DaemonContext -> Text -> Text -> STM (Integer, SessionLoadTicket, DaemonLoadPolicy)
+startSessionLoadForMachine :: DaemonContext -> Text -> Text -> STM (Integer, SessionLoadTicket, DaemonLoadPolicy, SubagentSummaryRevision)
 startSessionLoadForMachine state identifier machine = do
   entries <- readTVar (connectionLoads state)
   let previous = Map.findWithDefault emptyLoadEntry identifier entries
@@ -1414,7 +1486,8 @@ startSessionLoadForMachine state identifier machine = do
   modifySessionState (connectionSessionStates state) identifier (SessionState.setChildLoadError Nothing)
   rememberChildOrderForMachine state identifier machine
   void (pruneRegisteredSessions state)
-  pure (epoch, ticket, fromMaybe (connectionLoadDefaults state) (entryLoadPolicy previous))
+  revision <- captureSummaryRevision (connectionLogicalState state)
+  pure (epoch, ticket, fromMaybe (connectionLoadDefaults state) (entryLoadPolicy previous), revision)
 
 -- Explicit reloads supersede previous generations. Readiness checks instead
 -- join an existing flight and never speculate about an unknown session.
@@ -1443,7 +1516,7 @@ ensureSessionLoaded connection@(DaemonConnection _ state) identifier = mask $ \r
         Nothing -> Just . Left <$> startSessionLoad state identifier
   forM_ selected $ \case
     Right ticket -> void (restore (atomically (checkConnection connection >> readTMVar ticket)) >>= either throwIO pure)
-    Left (epoch, ticket, policy) -> void (finishSessionLoad state identifier epoch ticket (restore (performSessionReload connection identifier (sessionLoadGuard state identifier epoch policy))))
+    Left (epoch, ticket, policy, revision) -> void (finishSessionLoad state identifier epoch ticket (restore (performSessionReload connection identifier (sessionLoadGuard state identifier epoch revision policy))))
 
 trackSessionLoad :: DaemonConnection -> Text -> (SessionLoadGuard -> IO DaemonSessionInfo) -> IO DaemonSessionInfo
 trackSessionLoad = trackSessionLoadWithConfiguration Nothing
@@ -1453,7 +1526,7 @@ trackSessionLoadWithConfiguration = trackSessionLoadWithCreation Nothing
 
 trackSessionLoadWithCreation :: Maybe (Unique, Text) -> Maybe DaemonLoadPolicy -> DaemonConnection -> Text -> (SessionLoadGuard -> IO DaemonSessionInfo) -> IO DaemonSessionInfo
 trackSessionLoadWithCreation creation configured connection@(DaemonConnection _ state) identifier action = mask $ \restore -> do
-  (existed, previousPolicy, epoch, ticket, policy) <- atomically $ do
+  (existed, previousPolicy, epoch, ticket, policy, revision) <- atomically $ do
     checkConnection connection
     existed <- (identifier `elem`) . cachedSessionIds <$> readTVar (connectionSessionCache state)
     previousPolicy <- (Map.lookup identifier >=> entryLoadPolicy) <$> readTVar (connectionLoads state)
@@ -1466,11 +1539,11 @@ trackSessionLoadWithCreation creation configured connection@(DaemonConnection _ 
                in Just (entry {entryLoadPolicy = Just (mergeLoadPolicy old new)})
           )
           identifier
-    (epoch, ticket, policy) <- startSessionLoadForMachine state identifier (maybe (connectionDefaultMachineId state) snd creation)
+    (epoch, ticket, policy, revision) <- startSessionLoadForMachine state identifier (maybe (connectionDefaultMachineId state) snd creation)
     unless existed $ forM_ creation $ \(token, _) ->
       modifyTVar' (connectionLoads state) (Map.adjust (\entry -> entry {entryCreationOwner = Just token}) identifier)
-    pure (existed, previousPolicy, epoch, ticket, policy)
-  finishSessionLoad state identifier epoch ticket (restore (action (sessionLoadGuard state identifier epoch policy)))
+    pure (existed, previousPolicy, epoch, ticket, policy, revision)
+  finishSessionLoad state identifier epoch ticket (restore (action (sessionLoadGuard state identifier epoch revision policy)))
     `onException` forM_
       creation
       ( \(token, _) -> unless existed $ atomically $ do
@@ -1526,8 +1599,8 @@ data SessionLoadGuard = SessionLoadGuard
     loadPolicySnapshot :: DaemonLoadPolicy
   }
 
-sessionLoadGuard :: DaemonContext -> Text -> Integer -> DaemonLoadPolicy -> SessionLoadGuard
-sessionLoadGuard state identifier epoch = SessionLoadGuard (observeSessionLoad state identifier epoch) (current Nothing) (current . Just) ready
+sessionLoadGuard :: DaemonContext -> Text -> Integer -> SubagentSummaryRevision -> DaemonLoadPolicy -> SessionLoadGuard
+sessionLoadGuard state identifier epoch revision = SessionLoadGuard (observeSessionLoad state identifier epoch revision) (current Nothing) (current . Just) ready
   where
     eligible request entry = entryEpoch entry == epoch && maybe True (\key -> case Map.lookup key (entryRestoredRequests entry) of Just (method, _) -> Set.notMember (method, key) (entryCompletedRequests entry); Nothing -> False) request
     current request = maybe False (eligible request) . Map.lookup identifier <$> readTVar (connectionLoads state)
@@ -1542,8 +1615,8 @@ sessionLoadGuard state identifier epoch = SessionLoadGuard (observeSessionLoad s
           pure True
         _ -> pure False
 
-observeSessionLoad :: DaemonContext -> Text -> Integer -> UTCTime -> Text -> (DaemonSessionInfo, [RestoredSessionRequest]) -> STM Bool
-observeSessionLoad state identifier epoch receivedAt _ (info, restored) = do
+observeSessionLoad :: DaemonContext -> Text -> Integer -> SubagentSummaryRevision -> UTCTime -> Text -> (DaemonSessionInfo, [RestoredSessionRequest]) -> STM Bool
+observeSessionLoad state identifier epoch revision receivedAt _ (info, restored) = do
   entries <- readTVar (connectionLoads state)
   case Map.lookup identifier entries of
     Just entry | entryEpoch entry == epoch -> do
@@ -1561,7 +1634,7 @@ observeSessionLoad state identifier epoch receivedAt _ (info, restored) = do
         modifySessionState (connectionSessionStates state) identifier (SessionState.setCallingMetadata parent (loadedCallingToolUseId snapshot) . SessionState.mergeLoadedMessages history . reconcile)
         states <- readTVar (connectionSessionStates state)
         forM_ (Map.lookup identifier states >>= SessionState.sessionCallingSessionId) $ \_ -> rememberChildOrder state identifier
-        forM_ (loadedSubagentInvocations snapshot) (hydrateInvocationSummaries state)
+        forM_ (loadedSubagentInvocations snapshot) (hydrateInvocationSummaries (connectionLogicalState state) (Just revision))
       pure True
     _ -> pure False
 
@@ -3192,7 +3265,7 @@ observeLifecycle owned@(DaemonConnection connection state) notification =
                     case Map.lookup identifier settings of
                       Just (Right current)
                         | isJust (settingsTags current >>= findSubagentSessionTag) ->
-                            modifySessionState (connectionSessionStates state) identifier SessionState.refreshInvocationSummary
+                            refreshObservedInvocationSummary state identifier
                       _ -> pure ()
                 Left _ -> do
                   modifySessionState (connectionSessionStates state) identifier (SessionState.invalidateMessageState SessionState.MalformedMessageEvent)
