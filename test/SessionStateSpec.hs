@@ -253,6 +253,7 @@ sessionStateTests =
         State.sessionMessagesByRole RoleTool (State.mergeLoadedMessages [assistant, reported] orphan) @?= [reported]
         adopted <- eventAt 2 2 MessageEvent (creation assistant) orphan
         ids adopted @?= ["assistant", "result"]
+        fmap messageId (State.sessionLastConversationMessage adopted) @?= Just "assistant"
         State.pendingToolCalls adopted @?= []
         Map.null (State.orphanToolMessages adopted) @?= True
         map messageParentId (State.sessionMessagesByRole RoleTool adopted) @?= [Just "assistant"]

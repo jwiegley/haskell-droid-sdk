@@ -1486,6 +1486,21 @@ Provisional message timestamps are client observations, not daemon persistence t
 
 `sessionMessages`, `sessionRecentMessages` and `sessionMessagesByRole` provide retained ordering and selection. Parent repair removes self-links and roots each cycle at its oldest member; timestamp ties use portable UTF-16 ID order rather than host-locale collation. Pure removal/truncation changes only the supplied model, not remote history; truncation uses a nonnegative count and preserves pending submissions. Hook and progressive display views are described below; working-state observation remains in `SessionReadiness`. See [conversation-state evidence](docs/development.md#conversation-state-work-in-progress).
 
+`sessionLastConversationMessage` exposes the current conversation insertion, which need not be the transcript tail. Persisted hooks and system `user_only` receipts remain in the transcript but do not advance that pointer. New conversation messages inherit it when parentless, and walk past known sideband ancestors when explicitly parented. A missing or cyclic sideband chain falls back to the pointer; an unknown original parent remains literal. Sidebands append without acquiring an inferred parent. Loads retain historical links and recompute the pointer from retained order; existing-message updates do not normalize those historical links.
+
+```haskell
+module AncestryExample (nextParent) where
+
+import Data.Text (Text)
+import Factory.Droid.Schema.Messages (messageId)
+import Factory.Droid.SessionState qualified as State
+
+nextParent :: State.SessionState -> Maybe Text
+nextParent state = messageId <$> State.sessionLastConversationMessage state
+```
+
+The example is compiled, not executed. Reclassification and actual truncation recompute the pointer; a no-op truncation preserves insertion identity. Removing/pruning its message repairs it, and cache retirement clears it. Empty IDs remain stored but are not returned by this getter. Streaming placeholders and tool-call fallback use the same pointer, not a second conversation view. Native upsert still takes a full message record; general optional-metadata omission retention is a separate reviewed contract, not implemented by this ancestry change. See [CC-16 checks and limits](docs/evidence/2026-09-17/cc16/README.md).
+
 ### Pure message helpers
 
 Message-chain and display helpers also operate directly on typed lists, without a connection or mutable session model:

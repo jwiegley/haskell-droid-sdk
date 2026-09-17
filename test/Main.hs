@@ -2,6 +2,7 @@
 
 module Main (main) where
 
+import AncestrySpec (ancestryTests)
 import AutomationSpec (automationTests)
 import ChildSessionSpec (childSessionTests)
 import ClientSpec (clientTests)
@@ -258,6 +259,7 @@ suiteMain = do
         inputTests,
         submissionTests,
         sessionStateTests,
+        ancestryTests,
         savedSessionTests,
         savedSelectionTests,
         loggingTests,

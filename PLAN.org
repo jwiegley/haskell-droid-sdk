@@ -741,6 +741,38 @@ Limits remain explicit: no absolute kernel-exit deadline, descendant management,
 ]
 #+end_src
 
+* TODO [#C] Assess omission retention in message replacements
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-c9j4
+:LABELS:   []
+:ISSUE_TYPE: task
+:CREATED:  [2026-09-17 Thu 04:45]
+:MODIFIED: [2026-09-17 Thu 04:45]
+:CREATED_BY: johnw
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+CC-16 source tracing found current SessionStateManager.upsertMessage constructs {...incoming,parentId}, then SessionStore.updateMessage overlays that on the existing object. Optional fields omitted by a new create_message can therefore retain prior metadata; native upsertSessionMessage replaces the full decoded record except parent/tool results. Determine the observable native/frozen/current contract with explicit full vs omitted-field cases (visibility, hook fields, opaque extensions), and whether the idiomatic full-record API/composition is an acceptable native choice or daemon intake needs different semantics. Candidate is source-backed, not yet reproduced; do not call it a confirmed defect. Resolve before final native-contract/claim verdicts; no parallel manager, JSON fallback or live calls.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-c9j4",
+    "depends_on_id": "hsdk-yonw",
+    "type": "discovered-from",
+    "created_at": "2026-09-17T11:45:58.313702Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
 * DONE [#C] Complete daemon automation creation and configuration operations
 :PROPERTIES:
 :OBR_SCHEMA_VERSION: 17
@@ -9340,6 +9372,24 @@ Implement list/run/pause/resume/history/visual/rename/delete for existing automa
   }
 ]
 #+end_src
+
+* DONE [#C] Normalize current conversation ancestry past sidebands
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-yonw
+:LABELS:   []
+:ISSUE_TYPE: feature
+:CREATED:  [2026-09-17 Thu 04:29]
+:MODIFIED: [2026-09-17 Thu 05:09]
+:CREATED_BY: johnw
+:FINISHED: [2026-09-17 Thu 05:09]
+:CLOSE_REASON: Extended existing SessionState ancestry/pointer for current CC-16, preserving loaded/existing historical links and CC-06 helper policies. Thirty new regressions, strengthened orphan assertion,86focused and4288full tests pass on macOS/LinuxARM64. Actual current manager/store and both native platforms agree on41sequences/142projected snapshots; public getter example compiles both. Malformed fixture and ignored wrong-signature reference attempt preserved; c9j4 omission candidate remains separate. Evidence/fess docs/evidence/2026-09-17/cc16.
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Resolve confirmed CC-16 within complete-current-state. Existing native/frozen insertion uses transcript-only receipt as assistant parent; current0.9.1 skips persisted-hook and user_only system ancestors and retains a conversation pointer with insertion/arrival semantics. Extend existing SessionState insertion and load/update paths, not a parallel graph/cache. Verify actual current/frozen store methods with hook/transcript/ordinary, dangling/cyclic and insertion/update/load controls. Preserve payloads and native exact ordering where unrelated. Run supported-platform tests, source-bound evidence and fess; local commit only, no live calls or push.
 
 * DONE [#C] Close required hosted-tool schema validation behavior
 :PROPERTIES:

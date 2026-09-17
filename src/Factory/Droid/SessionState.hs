@@ -8,6 +8,7 @@ module Factory.Droid.SessionState
     clearCachedSessionState,
     sessionMessagesById,
     sessionMessages,
+    sessionLastConversationMessage,
     checkedSessionMessages,
     sessionMessageError,
     MessageStateError (..),
@@ -171,7 +172,7 @@ import Data.Foldable (toList)
 import Data.List (find, findIndex, minimumBy, sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, isJust, listToMaybe, mapMaybe, maybeToList)
+import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe, mapMaybe, maybeToList)
 import Data.Ord (Down (..), comparing)
 import Data.Scientific (Scientific, scientific, toBoundedInteger, toRealFloat)
 import Data.Sequence (Seq, (|>))
@@ -394,6 +395,7 @@ instance Show TerminalBufferSnapshot where show _ = "TerminalBufferSnapshot <red
 data SessionState = SessionState
   { messages :: !(Map Text FactoryDroidMessage),
     messageOrder :: !(Seq Text),
+    lastConversationMessageId :: !(Maybe Text),
     sessionMessageError :: !(Maybe MessageStateError),
     sessionCallingSessionId :: !(Maybe Text),
     sessionCallingToolUseId :: !(Maybe Text),
@@ -445,6 +447,7 @@ emptySessionState =
   SessionState
     { messages = mempty,
       messageOrder = mempty,
+      lastConversationMessageId = Nothing,
       sessionMessageError = Nothing,
       sessionCallingSessionId = Nothing,
       sessionCallingToolUseId = Nothing,
@@ -696,6 +699,38 @@ sessionMessagesById = messages
 sessionMessages :: SessionState -> [FactoryDroidMessage]
 sessionMessages state = mapMaybe (`Map.lookup` messages state) (toList (messageOrder state))
 
+-- | Latest conversation insertion, not necessarily the transcript tail.
+-- Loads, reclassification and truncation recompute from retained order;
+-- transcript-only system receipts and persisted hooks do not advance it.
+-- Empty IDs remain stored but are not selected by this getter.
+sessionLastConversationMessage :: SessionState -> Maybe FactoryDroidMessage
+sessionLastConversationMessage state = do
+  identifier <- lastConversationMessageId state
+  if Text.null identifier then Nothing else Map.lookup identifier (messages state)
+
+transcriptSideband :: FactoryDroidMessage -> Bool
+transcriptSideband message = persistedHook message || (messageRole message == RoleSystem && messageVisibility message == Just VisibilityUserOnly)
+
+recomputeConversationMessage :: SessionState -> SessionState
+recomputeConversationMessage state = state {lastConversationMessageId = messageId <$> find eligible (reverse (sessionMessages state))}
+  where
+    eligible message = not (Text.null (messageId message)) && not (transcriptSideband message)
+
+-- Only new conversation insertions normalize their explicit ancestors.
+-- Existing-message updates and loaded historical links retain their contract.
+normalizeConversationParent :: SessionState -> FactoryDroidMessage -> FactoryDroidMessage
+normalizeConversationParent state message
+  | transcriptSideband message = message
+  | Just identifier <- messageParentId message, not (Text.null identifier) = message {messageParentId = walk Set.empty identifier}
+  | otherwise = message
+  where
+    fallback = if maybe False (`Map.member` messages state) (messageParentId message) then lastConversationMessageId state else messageParentId message
+    walk seen identifier
+      | Text.null identifier || Set.member identifier seen = fallback
+      | Just parent <- Map.lookup identifier (messages state) =
+          if transcriptSideband parent then maybe fallback (walk (Set.insert identifier seen)) (messageParentId parent) else Just (messageId parent)
+      | otherwise = fallback
+
 -- | Raw selectors retain last-known data; this view reports a failed observation
 -- until a validated load establishes a fresh baseline.
 checkedSessionMessages :: SessionState -> Either MessageStateError [FactoryDroidMessage]
@@ -711,19 +746,30 @@ sessionMessagesByRole :: MessageRole -> SessionState -> [FactoryDroidMessage]
 sessionMessagesByRole role = filter ((== role) . messageRole) . sessionMessages
 
 -- | Authoritative content replaces streamed content, retaining missing embedded
--- tool results. An absent parent inherits the prior parent or current tail.
+-- tool results. Existing messages inherit their prior parent; new conversation
+-- messages inherit the conversation pointer and skip transcript-only ancestors.
+-- New sidebands retain explicit parents but do not acquire an inferred parent.
 upsertSessionMessage :: FactoryDroidMessage -> SessionState -> SessionState
-upsertSessionMessage incoming state = adoptToolResults message (applyMessageTodos message (clearMessageTracking identifier (state {messages = Map.insert identifier message (messages state), messageOrder = order})))
+upsertSessionMessage incoming state
+  | Nothing <- previous, not (transcriptSideband message) = observed {lastConversationMessageId = Just identifier}
+  | Just old <- previous, transcriptSideband old /= transcriptSideband message = recomputeConversationMessage observed
+  | otherwise = observed
   where
     identifier = messageId incoming
     previous = Map.lookup identifier (messages state)
     incomingParent = messageParentId incoming >>= \parent -> if parent == identifier then Nothing else Just parent
-    inheritedParent = maybe (messageId <$> listToMaybe (reverse (sessionMessages state))) messageParentId previous
+    inheritedParent = case previous of
+      Just old -> messageParentId old
+      Nothing | transcriptSideband incoming -> Nothing
+      Nothing -> messageId <$> sessionLastConversationMessage state
     retainedResults = [ContentToolResult result | Just old <- [previous], messageRole old == RoleAssistant, messageRole incoming == RoleAssistant, ContentToolResult result <- messageContent old, not (any (matchingResult (toolResultToolUseId result)) (messageContent incoming))]
-    message = incoming {messageParentId = incomingParent <|> inheritedParent, messageContent = messageContent incoming <> retainedResults}
+    prepared = incoming {messageParentId = incomingParent <|> inheritedParent, messageContent = messageContent incoming <> retainedResults}
+    message = maybe (normalizeConversationParent state prepared) (const prepared) previous
+    observed = adoptToolResults message (applyMessageTodos message (clearMessageTracking identifier (state {messages = Map.insert identifier message (messages state), messageOrder = order})))
     current = sessionMessages state
     order
       | Map.member identifier (messages state) = messageOrder state
+      | transcriptSideband message || isNothing (lastConversationMessageId state) || messageParentId message == lastConversationMessageId state = messageOrder state |> identifier
       | Just parent <- messageParentId message,
         (prefix, anchor : following) <- break ((== parent) . messageId) current =
           let (descendants, rest) = spanDescendants (Set.singleton parent) following
@@ -737,18 +783,24 @@ upsertSessionMessage incoming state = adoptToolResults message (applyMessageTodo
     spanDescendants _ remaining = ([], remaining)
 
 removeSessionMessage :: Text -> SessionState -> SessionState
-removeSessionMessage identifier state = clearMessageTracking identifier (state {messages = Map.delete identifier (messages state), messageOrder = Seq.filter (/= identifier) (messageOrder state), orphanToolMessages = Map.filter ((/= identifier) . messageId) (orphanToolMessages state)})
+removeSessionMessage identifier state =
+  let removed = clearMessageTracking identifier (state {messages = Map.delete identifier (messages state), messageOrder = Seq.filter (/= identifier) (messageOrder state), orphanToolMessages = Map.filter ((/= identifier) . messageId) (orphanToolMessages state)})
+   in if lastConversationMessageId state == Just identifier then recomputeConversationMessage removed else removed
 
 -- | Retain the newest entries in the current message order. Counts are
 -- nonnegative by construction; zero clears history, not pending submissions.
 truncateSessionMessages :: Natural -> SessionState -> SessionState
-truncateSessionMessages count state = retainMessages retained state
+truncateSessionMessages count state
+  | count >= fromIntegral (Seq.length (messageOrder state)) = state
+  | otherwise = recomputeConversationMessage (retainMessages retained state)
   where
     retained = Seq.drop (Seq.length (messageOrder state) - fromIntegral (min count (fromIntegral (Seq.length (messageOrder state))))) (messageOrder state)
 
 retainMessages :: Seq Text -> SessionState -> SessionState
-retainMessages retained state = state {messages = Map.restrictKeys (messages state) retainedIds, messageOrder = retained, blockPositions = Map.filterWithKey (\(owner, _, _) _ -> Set.member owner retainedIds) (blockPositions state), thinkingStarts = Map.filterWithKey (\(owner, _, _) _ -> Set.member owner retainedIds) (thinkingStarts state)}
+retainMessages retained state =
+  if maybe False (\identifier -> not (Text.null identifier) && Set.notMember identifier retainedIds) (lastConversationMessageId state) then recomputeConversationMessage trimmed else trimmed
   where
+    trimmed = state {messages = Map.restrictKeys (messages state) retainedIds, messageOrder = retained, blockPositions = Map.filterWithKey (\(owner, _, _) _ -> Set.member owner retainedIds) (blockPositions state), thinkingStarts = Map.filterWithKey (\(owner, _, _) _ -> Set.member owner retainedIds) (thinkingStarts state)}
     retainedIds = Set.fromList (toList retained)
 
 optimisticSubmissions :: SessionState -> [OptimisticSubmission]
@@ -843,7 +895,7 @@ mergeLoadedMessages loaded state =
       ordered = if singleRooted repaired then orderMessagesByParentChain repaired else sortOn messageCreatedAt repaired
       updated = state {messages = Map.fromList [(messageId message, message) | message <- ordered], messageOrder = Seq.fromList (map messageId ordered), sessionMessageError = Nothing, blockPositions = mempty, thinkingStarts = mempty, sessionToolPhases = mempty, sessionToolProgress = mempty, toolProgressOrder = mempty, toolProgressDeadlines = mempty, sessionRetry = Nothing}
       adopted = foldl' (flip adoptToolResults) updated (reverse ordered)
-      rebuilt = rebuildTodos (foldl' (flip confirmSubmission) adopted confirmed)
+      rebuilt = recomputeConversationMessage (rebuildTodos (foldl' (flip confirmSubmission) adopted confirmed))
       limited = rebuilt {sessionDisplayLimit = if displayInitialized state then sessionDisplayLimit state else initialDisplayLimit rebuilt, displayInitialized = True, sessionHiddenMessageCount = 0, sessionHydrationFloor = hydrationFloor ordered}
    in setSessionDisplayCutoff (sessionDisplayCutoff state) limited
 
@@ -953,7 +1005,7 @@ observeToolCall wall tool original = case toolOwner (toolUseId tool) state <|> l
      in adoptToolResults (owner {messageContent = content}) updated
   where
     state = trackTodoUse tool original
-    lastAssistant = case listToMaybe (reverse (sessionMessages state)) of
+    lastAssistant = case sessionLastConversationMessage state of
       Just message | messageRole message == RoleAssistant -> Just message
       _ -> Nothing
 

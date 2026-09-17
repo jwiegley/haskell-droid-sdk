@@ -183,6 +183,7 @@ test-suite droid-sdk-test
     droid-sdk:factory-droid-launcher,
     droid-sdk:droid-ipc-test-peer
   other-modules:
+    AncestrySpec
     AutomationSpec
     ChildSessionSpec
     ClientSpec
