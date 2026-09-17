@@ -237,6 +237,7 @@ test-suite droid-sdk-test
     MCPSpec
     McpConfigSpec
     McpPeer
+    MessageOmissionSpec
     MessagesSpec
     MetadataSpec
     MissionEventSpec

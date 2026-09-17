@@ -749,6 +749,8 @@ sessionMessagesByRole role = filter ((== role) . messageRole) . sessionMessages
 -- tool results. Existing messages inherit their prior parent; new conversation
 -- messages inherit the conversation pointer and skip transcript-only ancestors.
 -- New sidebands retain explicit parents but do not acquire an inferred parent.
+-- Other metadata is a full-record local edit. 'observeCreatedMessage' instead
+-- preserves omitted metadata in incremental wire observations.
 upsertSessionMessage :: FactoryDroidMessage -> SessionState -> SessionState
 upsertSessionMessage incoming state
   | Nothing <- previous, not (transcriptSideband message) = observed {lastConversationMessageId = Just identifier}
@@ -878,10 +880,57 @@ confirmSubmission requestId state = (removeQueuedMessage requestId (cancelSubmis
 isSubmissionConfirmed :: Text -> SessionState -> Bool
 isSubmissionConfirmed requestId = Set.member requestId . processedRequests
 
+-- | Apply a validated create-message observation. Required fields come from
+-- the incoming message; existing parent/tool-result retention still applies.
+-- Omitted optional metadata and extensions retain their previous values.
+-- Explicit false, empty, zero and nullable phase values remain authoritative.
+-- Loaded snapshots and direct 'upsertSessionMessage' edits remain full-record.
 observeCreatedMessage :: CreateMessage -> SessionState -> SessionState
 observeCreatedMessage event state =
-  let updated = upsertSessionMessage (createdMessage event) state
+  let incoming = createdMessage event
+      observed = maybe incoming (`mergeObservedMessageMetadata` incoming) (Map.lookup (messageId incoming) (messages state))
+      updated = upsertSessionMessage observed state
    in maybe updated (`confirmSubmission` updated) (createdRequestId event)
+
+-- Parent and tool-result retention remain with the existing insertion owner.
+-- Preserve typed absence here, rather than guessing from false/zero values or
+-- serializing the whole message back through a second decoder.
+mergeObservedMessageMetadata :: FactoryDroidMessage -> FactoryDroidMessage -> FactoryDroidMessage
+mergeObservedMessageMetadata old new =
+  new
+    { messageVisibility = messageVisibility new <|> messageVisibility old,
+      messageOpenAIMessageId = messageOpenAIMessageId new <|> messageOpenAIMessageId old,
+      messageOpenAIPhase = messageOpenAIPhase new <|> messageOpenAIPhase old,
+      messageOpenAIEncryptedContent = messageOpenAIEncryptedContent new <|> messageOpenAIEncryptedContent old,
+      messageOpenAIReasoningId = messageOpenAIReasoningId new <|> messageOpenAIReasoningId old,
+      messageOpenAIReasoningSummary = messageOpenAIReasoningSummary new <|> messageOpenAIReasoningSummary old,
+      messageGeminiThoughtSignature = messageGeminiThoughtSignature new <|> messageGeminiThoughtSignature old,
+      messageChatCompletionReasoningField = messageChatCompletionReasoningField new <|> messageChatCompletionReasoningField old,
+      messageChatCompletionReasoningContent = messageChatCompletionReasoningContent new <|> messageChatCompletionReasoningContent old,
+      messageIsUserVisible = messageIsUserVisible new <|> messageIsUserVisible old,
+      messageIsError = messageIsError new <|> messageIsError old,
+      messageUserSource = messageUserSource new <|> messageUserSource old,
+      messageInteractionMode = messageInteractionMode new <|> messageInteractionMode old,
+      messageModelId = messageModelId new <|> messageModelId old,
+      messageRouterId = messageRouterId new <|> messageRouterId old,
+      messageReasoningEffort = messageReasoningEffort new <|> messageReasoningEffort old,
+      messageApiProvider = messageApiProvider new <|> messageApiProvider old,
+      messageHookEventName = messageHookEventName new <|> messageHookEventName old,
+      messageHookMatcher = messageHookMatcher new <|> messageHookMatcher old,
+      messageHookCommands = messageHookCommands new <|> messageHookCommands old,
+      messageHookStatus = messageHookStatus new <|> messageHookStatus old,
+      messageHookResults = messageHookResults new <|> messageHookResults old,
+      messageHookToolCallId = messageHookToolCallId new <|> messageHookToolCallId old,
+      messageHookParentId = messageHookParentId new <|> messageHookParentId old,
+      messageHookOrder = messageHookOrder new <|> messageHookOrder old,
+      messageHookPreventedAction = messageHookPreventedAction new <|> messageHookPreventedAction old,
+      messageHiddenFromUserViews = messageHiddenFromUserViews new <|> messageHiddenFromUserViews old,
+      messageHookStartTime = messageHookStartTime new <|> messageHookStartTime old,
+      messageHookEndTime = messageHookEndTime new <|> messageHookEndTime old,
+      messageIsParallelExecution = messageIsParallelExecution new <|> messageIsParallelExecution old,
+      messageParallelGroupId = messageParallelGroupId new <|> messageParallelGroupId old,
+      messageAdditionalFields = KeyMap.union (messageAdditionalFields new) (messageAdditionalFields old)
+    }
 
 -- | Recover a lost echo by the explicit persisted message ID, not equal text
 -- or client/daemon clocks. Previously observed IDs cannot confirm a resubmit.

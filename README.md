@@ -1526,7 +1526,11 @@ nextParent :: State.SessionState -> Maybe Text
 nextParent state = messageId <$> State.sessionLastConversationMessage state
 ```
 
-The example is compiled, not executed. Reclassification and actual truncation recompute the pointer; a no-op truncation preserves insertion identity. Removing/pruning its message repairs it, and cache retirement clears it. Empty IDs remain stored but are not returned by this getter. Streaming placeholders and tool-call fallback use the same pointer, not a second conversation view. Native upsert still takes a full message record; general optional-metadata omission retention is a separate reviewed contract, not implemented by this ancestry change. See [CC-16 checks and limits](docs/evidence/2026-09-17/cc16/README.md).
+The example is compiled, not executed. Reclassification and actual truncation recompute the pointer; a no-op truncation preserves insertion identity. Removing/pruning its message repairs it, and cache retirement clears it. Empty IDs remain stored but are not returned by this getter. Streaming placeholders and tool-call fallback use the same pointer, not a second conversation view. See [CC-16 checks and limits](docs/evidence/2026-09-17/cc16/README.md).
+
+`observeCreatedMessage` and the default create-message intake preserve previously observed optional metadata and extensions when an update omits them. This includes hidden/visibility flags and persisted-hook classification; an omitted flag must not make a hidden message appear or change later conversation ancestry. Explicit false, empty strings/lists and numeric zero still replace prior values, as do null in the nullable OpenAI phase or opaque extension fields. Other declared metadata fields continue to reject null. Required fields come from the incoming message, subject to the existing parent/tool-result retention rules.
+
+Direct `upsertSessionMessage` remains an explicit full-record metadata edit, and loaded snapshots remain authoritative: neither acquires this incremental omission policy. Use `observeCreatedMessage` or `applyMessageEventAt` for wire observations rather than maintaining an application-side metadata mirror. See [message-omission verification](docs/evidence/2026-09-17/message-omission/README.md).
 
 ### Pure message helpers
 

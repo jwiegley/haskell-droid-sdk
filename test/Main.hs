@@ -78,6 +78,7 @@ import LoggingSpec (loggingTests)
 import LoopSpec (loopTests)
 import MCPSpec (mcpTests)
 import McpConfigSpec (mcpConfigTests)
+import MessageOmissionSpec (messageOmissionTests)
 import MessagesSpec (messageTests)
 import MetadataSpec (metadataTests)
 import MissionEventSpec (missionEventTests)
@@ -263,6 +264,7 @@ suiteMain = do
         inputTests,
         submissionTests,
         sessionStateTests,
+        messageOmissionTests,
         ancestryTests,
         savedSessionTests,
         savedSelectionTests,

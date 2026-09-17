@@ -761,15 +761,17 @@ Limits remain explicit: no absolute kernel-exit deadline, descendant management,
 ]
 #+end_src
 
-* TODO [#C] Assess omission retention in message replacements
+* DONE [#C] Assess omission retention in message replacements
 :PROPERTIES:
 :OBR_SCHEMA_VERSION: 17
 :ID:       hsdk-c9j4
 :LABELS:   []
 :ISSUE_TYPE: task
 :CREATED:  [2026-09-17 Thu 04:45]
-:MODIFIED: [2026-09-17 Thu 04:45]
+:MODIFIED: [2026-09-17 Thu 09:23]
 :CREATED_BY: johnw
+:FINISHED: [2026-09-17 Thu 09:23]
+:CLOSE_REASON: Confirmed default observer defect against actual frozen/current manager/display components: omitted hidden flag exposed synthetic native message;9/12sequence differencescurrent,7/12newtestsfailedbefore. Fixed existingobserveCreatedMessage with typedoptional/extension retention; purefullrecordupsert,authoritativeload,codec unchanged. Final98focused/4358fullpassMac/LinuxARM64;12cases33snapshotsmatchcurrent+bothnative, frozennonparentvalues/displaymatchwithdeclaredCC16parentdifferences. All32optionalfieldownersaccounted; exactfalse/empty/zero/nullcontrols. Fess/evidence docs/evidence/2026-09-17/message-omission;no livecalls/push.
 :SOURCE_REPO: droid-sdk-haskell
 :SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
 :ORIGINAL_SIZE: 0
