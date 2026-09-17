@@ -418,6 +418,24 @@ Implement six baselined management RPCs (trigger_update, install_ssh_key, get_pr
 ]
 #+end_src
 
+* DONE [#C] Adopt current deterministic message ordering and cycle repair
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-5q7i
+:LABELS:   []
+:ISSUE_TYPE: feature
+:CREATED:  [2026-09-16 Wed 23:34]
+:MODIFIED: [2026-09-17 Thu 00:21]
+:CREATED_BY: johnw
+:FINISHED: [2026-09-17 Thu 00:21]
+:CLOSE_REASON: Implemented current chronological tie/cycle policy in existing SessionState helpers, with explicit portable UTF-16/native exact-number choices. Fixed present-empty-ID helper edge. Kept current stable multi-root loaded merging byte-unchanged. Before 8/9 new tests failed; after 56 state checks and 4207 strict tests pass on macOS/Linux ARM64. Native25-row projections agree across platforms; 23 match current reference,2 intentional locale rows differ. Actual frozen/current pure helpers and memory managers executed; no live calls. Fess docs/evidence/2026-09-17/cc06/README.md; original-claim follow-up hsdk-g6o9. Combined state milestone remains open. No push.
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Resolve current-only CC-06: equal-time disconnected messages and cycle repair must follow the pinned TypeScript 0.9.1 policy. Native currently matches frozen 0.7, so preserve original evidence and explicitly document deliberate frozen-target differences rather than calling the old behavior corruption. Extend existing SessionState helpers; no second graph/cache, speculative policy framework or dependency upgrade. Compare actual pinned pure helpers, cover cycles/ties/control chains, run supported-platform verification and fess. Local commit only, no push or live calls.
+
 * DONE [#C] Expose scoped settings and native tool/skill controls
 :PROPERTIES:
 :OBR_SCHEMA_VERSION: 17
@@ -6690,6 +6708,38 @@ Scoped parent fess: no production workaround or altered budget, no mock, vacuous
     "depends_on_id": "hsdk-conformance-integration-m3p.7",
     "type": "discovered-from",
     "created_at": "2026-09-14T16:00:53.160378Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
+* TODO [#C] Reconcile original message-ordering comparison claims
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-g6o9
+:LABELS:   []
+:ISSUE_TYPE: task
+:CREATED:  [2026-09-17 Thu 00:07]
+:MODIFIED: [2026-09-17 Thu 00:07]
+:CREATED_BY: johnw
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+The CC-06 matrix now compares both public helpers and actual frozen/current manager loads. Baseline f5ca440 already differs from frozen manager behavior for disconnected multi-root histories, independent cycles and the present-empty-ID case, while its stable multi-root merge matches current 0.9.1. The empty-ID public-helper edge differs from both references and is corrected within CC-06. At original/repaired claim verification, bind these cases to the original Sept15 source and claim IDs; do not attribute all baseline differences to the new ordering change or silently rewrite original ledgers. Preserve deliberate native UTF-16 versus locale collation and exact-number limits in both final verdicts. Evidence under completion-20260916/current-state/cc06; no live calls or push.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-g6o9",
+    "depends_on_id": "hsdk-5q7i",
+    "type": "discovered-from",
+    "created_at": "2026-09-17T07:07:17.384579Z",
     "created_by": "johnw",
     "metadata": "{}",
     "thread_id": ""

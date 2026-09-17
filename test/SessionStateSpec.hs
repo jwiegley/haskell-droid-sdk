@@ -9,6 +9,7 @@ import Data.Aeson (FromJSON, Object, Result (..), Value (..), eitherDecode, enco
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types (Pair)
 import Data.IORef (IORef, atomicModifyIORef', newIORef)
+import Data.List (permutations)
 import Data.Map.Strict qualified as Map
 import Data.Scientific (Scientific, scientific)
 import Data.Text (Text)
@@ -65,12 +66,75 @@ sessionStateTests =
         State.repairMessageParents expected @?= expected
         State.repairMessageParents [first {messageParentId = Nothing}, extended] @?= [first {messageParentId = Nothing}, extended {messageParentId = Nothing}]
         State.repairMessageParents [] @?= [],
-      testCase "standalone ordering preserves unlinked ties and uses UTF-16 leaf ties" $ do
+      testCase "current ordering: unlinked and disconnected ties use message IDs" $ do
+        a <- fixture "a" Nothing 1 "a"
+        b <- fixture "b" Nothing 1 "b"
+        root <- fixture "root" Nothing 0 "root"
+        tip <- fixture "tip" (Just "root") 10 "tip"
+        State.orderMessagesByParentChain [b, a] @?= [a, b]
+        State.orderMessagesByParentChain [b, a, root, tip] @?= [root, tip, a, b],
+      testCase "current ordering: repair cuts the oldest cycle member not an older incoming tail" $ do
+        tailMessage <- fixture "tail" (Just "a") 0 "tail"
+        a <- fixture "a" (Just "b") 2 "a"
+        b <- fixture "b" (Just "c") 3 "b"
+        c <- fixture "c" (Just "a") 4 "c"
+        let original = [tailMessage, a, b, c]
+            expected = [tailMessage, a {messageParentId = Nothing}, b, c]
+        State.repairMessageParents original @?= expected
+        State.repairMessageParents expected @?= expected
+        ids (State.mergeLoadedMessages original State.emptySessionState) @?= ["a", "c", "b", "tail"],
+      testCase "current ordering: equal-time cycle repair is permutation invariant and preserves payloads" $ do
+        a <- fixture "a" (Just "b") 1 "a"
+        b <- (\message -> message {messageAdditionalFields = KeyMap.singleton "future" (Bool False)}) <$> fixture "b" (Just "c") 1 "b"
+        c <- fixture "c" (Just "a") 1 "c"
+        forM_ (permutations [a, b, c]) $ \original -> do
+          let expected = [if messageId message == "a" then message {messageParentId = Nothing} else message | message <- original]
+              repaired = State.repairMessageParents original
+          repaired @?= expected
+          State.repairMessageParents repaired @?= repaired
+          map messageId (State.orderMessagesByParentChain repaired) @?= ["a", "c", "b"],
+      testCase "current ordering: independent cycles each choose their own earliest member" $ do
+        a <- fixture "a" (Just "b") 1 "a"
+        b <- fixture "b" (Just "a") 2 "b"
+        c <- fixture "c" (Just "d") 3 "c"
+        d <- fixture "d" (Just "c") 4 "d"
+        State.repairMessageParents [a, b, c, d] @?= [a {messageParentId = Nothing}, b, c {messageParentId = Nothing}, d],
+      testCase "current ordering: the last duplicate body selects the root but the first parent wins" $ do
+        b <- fixture "b" (Just "a") 2 "b"
+        first <- fixture "a" (Just "b") 0 "first"
+        lastBody <- fixture "a" (Just "wrong") 9 "last"
+        let original = [b, first, lastBody]
+        State.repairMessageParents original @?= [b {messageParentId = Nothing}, first, lastBody {messageParentId = Just "b"}]
+        ids (State.mergeLoadedMessages original State.emptySessionState) @?= ["b", "a"],
+      testCase "current ordering: an empty present ID selects the linked helper without a traversable empty edge" $ do
+        root <- fixture "" Nothing 2 "empty-id"
+        child <- fixture "a" (Just "") 1 "child"
+        State.repairMessageParents [root, child] @?= [root, child]
+        State.orderMessagesByParentChain [root, child] @?= [root, child]
+        State.sessionMessages (State.mergeLoadedMessages [root, child] State.emptySessionState) @?= [child, root],
+      testCase "current ordering: portable UTF-16 ties also select cycle roots" $ do
+        upper <- fixture "A" (Just "a") 1 "upper"
+        lower <- fixture "a" (Just "A") 1 "lower"
+        State.repairMessageParents [upper, lower] @?= [upper {messageParentId = Nothing}, lower]
+        private <- fixture "\xe000" Nothing 1 "private"
+        astral <- fixture "\x1f600" Nothing 1 "astral"
+        State.orderMessagesByParentChain [private, astral] @?= [astral, private],
+      testCase "current ordering: exact timestamps take precedence over ID ties" $ do
+        earlier <- fixture "z" (Just "a") 9007199254740992 "earlier"
+        later <- fixture "a" (Just "z") 9007199254740993 "later"
+        State.repairMessageParents [later, earlier] @?= [later, earlier {messageParentId = Nothing}]
+        State.orderMessagesByParentChain [later {messageParentId = Nothing}, earlier {messageParentId = Nothing}] @?= [earlier {messageParentId = Nothing}, later {messageParentId = Nothing}],
+      testCase "current ordering: multi-root loaded merge deliberately keeps its stable timestamp policy" $ do
+        b <- fixture "b" Nothing 1 "b"
+        a <- fixture "a" Nothing 1 "a"
+        State.orderMessagesByParentChain [b, a] @?= [a, b]
+        State.sessionMessages (State.mergeLoadedMessages [b, a] State.emptySessionState) @?= [b, a],
+      testCase "standalone ordering uses portable UTF-16 for unlinked and leaf ties" $ do
         root <- fixture "root" Nothing 100 "root"
         private <- fixture "\xe000" (Just "root") 1 "private"
         astral <- fixture "\x1f600" (Just "root") 1 "astral"
         State.orderMessagesByParentChain [] @?= []
-        State.orderMessagesByParentChain [private, astral] @?= [private, astral]
+        State.orderMessagesByParentChain [private, astral] @?= [astral, private]
         State.orderMessagesByParentChain [private, root, astral] @?= [root, astral, private],
       testCase "parent repair retains the first duplicate parent and breaks cycles and self-links" $ do
         first <- fixture "duplicate" (Just "first-parent") 0 "first"
@@ -78,7 +142,7 @@ sessionStateTests =
         a <- fixture "a" (Just "b") 2 "a"
         b <- fixture "b" (Just "a") 3 "b"
         self <- fixture "self" (Just "self") 4 "self"
-        map messageParentId (State.repairMessageParents [first, duplicate, a, b, self]) @?= [Just "first-parent", Just "first-parent", Just "b", Nothing, Nothing]
+        map messageParentId (State.repairMessageParents [first, duplicate, a, b, self]) @?= [Just "first-parent", Just "first-parent", Nothing, Just "a", Nothing]
         let merged = State.mergeLoadedMessages [first, duplicate] State.emptySessionState
         State.sessionMessages merged @?= [duplicate {messageParentId = Just "first-parent"}],
       testCase "a single rooted history follows the newest leaf before disconnected branches" $ do

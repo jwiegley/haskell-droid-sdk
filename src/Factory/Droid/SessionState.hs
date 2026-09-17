@@ -161,14 +161,15 @@ import Control.Applicative ((<|>))
 import Control.Exception (Exception)
 import Data.Aeson (ToJSON (toJSON), Value (..), eitherDecodeStrict')
 import Data.Aeson.KeyMap qualified as KeyMap
+import Data.ByteString (ByteString)
 import Data.Char (isDigit)
 import Data.Containers.ListUtils (nubOrd)
 import Data.Foldable (toList)
-import Data.List (find, findIndex, sortOn)
+import Data.List (find, findIndex, minimumBy, sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isJust, listToMaybe, mapMaybe, maybeToList)
-import Data.Ord (Down (..))
+import Data.Ord (Down (..), comparing)
 import Data.Scientific (Scientific, scientific, toBoundedInteger, toRealFloat)
 import Data.Sequence (Seq, (|>))
 import Data.Sequence qualified as Seq
@@ -719,7 +720,7 @@ upsertSessionMessage incoming state = adoptToolResults message (applyMessageTodo
            in Seq.fromList (map messageId (prefix <> [anchor] <> descendants <> [message] <> rest))
       | otherwise = Seq.fromList (map messageId before <> [identifier] <> map messageId after)
       where
-        (before, after) = span (\existing -> (messageCreatedAt existing, encodeUtf16BE (messageId existing)) <= (messageCreatedAt message, encodeUtf16BE identifier)) current
+        (before, after) = span ((<= messageChronologicalKey message) . messageChronologicalKey) current
     spanDescendants known (next : rest)
       | maybe False (`Set.member` known) (messageParentId next) =
           let (children, remaining) = spanDescendants (Set.insert (messageId next) known) rest in (next : children, remaining)
@@ -1011,8 +1012,9 @@ emptyObservedMessage wall identifier role =
       messageAdditionalFields = mempty
     }
 
--- | Preserve the first parent for duplicate IDs and cut self-links/cycles.
--- Missing parents remain explicit: loading older history can resolve them.
+-- | Preserve the first duplicate parent, cut self-links, and root each cycle
+-- at its oldest member (portable UTF-16 ID order breaks timestamp ties).
+-- Incoming acyclic tails are not root candidates. Missing parents stay explicit.
 repairMessageParents :: [FactoryDroidMessage] -> [FactoryDroidMessage]
 repairMessageParents original = map cutParent normalized
   where
@@ -1021,13 +1023,15 @@ repairMessageParents original = map cutParent normalized
     byId = Map.fromList [(messageId message, message) | message <- normalized]
     (_, cut) = foldl' visit (Set.empty, Set.empty) (nubOrd (map messageId normalized))
     visit (safe, broken) identifier =
-      let (seen, closing) = walk safe Set.empty Nothing (Map.lookup identifier byId)
-       in (safe <> seen, maybe broken (`Set.insert` broken) closing)
+      let (seen, root) = walk safe Set.empty [] (Map.lookup identifier byId)
+       in (safe <> seen, maybe broken (`Set.insert` broken) root)
     walk _ seen _ Nothing = (seen, Nothing)
-    walk safe seen previous (Just message)
+    walk safe seen path (Just message)
       | Set.member identifier safe = (seen, Nothing)
-      | Set.member identifier seen = (seen, previous)
-      | otherwise = walk safe (Set.insert identifier seen) (Just identifier) (parentMessage byId message)
+      | Set.member identifier seen =
+          let cycleMembers = message : takeWhile ((/= identifier) . messageId) path
+           in (seen, Just (messageId (minimumBy (comparing messageChronologicalKey) cycleMembers)))
+      | otherwise = walk safe (Set.insert identifier seen) (message : path) (parentMessage byId message)
       where
         identifier = messageId message
     cutParent message
@@ -1038,6 +1042,9 @@ parentMessage :: Map Text FactoryDroidMessage -> FactoryDroidMessage -> Maybe Fa
 parentMessage byId message = do
   parent <- messageParentId message
   if Text.null parent || parent == messageId message then Nothing else Map.lookup parent byId
+
+messageChronologicalKey :: FactoryDroidMessage -> (Scientific, ByteString)
+messageChronologicalKey message = (messageCreatedAt message, encodeUtf16BE (messageId message))
 
 singleRooted :: [FactoryDroidMessage] -> Bool
 singleRooted history = case [message | message <- history, Nothing <- [parentMessage byId message]] of
@@ -1052,15 +1059,18 @@ singleRooted history = case [message | message <- history, Nothing <- [parentMes
       | otherwise = descendants (Set.insert identifier seen) (Map.findWithDefault [] identifier children <> rest)
 
 -- | Follow the newest leaf's parent chain, then append disconnected history.
--- Equal-time leaf IDs use portable UTF-16 order, not host-locale collation.
+-- Unlinked/disconnected histories sort by timestamp then ID. All equal-time
+-- ID choices use portable UTF-16 order, not host-locale collation.
 orderMessagesByParentChain :: [FactoryDroidMessage] -> [FactoryDroidMessage]
 orderMessagesByParentChain history
-  | null links = sortOn messageCreatedAt history
-  | otherwise = chain <> sortOn messageCreatedAt [message | message <- history, Set.notMember (messageId message) visited]
+  | null links = sortOn messageChronologicalKey history
+  | otherwise = chain <> sortOn messageChronologicalKey [message | message <- history, Set.notMember (messageId message) visited]
   where
     byId = Map.fromList [(messageId message, message) | message <- history]
-    links = [messageId parent | message <- history, Just parent <- [parentMessage byId message]]
-    parents = Set.fromList links
+    -- Presence and traversal are distinct: an empty ID can be present, but an
+    -- empty parent still terminates traversal and does not exclude a leaf.
+    links = [parent | message <- history, Just parent <- [messageParentId message], parent /= messageId message, Map.member parent byId]
+    parents = Set.delete "" (Set.fromList links)
     leaves = [message | message <- history, Set.notMember (messageId message) parents]
     candidates = if null leaves then history else leaves
     tip = listToMaybe (sortOn (\message -> (Down (messageCreatedAt message), encodeUtf16BE (messageId message))) candidates)
