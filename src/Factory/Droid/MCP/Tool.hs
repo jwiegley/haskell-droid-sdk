@@ -53,6 +53,8 @@ import Factory.Droid.MCP.Validator (SchemaValidatorError, SchemaValidatorOptions
 import Factory.Droid.Schema.Primitives (mkRfc3339Timestamp)
 
 -- | Failures do not contain schemas, arguments or handler exception text.
+-- 'InvalidMcpToolName' remains for source compatibility; the constructors no
+-- longer reject protocol strings for failing the recommended naming style.
 data McpToolError = InvalidMcpToolName | InvalidMcpToolResult | McpSchemaValidationFailed !SchemaValidatorError
   deriving stock (Eq, Show)
 
@@ -170,10 +172,12 @@ data McpTool = McpTool !Text !Text !McpSchema !(Maybe McpSchema) !(Object -> IO 
 instance Show McpTool where
   show _ = "McpTool <redacted>"
 
+-- | Preserve the opaque protocol name exactly, without trimming, Unicode
+-- normalization or enforcing MCP's recommended ASCII spelling/length.
+-- The Either result is retained for source compatibility; name construction
+-- now succeeds for every Text. Schema validation still precedes publication.
 rawTool :: Text -> Text -> McpSchema -> (Object -> IO McpToolResult) -> Either McpToolError McpTool
-rawTool name description input action = do
-  unless (validName name) (Left InvalidMcpToolName)
-  pure (McpTool name description input Nothing action)
+rawTool name description input action = Right (McpTool name description input Nothing action)
 
 typedTool :: (FromJSON a) => Text -> Text -> McpSchema -> (a -> IO McpToolResult) -> Either McpToolError McpTool
 typedTool name description input action = rawTool name description input $ \arguments ->
@@ -248,6 +252,3 @@ invokeToolWithValidator options (McpTool _ _ input output action) arguments = do
     validate schema value = do
       result <- try @SchemaValidatorError (matchesMcpSchema options schema value)
       pure (either (Left . McpSchemaValidationFailed) Right result)
-
-validName :: Text -> Bool
-validName name = not (Text.null name) && Text.length name <= 128 && Text.all (\char -> isAsciiLower char || isAsciiUpper char || isDigit char || char `elem` ("._-" :: String)) name

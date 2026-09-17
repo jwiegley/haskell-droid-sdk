@@ -42,7 +42,8 @@ hostedMcpTests = testGroup "Hosted MCP tools" hostedCases
 
 hostedCases :: [TestTree]
 hostedCases =
-  [ testCase "raw, typed and structured session tools execute during startup, replacement and rollback" $ do
+  [ testGroup "tool-name admission" nameAdmissionCases,
+    testCase "raw, typed and structured session tools execute during startup, replacement and rollback" $ do
       counter <- newIORef (0 :: Int)
       tools <- hostedEchoTools (modifyIORef' counter (+ 1))
       forM_ tools $ \tool -> bounded $ do
@@ -535,6 +536,91 @@ hostedCases =
               getMcpServerConfig server >>= (@?= Nothing)
               void (waitCatch request)
   ]
+
+nameAdmissionCases :: [TestTree]
+nameAdmissionCases =
+  [ testCase label $ bounded $ do
+      count <- newIORef (0 :: Int)
+      tool <- either (const (assertFailure "Name was rejected")) pure (rawTool name "Name fixture" openObjectSchema (const (modifyIORef' count (+ 1) >> pure (textResult ("OK:" <> name)))))
+      toolName tool @?= name
+      server <- newMcpServer (defaultMcpServerOptions "name-fixture") [tool]
+      withMcpServer server $ \config -> do
+        manager <- HTTP.newManager HTTP.defaultManagerSettings
+        listed <- post manager config (rpc "tools/list" (object []))
+        case resultField listed "tools" of
+          Just (Array values) -> [KeyMap.lookup "name" fields | Object fields <- foldr (:) [] values] @?= [Just (String name)]
+          _ -> assertFailure "Missing tools"
+        called <- post manager config (rpc "tools/call" (object ["name" .= name, "arguments" .= object []]))
+        resultField called "content" @?= Just (toJSON [textContent ("OK:" <> name)])
+        readIORef count >>= (@?= 1)
+  | (label, name) <-
+      [ ("ordinary", "ordinary_name"),
+        ("space", "odd name"),
+        ("empty", ""),
+        ("Unicode", "工具"),
+        ("emoji", "💡"),
+        ("comma", "a,b"),
+        ("slash", "a/b"),
+        ("padded", " echo "),
+        ("newline", "line\nname"),
+        ("NUL", "nul\0name"),
+        ("128 characters", Text.replicate 128 "a"),
+        ("129 characters", Text.replicate 129 "a"),
+        ("leading and trailing dash", "-name-"),
+        ("composed", "é"),
+        ("decomposed", "e\x301")
+      ]
+  ]
+    <> [ testCase label $ bounded $ do
+           schema <- either (const (assertFailure "Invalid fixture schema")) pure (mkMcpSchema (KeyMap.fromList ["type" .= String "object", "properties" .= object ["n" .= object ["type" .= String "integer"]], "required" .= [String "n"], "additionalProperties" .= False]))
+           count <- newIORef (0 :: Int)
+           let action (Arguments n) = modifyIORef' count (+ 1) >> pure (KeyMap.singleton "n" (Number (fromIntegral (2 * n))))
+           tool <- either (const (assertFailure "Name was rejected")) pure (if structured then structuredTool name "Structured fixture" schema schema action else typedTool name "Typed fixture" schema (fmap structuredResult . action))
+           server <- newMcpServer (defaultMcpServerOptions "typed-name") [tool]
+           withMcpServer server $ \config -> do
+             manager <- HTTP.newManager HTTP.defaultManagerSettings
+             called <- post manager config (rpc "tools/call" (object ["name" .= name, "arguments" .= object ["n" .= (3 :: Int)]]))
+             resultField called "structuredContent" @?= Just (object ["n" .= (6 :: Int)])
+             invalid <- post manager config (rpc "tools/call" (object ["name" .= name, "arguments" .= object ["n" .= String "wrong"]]))
+             resultField invalid "isError" @?= Just (Bool True)
+             readIORef count >>= (@?= 1)
+       | (label, name, structured) <- [("typed names retain schema checking", "typed name", False), ("structured names retain schema checking", "structured/💡", True)]
+       ]
+    <> [ testCase "case whitespace and Unicode normalization do not alias names" $ bounded $ do
+           let names = ["echo", "Echo", "echo ", "é", "e\x301", "", " "]
+           count <- newIORef (0 :: Int)
+           tools <- mapM (\name -> either (const (assertFailure "Name was rejected")) pure (rawTool name "Exact name" openObjectSchema (const (modifyIORef' count (+ 1) >> pure (textResult name))))) names
+           server <- newMcpServer (defaultMcpServerOptions "name-identity") tools
+           withMcpServer server $ \config -> do
+             manager <- HTTP.newManager HTTP.defaultManagerSettings
+             listed <- post manager config (rpc "tools/list" (object []))
+             case resultField listed "tools" of
+               Just (Array values) -> [KeyMap.lookup "name" fields | Object fields <- foldr (:) [] values] @?= map (Just . String) names
+               _ -> assertFailure "Missing tools"
+             forM_ names $ \name -> do
+               called <- post manager config (rpc "tools/call" (object ["name" .= name]))
+               resultField called "content" @?= Just (toJSON [textContent name])
+             missing <- post manager config (rpc "tools/call" (object ["name" .= String "ECHO"]))
+             resultField missing "isError" @?= Just (Bool True)
+             readIORef count >>= (@?= length names),
+         testCase "duplicate nonrecommended names remain errors" $
+           bounded $
+             forM_ ["", "odd name", "工具"] $ \name -> do
+               tool <- either (const (assertFailure "Name was rejected")) pure (rawTool name "Duplicate fixture" openObjectSchema (const (assertFailure "Duplicate tool ran")))
+               try @McpServerError (newMcpServer (defaultMcpServerOptions "duplicate-name") [tool, tool]) >>= (@?= Left DuplicateMcpToolName),
+         testCase "nonstring call names still fail before dispatch" $ bounded $ do
+           count <- newIORef (0 :: Int)
+           tool <- either (const (assertFailure "Name was rejected")) pure (rawTool "" "Empty name" openObjectSchema (const (modifyIORef' count (+ 1) >> pure (textResult "called"))))
+           server <- newMcpServer (defaultMcpServerOptions "name-type") [tool]
+           withMcpServer server $ \config -> do
+             manager <- HTTP.newManager HTTP.defaultManagerSettings
+             forM_ [Null, Bool False, Number 0, object [], toJSON ([] :: [Value])] $ \name -> do
+               response <- post manager config (rpc "tools/call" (object ["name" .= name]))
+               case response of
+                 Object fields | Just (Object problem) <- KeyMap.lookup "error" fields -> KeyMap.lookup "code" problem @?= Just (Number (-32602))
+                 _ -> assertFailure "Expected invalid-parameters response"
+             readIORef count >>= (@?= 0)
+       ]
 
 newtype Arguments = Arguments Int
 

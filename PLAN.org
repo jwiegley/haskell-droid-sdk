@@ -6456,6 +6456,24 @@ Implemented renameDroidSession, changeDroidWorkingDirectory and getDroidRewindIn
 ]
 #+end_src
 
+* DONE [#C] Align hosted MCP tool-name admission with the reference
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-evgq
+:LABELS:   []
+:ISSUE_TYPE: task
+:CREATED:  [2026-09-17 Thu 06:19]
+:MODIFIED: [2026-09-17 Thu 06:52]
+:CREATED_BY: johnw
+:FINISHED: [2026-09-17 Thu 06:52]
+:CLOSE_REASON: FC06 was a required functional repair: actual frozen/current hostedSDKs accept/list/call all15 tested protocol-string names, nativebefore rejected12. Removed only private hard-name gate; kept public Either/error compatibility and unchanged server/validators.20newcases17failedbefore;final93hosted/4325fullpassMac/LinuxARM64;15HTTPprojectionsmatchbothrefs+nativeplatforms. Reference warnings,failed argument-assumption probe,format diagnostics and parentfess retained. No live service/model call,push or newreleaseclaim.
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Resolve native-contract finding FC-06. Frozen/current MCP reference warns about nonrecommended names but the recorded odd-name tool still lists and executes; native ASCII/nonempty/128 guard rejects it. Trace actual constructor/registry/wire ownership and reproduce the supported input domain with pinned actual MCP components. Implement required native admission or substantiate a functional alternative; documentation alone is not justification for refusing supported names. Preserve exact Unicode/length/string values, duplicate/unknown-tool and schema safety, existing public API compatibility and bounded hosted HTTP behavior. No new validator framework, dependency upgrade, live service calls or push; tests/evidence/fess and local commit.
+
 * DONE [#C] Expose local saved-session discovery
 :PROPERTIES:
 :OBR_SCHEMA_VERSION: 17
