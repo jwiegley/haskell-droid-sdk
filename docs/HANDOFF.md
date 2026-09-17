@@ -1,21 +1,21 @@
-# Droid SDK Haskell: completion program
+# Droid SDK Haskell: verified release checkpoint
 
 <!-- handoff-id: droid-sdk-haskell-review-2026-09-15 -->
-<!-- handoff-version: 3 -->
+<!-- handoff-version: 4 -->
 <!-- goal-id: mu1x1cp9-b9dv6d -->
 
-Updated September 17 after the user authorized completing both SDK repairs and verification. This is the current handoff, not an SDK completion certificate. The read-only stopping-point handoff is preserved at `e4f4ba7:docs/HANDOFF.md`; the preceding implementation handoff remains at `e22b9b6:docs/HANDOFF.md` and in the original audit archive.
+Final release results are recorded September 17 under the user's repair authorization and test-parity scope amendment. See the [final verification and validation report](RELEASE-VERIFICATION-2026-09-17.md) for the two qualified verdicts, tested archive and remaining tooling limits. Historical handoffs remain at `e4f4ba7:docs/HANDOFF.md` and `e22b9b6:docs/HANDOFF.md`, and in the original audit archive.
 
 ## Read this first
 
-**The SDK is not yet complete against the pinned functional targets.** The repairs verified so far are listed below; other confirmed gaps, claim accounting and final calibration remain.
+**The repaired release meets the agreed test-backed native-functional criteria on macOS and GNU/Linux ARM64.** Implementation, reference-test comparison, default-concurrency reliability, packaged-source validation and the final frozen/current assessments are recorded. This is not universal behavioral equivalence or a clean result for every auxiliary tool: the offline Haddock preview fails URL validation and Cabal's private-fixture installation link remains a documented P3 issue.
 
-The latest request, “Continue and complete those two separate jobs remaining,” supersedes the earlier read-only/no-fixes boundary. Implement the required repairs and finish verification, working sequentially with local commits. The confirmed goal tree has twelve milestones: the two original comparisons, policy/process repairs, MCP repairs, existing-owner creation/cache/directory work, reconnect-state/SLI work and ten current-only operations are now verified. Any old read-only wording in archived goal/report text is historical; it does not override this scope amendment. Within the original four-part audit, the position remains:
+The user authorized completing repairs and verification, then explicitly removed exhaustive historical-document accounting as a release gate. The [scope amendment](evidence/2026-09-17/release-scope.md) supersedes old read-only/no-fixes/no-commit instructions and the historical-document quota. Within that amended scope:
 
-1. Frozen Python/TypeScript comparison — complete.
-2. Pinned current Python/TypeScript comparison — complete.
-3. Verify implementation, tests, documentation and release claims — partial.
-4. Deliver severity-ranked findings and two verdicts — pending.
+1. Frozen Python/TypeScript comparison — complete, qualified verdict delivered.
+2. Cutoff-current Python/TypeScript comparison — complete, qualified verdict delivered.
+3. Required repairs, test parity and source-package verification — complete.
+4. Final report and reconciled release findings — delivered.
 
 **Do not push or publish externally.** The user explicitly cancelled pushing. Earlier records of a missing remote and failed push remain history, not an outstanding task. Local archives are not an off-machine backup until separately transferred.
 
@@ -55,7 +55,7 @@ Work state and complete execution receipts: `~/Products/droid-sdk-haskell/comple
 - **Release test-parity / `hsdk-qaah`: reference baseline and native crosswalk recorded.** The pinned Python suite passes 1,526 cases; four live examples are skipped and the live module is excluded. All 32 collected modules map to native behavioral checks. Official TypeScript tests are absent from the pinned packages/guide; 21 existing actual-reference repair manifests provide the declared comparison evidence, not an invented upstream-suite pass. Native 4,368 tests pass with two Tasty workers/two RTS capabilities; default 32-worker runs fail 28 and 37 cases at two and 32 RTS capabilities respectively. See [test-parity evidence and fess](evidence/2026-09-17/release-parity/README.md).
 - **Parallel reliability / `hsdk-1rd7`: corrected fixture timing and cancellation boundaries.** Five test files now measure cleanup after callbacks, reject fixture-watchdog cleanup, allow launch scheduling within configured test deadlines and fence response-wait cancellation after writer completion. Two fixture controls were added; runtime behavior and concurrency defaults are unchanged. Final 4,370-case suites pass three times at 32 workers on macOS and twice at eight workers on GNU/Linux ARM64, with 388 mirrored inputs. All failures and the explicit test-budget changes remain documented. See [reliability evidence and fess](evidence/2026-09-17/release-reliability/README.md).
 - **Packaged release / `hsdk-8twp`: tested from the delivered source contents.** Archive `989d3cf0f5a71234aaad085ce85ebade3ecbf32ddb7d0631daad7fd3390ab893` contains 400 regular files matching source commit `690342a`. Independent package builds pass 4,370 tests, five Rust worker tests and nine Python utility tests on both macOS/GNU/Linux ARM64; workers are rebuilt/installed and notices match. A macOS consumer verifies the installed current library, public launcher, worker, logical owner, IPC and reaping. The optional offline Haddock preview **fails** URL validation and is not shipped (`hsdk-rw11`); Cabal's extra/dangling private-fixture link remains recorded (`hsdk-hhgu`). See [packaged evidence and fess](evidence/2026-09-17/packaged-release/README.md).
-- **Next:** deliver the final separate frozen/current test-backed assessments, with those tooling limits and the original audit history preserved. After recording package validation the program reaches **11/12 milestones**, not an SDK completeness percentage. No push or publication.
+- **Final assessments / `hsdk-vf8e`: delivered.** The [release report](RELEASE-VERIFICATION-2026-09-17.md) gives separate frozen/current verdicts and preserves all limits. Its [verifier](evidence/2026-09-17/release-verdicts/verify.py) checks 50 local links, 21 repair manifests, 446 release-evidence hashes and all 400 archived source files against the source commit and working tree. No further implementation is scheduled for this release; native goal closure is subject to its completion audit. Optional follow-ups and historical-only tasks are not silently marked complete. No push or publication.
 
 The September 15 recovery kit describes the pre-repair checkpoint. Its bytes and historical receipts are not rewritten to imply that these later repairs were already present. The external roadmap remains the work inventory, with its former no-repair/push instructions superseded by this section.
 
@@ -139,7 +139,7 @@ Do not equate CI configuration, dependency graphs or reviewer reports with execu
 
 Historical uncertainties remain explicit: the original focused 67-test daemon receipt, some early source bindings and exact command/activity/authorization evidence, the September 8 `63aa21ac…` tarball, backlog dating and the dated compiler-selection user receipt. Later passes are not substitutes for those missing originals.
 
-## Exactly how to resume
+## Recovery or revalidation — only when requested
 
 1. **Recover and verify.** Clone the approved remote or verified Git bundle. Follow the capsule README to check and extract evidence and the original audit source. Retain failed receipts and earlier ledgers unchanged. Missing build caches are expected.
 2. **Confirm authority once.** Read this handoff, the external roadmap, `review/review-state.json` and the archived `halt/recovery-assets/review-goal-snapshot.json`. Inspect live goal state once; follow the user's explicit resume instruction. The archive does not itself authorize execution or publication.
@@ -149,8 +149,8 @@ Historical uncertainties remain explicit: the original focused 67-test daemon re
 6. **Validate and report the release.** Settle whole-suite reliability and build/test the actual packaged contents on the supported platforms. Deliver separate frozen/current test-backed assessments and clear limits. Do not resume exhaustive historical-document accounting or imply that unfinished historical units were verified.
 7. **Run `fess` after every subtask.** Preserve actual command outcomes, gaps and scope changes. Refocus on continuation/compaction and at least hourly using a real clock; do not claim uninterrupted cadence where no check is recorded.
 
-A suitable fresh-session instruction is:
+A suitable future recovery instruction is:
 
-> Read `docs/HANDOFF.md`, `~/Products/droid-sdk-haskell/completion-20260916/state.json` and the amended goal tasks. Finish this release on Python/TypeScript SDK test parity, reliable native tests and actual packaged-release validation. Preserve the pinned references, prior findings and unreviewed historical ledger, but do not resume exhaustive historical-document auditing. Use existing owners and public Haskell composition; avoid unused-schema quotas, unrelated cleanup, reviewer waves and new live calls. Run `fess` after each release subtask, preserve failures, commit locally, and do not push.
+> Read the final release report, this handoff, `~/Products/droid-sdk-haskell/completion-20260916/state.json` and the native goal state. Verify retained artifacts before any requested recovery or new change. Do not automatically restart this completed release program, reopen the historical-document quota or follow obsolete unfinished-work instructions. Keep reference pins and failed receipts; use existing native owners. New work requires the user's requested scope. Commit locally; do not push.
 
 Publication is not part of the current work. Do not request a repository URL or retry the old failed push.

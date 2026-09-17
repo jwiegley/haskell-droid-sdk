@@ -9212,6 +9212,24 @@ FC-11: validModified inserts missing seconds to validate an MCP annotation but e
 ]
 #+end_src
 
+* DONE [#B] Deliver final frozen and current test-backed release assessments
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-vf8e
+:LABELS:   []
+:ISSUE_TYPE: docs
+:CREATED:  [2026-09-17 Thu 14:48]
+:MODIFIED: [2026-09-17 Thu 14:59]
+:CREATED_BY: johnw
+:FINISHED: [2026-09-17 Thu 14:59]
+:CLOSE_REASON: Final docs/RELEASE-VERIFICATION-2026-09-17.md gives separate qualified frozenPython0.4/TS0.7 andcutoff-currentPython0.4/TS0.9.1 release verdicts, reconciled functional findings, actual package/test/install results andP3tooling limits. Explicitly notuniversal equivalence/notunpublishedTS-suitepass/notlivecertification; originalinputremainsincomplete and2214histdocunitsunreviewedperuser. Verification checks50local links,21repairmanifests,446releaseevidencefile hashes,400archive/source/commit/worktree matches andlosslessfailures. Archive989d3cf. Parentfess retained; localcommit/no push.
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Conclude amended September17 release scope with separate pinned frozen/current verdicts, concise reconciled capability/test matrix, actual source-archive/platform/install results, explicit native differences and retained failures/tooling limits. Preserve original incomplete input and2214unreviewed historical units without claiming them verified. Verify linked artifact hashes/paths and final source equivalence; parentfess, localcommit, no push. Final report is not an official unpublished TypeScript-suite pass or live-service certification.
+
 * DEFER [#D] Track upstream WebSocket client helper caveats
 :PROPERTIES:
 :OBR_SCHEMA_VERSION: 17
