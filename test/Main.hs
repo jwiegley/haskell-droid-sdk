@@ -95,6 +95,7 @@ import QueueStateSpec (queueStateTests)
 import RESTSpec (restTests)
 import RPCSpec (rpcTests)
 import RelaySpec (relayTests)
+import RetainedLoadOptionsSpec (retainedLoadOptionsTests)
 import RetrySpec (retryTests)
 import SavedSessionSelectionSpec (runSavedSelectionPeer, savedSelectionTests)
 import SavedSessionSpec (savedSessionTests)
@@ -213,6 +214,7 @@ suiteMain = do
         relayTests,
         tunnelTests,
         retryTests,
+        retainedLoadOptionsTests,
         connectionReadinessTests,
         daemonStateTests,
         currentOperationTests,

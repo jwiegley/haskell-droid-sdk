@@ -699,6 +699,24 @@ Verification: all 48 high-level cases, 20 dispatcher cases and all 2732 tests pa
 ]
 #+end_src
 
+* DONE [#C] Expose independent retained load-option administration
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-9yl9
+:LABELS:   []
+:ISSUE_TYPE: feature
+:CREATED:  [2026-09-17 Thu 05:18]
+:MODIFIED: [2026-09-17 Thu 06:12]
+:CREATED_BY: johnw
+:FINISHED: [2026-09-17 Thu 06:12]
+:CLOSE_REASON: Logical-owner replacement/get/delete delivered over existing policy pair; load admission captures defaults and policy revisions fence3reproduced failed-creation rollback races. Shared daemon validator rejects non-true Task-process hints beforeRPC. Final17newtests,84focused,4305Mac/LinuxARM64,20finalparallelpasses,exampleboth;12memo/ID rowsmatchactualcurrent and6actualcontroller-prefix admission cases. Preserved failures and fess docs/evidence/2026-09-17/cc17; no live calls/push. State milestone ready for closure after local commit.
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Resolve current-only CC-17 with named logical-owner set/get/delete operations over existing retained SessionLoadConfiguration/DaemonLoadConfiguration policy, not a second memo/cache. Set replaces the supplied retained pair rather than merging; get distinguishes absence from an explicitly empty policy; delete forgets only the memo without removing cached session/readiness/history or performing RPC. Preserve explicit-null structured-output reset, omitted fields, false flags, empty lists/paths and extensions. Work disconnected and across physical generations; closed logical owner rejects access. Keep existing configured-load merge semantics distinct. Verify captured in-flight policy and fresh-creation cleanup cannot overwrite later explicit replacement/deletion (including equal-value reassertion), adding metadata fencing only if required. Compare actual current manager methods and preserve frozen absence; run both supported-platform tests, source-bound evidence/fess, local commit only.
+
 * DONE [#C] Bound local JSONL subprocess shutdown
 :PROPERTIES:
 :OBR_SCHEMA_VERSION: 17

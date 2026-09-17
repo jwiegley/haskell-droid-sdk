@@ -129,6 +129,27 @@ Creation policies seed subsequent local replacements and daemon reloads; explici
 
 `loadSessionInfoWithConfiguration` performs an explicit configured reload on an existing daemon connection. Per-session policy selection and generation advancement are atomic. Older loads cannot replace a newer policy or publish newer state; queued load/restriction writes recheck admission at the existing writer. Admission rejection retains its original exception and sends nothing without poisoning a healthy channel. Real transport failures still use the documented payload-free request errors, with original raw-send/cause access. Tokens are fetched afresh for each actual load; a superseded provider wait cannot send its stale request. No successful restriction patch is inferred from ACK-free transport delivery.
 
+For independent local administration, `setSessionLoadOptions`, `getSessionLoadOptions` and `deleteSessionLoadOptions` take the logical `DaemonState`, including before or between physical connections. `DaemonLoadPolicy` is the existing pair of ordinary and daemon load configurations. The setter replaces that entire pair rather than merging; the getter distinguishes no memo from an explicitly empty pair. Deletion forgets only the memo, not registration, readiness, cached observations or an in-flight operation. No RPC is sent by these three functions.
+
+```haskell
+{-# LANGUAGE OverloadedStrings #-}
+module RetainedOptionsExample (replaceAndForget) where
+
+import Data.Text (Text)
+import Factory.Droid.Daemon qualified as Daemon
+import Factory.Droid.Schema.Configuration qualified as Config
+
+replaceAndForget :: Daemon.DaemonState -> Text -> IO (Maybe Daemon.DaemonLoadPolicy)
+replaceAndForget state identifier = do
+  let policy = (Config.defaultSessionLoadConfiguration {Config.loadStructuredOutput = Just Nothing}, Config.defaultDaemonLoadConfiguration)
+  Daemon.setSessionLoadOptions state identifier policy
+  stored <- Daemon.getSessionLoadOptions state identifier
+  Daemon.deleteSessionLoadOptions state identifier
+  pure stored
+```
+
+The example is compiled only. At actual load admission, omitted memo fields fall back to that physical connection's defaults and the effective policy is retained for replay. Explicit null/false/empty values still win. In-flight requests keep their captured parameters; a failed fresh creation cannot roll back a later manual replacement, equal-value reassertion or deletion. Local storage is not validation of a future request. For example, `taskSubagentProcess` can be retained in `loadAdditionalFields`, but the shared daemon-load validator accepts only omission or literal `true`, rejecting false/null/other values before sending. This descriptive Task-process hint grants no permission or authentication. See [CC-17 verification and limits](docs/evidence/2026-09-17/cc17/README.md).
+
 The source controller does not automatically retain initialization's unsafe-permission bypass: later loads require explicit `daemonLoadSkipPermissionsUnsafe`. Once explicitly supplied as load intent it follows that session's retained configuration, until replaced or definitively closed. Init-only inactivity duration is never sent on load. Definitive session closure clears per-session policy; inactivity invalidation retains it for the same session. Neither metadata nor policy storage grants a pending permission response or transfers authentication to another principal.
 
 ### Observed local working directory

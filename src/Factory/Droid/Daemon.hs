@@ -62,6 +62,10 @@ module Factory.Droid.Daemon
     hasActiveSessionsForMachine,
     countActiveSessionsForCwd,
     markSessionsNotLoadedForMachine,
+    DaemonLoadPolicy,
+    setSessionLoadOptions,
+    getSessionLoadOptions,
+    deleteSessionLoadOptions,
     setBeforeRequest,
     onRequestSettled,
     onConnectionError,
@@ -1419,7 +1423,39 @@ type SessionLoadTicket = TMVar (Either SomeException DaemonSessionInfo)
 
 type RestoredSessionRequest = (Text, Text, Object)
 
+-- | Retained native load intent: ordinary session options and daemon spawn
+-- options. Credentials, transport and MCP ownership remain connection-scoped.
 type DaemonLoadPolicy = (Configuration.SessionLoadConfiguration, Configuration.DaemonLoadConfiguration)
+
+-- | Replace the entire retained policy, without merging, registration or RPC.
+-- Works before or between physical connections of this open logical owner.
+-- A later load overlays it on that connection's defaults at admission.
+setSessionLoadOptions :: DaemonState -> Text -> DaemonLoadPolicy -> IO ()
+setSessionLoadOptions shared identifier policy = atomically $ do
+  checkDaemonState shared
+  validateCacheIdentity identifier
+  modifyTVar' (sharedLoads shared) (Map.alter (Just . replaceStoredLoadPolicy (Just policy) . fromMaybe emptyLoadEntry) identifier)
+
+-- | Inspect retained intent, not resolved wire parameters. Nothing means no
+-- memo; an explicitly empty pair remains present until forgotten or replaced.
+getSessionLoadOptions :: DaemonState -> Text -> IO (Maybe DaemonLoadPolicy)
+getSessionLoadOptions shared identifier = atomically $ do
+  checkDaemonState shared
+  validateCacheIdentity identifier
+  (Map.lookup identifier >=> entryLoadPolicy) <$> readTVar (sharedLoads shared)
+
+-- | Forget only load intent. Cached state, readiness and in-flight operations
+-- are unchanged; their already-captured parameters are not rewritten.
+deleteSessionLoadOptions :: DaemonState -> Text -> IO ()
+deleteSessionLoadOptions shared identifier = atomically $ do
+  checkDaemonState shared
+  validateCacheIdentity identifier
+  modifyTVar' (sharedLoads shared) (Map.adjust (replaceStoredLoadPolicy Nothing) identifier)
+
+-- Equal reassertions and deletion are new intent too: an older failed
+-- creation must not restore its prior memo over either operation.
+replaceStoredLoadPolicy :: Maybe DaemonLoadPolicy -> SessionLoadEntry -> SessionLoadEntry
+replaceStoredLoadPolicy policy entry = entry {entryLoadPolicy = policy, entryLoadPolicyRevision = entryLoadPolicyRevision entry + 1}
 
 mergeLoadPolicy :: DaemonLoadPolicy -> DaemonLoadPolicy -> DaemonLoadPolicy
 mergeLoadPolicy (old, oldDaemon) (new, newDaemon) = (Configuration.mergeSessionLoadConfiguration old new, Configuration.mergeDaemonLoadConfiguration oldDaemon newDaemon)
@@ -1433,11 +1469,12 @@ data SessionLoadEntry = SessionLoadEntry
     entryCompletedRequests :: !(Set (Text, Text)),
     entryRetiringRequests :: !(Set Text),
     entryLoadPolicy :: !(Maybe DaemonLoadPolicy),
+    entryLoadPolicyRevision :: !Integer,
     entryCreationOwner :: !(Maybe Unique)
   }
 
 emptyLoadEntry :: SessionLoadEntry
-emptyLoadEntry = SessionLoadEntry (SessionReadiness SessionNotLoaded False False False False (Right Nothing)) 0 0 Nothing mempty mempty mempty Nothing Nothing
+emptyLoadEntry = SessionLoadEntry (SessionReadiness SessionNotLoaded False False False False (Right Nothing)) 0 0 Nothing mempty mempty mempty Nothing 0 Nothing
 
 sessionReadinessBusy :: SessionReadiness -> Either Core.DroidError Bool
 sessionReadinessBusy = fmap (maybe False (/= WorkingIdle)) . readinessWorkingState
@@ -1503,27 +1540,28 @@ invalidateStoredSessionLoad stored identifier removeKnown = do
   forM_ (Map.lookup identifier entries) $ \entry -> do
     forM_ (entryFlight entry) (\ticket -> void (tryPutTMVar ticket (Left (toException DaemonLoadSuperseded))))
     let previous = entryReadiness entry
-        next = entry {entryEpoch = entryEpoch entry + 1, entryFlight = Nothing, entryRestoredRequests = mempty, entryLoadPolicy = if removeKnown then Nothing else entryLoadPolicy entry, entryReadiness = previous {readinessPhase = SessionNotLoaded, readinessLoading = False, readinessKnown = not removeKnown && readinessKnown previous, readinessPreInit = not removeKnown && readinessPreInit previous, readinessWorkingState = Right Nothing}}
+        next = (if removeKnown then replaceStoredLoadPolicy Nothing entry else entry) {entryEpoch = entryEpoch entry + 1, entryFlight = Nothing, entryRestoredRequests = mempty, entryReadiness = previous {readinessPhase = SessionNotLoaded, readinessLoading = False, readinessKnown = not removeKnown && readinessKnown previous, readinessPreInit = not removeKnown && readinessPreInit previous, readinessWorkingState = Right Nothing}}
     writeTVar stored (Map.insert identifier next entries)
 
-startSessionLoad :: DaemonContext -> Text -> STM (Integer, SessionLoadTicket, DaemonLoadPolicy, SubagentSummaryRevision, Integer)
+startSessionLoad :: DaemonContext -> Text -> STM (Integer, SessionLoadTicket, DaemonLoadPolicy, SubagentSummaryRevision, Integer, Integer)
 startSessionLoad state identifier = startSessionLoadForMachine state identifier (connectionDefaultMachineId state)
 
-startSessionLoadForMachine :: DaemonContext -> Text -> Text -> STM (Integer, SessionLoadTicket, DaemonLoadPolicy, SubagentSummaryRevision, Integer)
+startSessionLoadForMachine :: DaemonContext -> Text -> Text -> STM (Integer, SessionLoadTicket, DaemonLoadPolicy, SubagentSummaryRevision, Integer, Integer)
 startSessionLoadForMachine state identifier machine = do
   entries <- readTVar (connectionLoads state)
   let previous = Map.findWithDefault emptyLoadEntry identifier entries
       epoch = entryEpoch previous + 1
       readiness = entryReadiness previous
+      policy = maybe (connectionLoadDefaults state) (mergeLoadPolicy (connectionLoadDefaults state)) (entryLoadPolicy previous)
   forM_ (entryFlight previous) (\ticket -> void (tryPutTMVar ticket (Left (toException DaemonLoadSuperseded))))
   ticket <- newEmptyTMVar
-  let next = previous {entryEpoch = epoch, entryFlight = Just ticket, entryCreationOwner = Nothing, entryRestoredRequests = mempty, entryReadiness = readiness {readinessPhase = if readinessPhase readiness == SessionLoaded then SessionLoaded else SessionLoading, readinessKnown = True, readinessLoading = True, readinessNotFound = False}}
+  let next = replaceStoredLoadPolicy (Just policy) (previous {entryEpoch = epoch, entryFlight = Just ticket, entryCreationOwner = Nothing, entryRestoredRequests = mempty, entryReadiness = readiness {readinessPhase = if readinessPhase readiness == SessionLoaded then SessionLoaded else SessionLoading, readinessKnown = True, readinessLoading = True, readinessNotFound = False}})
   writeTVar (connectionLoads state) (Map.insert identifier next entries)
   modifySessionState (connectionSessionStates state) identifier (SessionState.setChildLoadError Nothing)
   rememberChildOrderForMachine state identifier machine
   void (pruneRegisteredSessions state)
   revision <- captureSummaryRevision (connectionLogicalState state)
-  pure (epoch, ticket, fromMaybe (connectionLoadDefaults state) (entryLoadPolicy previous), revision, entryWorkingRevision previous)
+  pure (epoch, ticket, policy, revision, entryWorkingRevision previous, entryLoadPolicyRevision next)
 
 -- Explicit reloads supersede previous generations. Readiness checks instead
 -- join an existing flight and never speculate about an unknown session.
@@ -1552,7 +1590,7 @@ ensureSessionLoaded connection@(DaemonConnection _ state) identifier = mask $ \r
         Nothing -> Just . Left <$> startSessionLoad state identifier
   forM_ selected $ \case
     Right ticket -> void (restore (atomically (checkConnection connection >> readTMVar ticket)) >>= either throwIO pure)
-    Left (epoch, ticket, policy, revision, workingRevision) -> void (finishSessionLoad state identifier epoch ticket (restore (performSessionReload connection identifier (sessionLoadGuard state identifier epoch revision workingRevision policy))))
+    Left (epoch, ticket, policy, revision, workingRevision, _) -> void (finishSessionLoad state identifier epoch ticket (restore (performSessionReload connection identifier (sessionLoadGuard state identifier epoch revision workingRevision policy))))
 
 trackSessionLoad :: DaemonConnection -> Text -> (SessionLoadGuard -> IO DaemonSessionInfo) -> IO DaemonSessionInfo
 trackSessionLoad = trackSessionLoadWithConfiguration Nothing
@@ -1562,7 +1600,7 @@ trackSessionLoadWithConfiguration = trackSessionLoadWithCreation Nothing
 
 trackSessionLoadWithCreation :: Maybe (Unique, Text) -> Maybe DaemonLoadPolicy -> DaemonConnection -> Text -> (SessionLoadGuard -> IO DaemonSessionInfo) -> IO DaemonSessionInfo
 trackSessionLoadWithCreation creation configured connection@(DaemonConnection _ state) identifier action = mask $ \restore -> do
-  (existed, previousPolicy, epoch, ticket, policy, revision, workingRevision) <- atomically $ do
+  (existed, previousPolicy, epoch, ticket, policy, revision, workingRevision, policyRevision) <- atomically $ do
     checkConnection connection
     existed <- (identifier `elem`) . cachedSessionIds <$> readTVar (connectionSessionCache state)
     previousPolicy <- (Map.lookup identifier >=> entryLoadPolicy) <$> readTVar (connectionLoads state)
@@ -1571,23 +1609,25 @@ trackSessionLoadWithCreation creation configured connection@(DaemonConnection _ 
         Map.alter
           ( \previous ->
               let entry = fromMaybe emptyLoadEntry previous
-                  old = fromMaybe (connectionLoadDefaults state) (entryLoadPolicy entry)
-               in Just (entry {entryLoadPolicy = Just (mergeLoadPolicy old new)})
+                  old = maybe (connectionLoadDefaults state) (mergeLoadPolicy (connectionLoadDefaults state)) (entryLoadPolicy entry)
+               in Just (replaceStoredLoadPolicy (Just (mergeLoadPolicy old new)) entry)
           )
           identifier
-    (epoch, ticket, policy, revision, workingRevision) <- startSessionLoadForMachine state identifier (maybe (connectionDefaultMachineId state) snd creation)
+    (epoch, ticket, policy, revision, workingRevision, policyRevision) <- startSessionLoadForMachine state identifier (maybe (connectionDefaultMachineId state) snd creation)
     unless existed $ forM_ creation $ \(token, _) ->
       modifyTVar' (connectionLoads state) (Map.adjust (\entry -> entry {entryCreationOwner = Just token}) identifier)
-    pure (existed, previousPolicy, epoch, ticket, policy, revision, workingRevision)
+    pure (existed, previousPolicy, epoch, ticket, policy, revision, workingRevision, policyRevision)
   finishSessionLoad state identifier epoch ticket (restore (action (sessionLoadGuard state identifier epoch revision workingRevision policy)))
     `onException` forM_
       creation
       ( \(token, _) -> unless existed $ atomically $ do
           entries <- readTVar (connectionLoads state)
-          let current = maybe False ((== Just token) . entryCreationOwner) (Map.lookup identifier entries)
-          when current $ do
-            forgetCachedEntry state identifier
-            modifyTVar' (connectionLoads state) (Map.adjust (\entry -> entry {entryLoadPolicy = previousPolicy}) identifier)
+          case Map.lookup identifier entries of
+            Just entry | entryCreationOwner entry == Just token -> do
+              forgetCachedEntry state identifier
+              when (entryLoadPolicyRevision entry == policyRevision) $
+                modifyTVar' (connectionLoads state) (Map.adjust (replaceStoredLoadPolicy previousPolicy) identifier)
+            _ -> pure ()
       )
 
 finishSessionLoad :: DaemonContext -> Text -> Integer -> SessionLoadTicket -> IO DaemonSessionInfo -> IO DaemonSessionInfo

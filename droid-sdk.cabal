@@ -258,6 +258,7 @@ test-suite droid-sdk-test
     RPCSpec
     RESTSpec
     RelaySpec
+    RetainedLoadOptionsSpec
     RetrySpec
     SavedSessionSelectionSpec
     SavedSessionSpec

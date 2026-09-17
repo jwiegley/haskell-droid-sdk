@@ -41,7 +41,7 @@ where
 import Control.Applicative ((<|>))
 import Control.Exception (Exception)
 import Control.Monad (unless, void)
-import Data.Aeson (FromJSON (..), Object, ToJSON (..), Value (Object, String), withObject, withText, (.:), (.:!), (.=))
+import Data.Aeson (FromJSON (..), Object, ToJSON (..), Value (Bool, Object, String), withObject, withText, (.:), (.:!), (.=))
 import Data.Aeson.Key (Key)
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types (Pair, Parser, parseEither)
@@ -492,6 +492,9 @@ validateLoadSessionParams params
 validateDaemonLoadSessionParams :: DaemonLoadSessionParams -> Either LoadConfigurationError ()
 validateDaemonLoadSessionParams params = do
   validateLoadSessionParams (daemonLoadSession params)
+  -- This current daemon hint is carried by the extension map, but its SDK
+  -- request domain is omission or literal true, not an arbitrary Boolean.
+  unless (KeyMap.lookup "taskSubagentProcess" (daemonLoadSessionFields params) `elem` [Nothing, Just (Bool True)]) (Left InvalidLoadParams)
   either (const (Left InvalidLoadParams)) (const (Right ())) (parseEither (void . parseJSON @DaemonLoadSessionParams) (toJSON params))
 
 positiveIntegerField :: Object -> Key -> Parser (Maybe Scientific)
