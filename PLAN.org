@@ -9145,15 +9145,17 @@ Source distribution was independently built and tested in a separate unpacked tr
 ]
 #+end_src
 
-* TODO [#C] Reconcile the original workspace no-autoload documentation claim
+* DONE [#C] Reconcile the original workspace no-autoload documentation claim
 :PROPERTIES:
 :OBR_SCHEMA_VERSION: 17
 :ID:       hsdk-w50g
 :LABELS:   []
 :ISSUE_TYPE: task
 :CREATED:  [2026-09-16 Wed 22:58]
-:MODIFIED: [2026-09-16 Wed 22:58]
+:MODIFIED: [2026-09-17 Thu 11:19]
 :CREATED_BY: johnw
+:FINISHED: [2026-09-17 Thu 11:19]
+:CLOSE_REASON: Bound original DOC-a98d1937114f91/README1980 and all16inventory file hashes to unchanged audit archive823a4381. Fresh original-source build/probe reproduces load_session before known-inactive list/search; content-read/SDK-unknown/already-loaded controls do not load. Same current outcomes; prior unknown-session fixture was overgeneralized. Continuation035 corrects verified->contradicted retaining history and all2963IDs/text; counts554verified/11contradicted/25unverified+159nonclaims/2214pending. CurrentREADMEalreadycorrect; no runtime change. Fess in completion/claims/workspace/report.md; no live/push.
 :SOURCE_REPO: droid-sdk-haskell
 :SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
 :ORIGINAL_SIZE: 0
