@@ -634,6 +634,40 @@ Part of pending resolve-native-contracts. Native daemon creation preserves expli
 ]
 #+end_src
 
+* DONE [#B] Validate the repaired SDK source distribution from packaged contents
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-8twp
+:LABELS:   []
+:ISSUE_TYPE: task
+:CREATED:  [2026-09-17 Thu 13:44]
+:MODIFIED: [2026-09-17 Thu 14:42]
+:CREATED_BY: johnw
+:FINISHED: [2026-09-17 Thu 14:42]
+:CLOSE_REASON: Newarchive989d3cf0f5a71234aaad085ce85ebade3ecbf32ddb7d0631daad7fd3390ab893/1882153bytes,400regularfiles/438members allmatch690342a; bothextractedtreesunchanged andinstallregeneratessametar. Actualpackaged4370testsMac41.61s/Linux66.34s-Werror, Rust5/Python9each, rebuiltinstalledworkers/notices/schema/attachments pass. InstalledMacSDKce5ccf4b/publiclauncher/IPC/logicalowner/worker/reaping+codesign verified,ownedconfighelperrerun. OptionalofflineHaddockpreviewFAILED22714URLtemplates,notshipped/non-gating underuserSDKtestscope (hsdk-rw11); Cabalextra/privatebrokenlinktrackedhsdk-hhgu. Consumerharness/unsupportedflag/aggregatefailurespreserved; noSDKsourcechange. Fess/evidence docs/evidence/2026-09-17/packaged-release; no live/upgrades/push.
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Generate a fresh Cabal source distribution after the verified runtime repairs and4370-case reliability fix. Bind archive membership/hashes to source; independently build/test packaged contents on macOS and GNU/Linux ARM64 with GHC9.12.4-Werror, owned caches and packaged native-worker/launcher deployment. Run relevant lint/schema/example/install/license integrity checks. Reuse pinned refs and existing historical evidence; no exhaustive historical-doc audit, new live calls, upgrades or push. Record failures, fess and local commit; then final frozen/current test-backed report.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-8twp",
+    "depends_on_id": "hsdk-1rd7",
+    "type": "discovered-from",
+    "created_at": "2026-09-17T20:44:00.882093Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
 * DONE [#C] Resolve terminal timestamp coercion contract
 :PROPERTIES:
 :OBR_SCHEMA_VERSION: 17
@@ -7032,6 +7066,38 @@ Accepted optional omission: native SDK sessions add neither requestAttribution n
 
 Select current established Haskell tooling/dependencies and conventions from authoritative sources. Native macOS/Linux Cabal library; verify warning-free build, formatting/lint and CI configuration.
 
+* TODO [#D] Investigate extra and dangling links from launcher-only Cabal installation
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-hhgu
+:LABELS:   []
+:ISSUE_TYPE: bug
+:CREATED:  [2026-09-17 Thu 14:33]
+:MODIFIED: [2026-09-17 Thu 14:33]
+:CREATED_BY: johnw
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Cabal3.16.1.0 install exe:factory-droid-launcher from fresh SDK source also builds/links droid-example and private droid-ipc-test-peer. Launcher/example links valid; private peer link targets nonexistent bin while actual peer is libexec. Same historical observation reproduced in owned cloned store. Installed current library+public launcher+actual private fixture+worker pass native IPC/reaping; no link repaired/signing bypass/global install. Investigate upstream Cabal/package target footprint; not a functional test-parity release gate.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-hhgu",
+    "depends_on_id": "hsdk-8twp",
+    "type": "discovered-from",
+    "created_at": "2026-09-17T21:33:12.730881Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
 * DONE [#B] Retain acknowledged tool-policy updates across local replacement
 :PROPERTIES:
 :OBR_SCHEMA_VERSION: 17
@@ -8705,6 +8771,38 @@ Current resolution 2026-09-11: required permission, prompt, settings, mission-pr
     "depends_on_id": "hsdk-types-codecs-2rb",
     "type": "discovered-from",
     "created_at": "2026-09-05T18:14:22.554706Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
+* TODO [#D] Make packaged offline Haddock previews produce valid dependency links
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-rw11
+:LABELS:   []
+:ISSUE_TYPE: task
+:CREATED:  [2026-09-17 Thu 14:33]
+:MODIFIED: [2026-09-17 Thu 14:33]
+:CREATED_BY: johnw
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Optional documentation follow-up under September17 test-parity release scope. Fresh source package compiles/tests but Cabal v2 haddock requests uncached dependency sources offline. Direct Setup reused compiled configuration and generated HTML with dependency-link warnings; URL checker rejects unresolved URL templates. Do not publish this preview or rewrite URLs merely to pass. Preserve packaged-haddock and packaged-final-integrity failures; investigate proper offline interface/configuration. Source tarball does not contain generated HTML.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-rw11",
+    "depends_on_id": "hsdk-8twp",
+    "type": "discovered-from",
+    "created_at": "2026-09-17T21:33:12.482735Z",
     "created_by": "johnw",
     "metadata": "{}",
     "thread_id": ""
