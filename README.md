@@ -1282,7 +1282,28 @@ loadChildSummary connection parentId toolUseId = do
 
 The example is compiled, not executed. After discovery, `ensureChildSessionAttached` coalesces or reuses the physical connection's load; an unknown child returns `False` without an RPC. It does not create a handler-owning `DaemonSession`: use `withResumedSessionOn` or `withResumedSessionOnHandlers` for that scope. Load/ensure operations must not run in serial notification callbacks.
 
-`setSubagentInvocationSummary` and `hydrateSubagentInvocationSummaries` update reported summaries without registering or loading children. Bulk hydration preserves unrelated entries and skips blank IDs. A new availability notice reopens a terminal summary as running; a turn-completion event refreshes observed tool count and positive duration only for an existing summary tagged `subagent`. Turn completion does not manufacture a terminal task status.
+`setSubagentInvocationSummary` and `hydrateSubagentInvocationSummaries` update reported summaries without registering or loading children. Bulk hydration preserves unrelated entries and skips blank IDs. A new availability notice reopens a terminal summary as running.
+
+For an existing summary of a registered session, validated turn completion now follows the current SDK policy: `completed` / `spec_handoff` become completed, `cancelled` / `process_exit` become cancelled, and other declared reasons become failed. A `subagent` settings tag is not required. Nonempty history refreshes observed tool count and positive duration; empty history retains previous metrics. No summary is manufactured for a session without one. The pure `SessionState.refreshInvocationSummary` remains a separate count/duration helper.
+
+`SessionState.sessionTurnCompletionReason` exposes the owner's last recorded reason. An error notification marks the summary failed, except an expected `ProcessExitError` after a known non-error completion reason. Nonidle work observations, active-load hydration, newly seeded availability, permission resumption and acknowledged immediate submissions clear stale reasons; queued/skipped/rejected submissions do not, and an explicit message echo protects a completion received before its RPC acknowledgement. This is SDK-maintained observation, not proof of remote task success.
+
+```haskell
+module TerminalSummaryExample (observe) where
+
+import Data.Text (Text)
+import Factory.Droid.Daemon qualified as Daemon
+import Factory.Droid.Schema.Mission (SubagentInvocationSummary)
+import Factory.Droid.Schema.Notifications (AgentTurnCompletionReason)
+import Factory.Droid.SessionState qualified as State
+
+observe :: Daemon.DaemonConnection -> Text -> IO (Maybe AgentTurnCompletionReason, Maybe SubagentInvocationSummary)
+observe connection identifier = do
+  snapshot <- Daemon.getSessionState connection identifier
+  pure (State.sessionTurnCompletionReason snapshot, State.sessionInvocationSummary snapshot)
+```
+
+The example is compiled only. The owner counts live working-state observations with an internal freshness revision, including same-valued observations. A later load cannot replace their working-state projection or erase a newer completion reason; other valid receipt fields can still apply. The immutable receipt is not rewritten. These terminal/status rules deliberately supersede the frozen 0.7 owner policy; see [terminal-summary verification](docs/evidence/2026-09-17/summary-terminal/README.md).
 
 Loads and initialization now capture child-summary freshness at their existing atomic admission point. A summary changed after that capture wins over the late snapshot, even if its count decreased or its value was reasserted unchanged. Unchanged children can still hydrate; the parent load epoch continues to protect the rest of the receipt. The immutable returned load report is not rewritten to pretend the daemon sent the newer local summary.
 

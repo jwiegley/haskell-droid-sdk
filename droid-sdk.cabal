@@ -269,6 +269,7 @@ test-suite droid-sdk-test
     SourcesSpec
     SubmissionSpec
     SummaryFreshnessSpec
+    SummaryTerminalSpec
     SystemPromptSpec
     TerminalRuntimeSpec
     TerminalSpec

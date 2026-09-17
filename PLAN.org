@@ -7945,15 +7945,17 @@ Implement the frozen/current recordComputerConnectSli contract over existing Obs
 ]
 #+end_src
 
-* TODO [#C] Verify current child-summary terminal status transitions
+* DONE [#C] Verify current child-summary terminal status transitions
 :PROPERTIES:
 :OBR_SCHEMA_VERSION: 17
 :ID:       hsdk-ooh6
 :LABELS:   []
 :ISSUE_TYPE: feature
 :CREATED:  [2026-09-17 Thu 00:40]
-:MODIFIED: [2026-09-17 Thu 00:40]
+:MODIFIED: [2026-09-17 Thu 04:24]
 :CREATED_BY: johnw
+:FINISHED: [2026-09-17 Thu 04:24]
+:CLOSE_REASON: Verified current-only completion/error status and eligibility via 34 actual controller/manager component cases; final native summary+reason matches current on macOS/Linux ARM64. Clarified process exit means completion/error paths, not a lifecycle notice inference. Existing-owner reason/reset and summary revision integration; 35 new tests, final4258 both,20x84 final parallel checks. Evidence docs/evidence/2026-09-17/summary-terminal.
 :SOURCE_REPO: droid-sdk-haskell
 :SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
 :ORIGINAL_SIZE: 0
@@ -8861,6 +8863,40 @@ Required-operation roll-up is complete now that its named policy questions are r
     "depends_on_id": "hsdk-haskell-foundation-aae",
     "type": "blocks",
     "created_at": "2026-09-05T03:09:48.413977Z",
+    "created_by": "johnw",
+    "metadata": "{}",
+    "thread_id": ""
+  }
+]
+#+end_src
+
+* DONE [#C] Fence working-state load snapshots behind live notifications
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-u3yb
+:LABELS:   []
+:ISSUE_TYPE: feature
+:CREATED:  [2026-09-17 Thu 03:20]
+:MODIFIED: [2026-09-17 Thu 04:24]
+:CREATED_BY: johnw
+:FINISHED: [2026-09-17 Thu 04:24]
+:CLOSE_REASON: Reproduced held-load thinking overwrite after newer equal-valued idle/completion. Existing load entry captures live working revision and skips only stale working/reason projection. Added pre-capture, newer-busy and unrelated receipt-message controls; final4258 both ARM64 platforms,20x84 final parallel passes. Actual reference same-value revision component plus pinned load-guard source; no reference network-race claim.
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Current TypeScript0.9.1 performLoadSession captures workingStateRevision and skips stale reported/final working state after newer live notifications (chunk17346/17395/17669). Frozen0.7 lacks this load guard. Native parent load epochs alone do not detect same-load working-state updates. Needed for terminal-reason correctness: an old nonidle load must not clear a completion reason established with a newer idle observation, turning an expected ProcessExitError into failure. Add a discriminating held-load/same-valued-live-idle test and protect existing readiness/reason publication through the load owner, not a second cache or value-only heuristic. Resolve with terminal-summary work; no live calls or push.
+
+** Dependencies
+
+#+begin_src json
+[
+  {
+    "issue_id": "hsdk-u3yb",
+    "depends_on_id": "hsdk-ooh6",
+    "type": "discovered-from",
+    "created_at": "2026-09-17T10:20:06.840959Z",
     "created_by": "johnw",
     "metadata": "{}",
     "thread_id": ""

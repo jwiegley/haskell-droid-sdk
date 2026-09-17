@@ -17,6 +17,8 @@ module Factory.Droid.SessionState
     sessionCallingSessionId,
     sessionCallingToolUseId,
     sessionInvocationSummary,
+    sessionTurnCompletionReason,
+    setSessionTurnCompletionReason,
     sessionChildLoadError,
     ChildLoadError (..),
     observeChildAvailable,
@@ -150,6 +152,7 @@ module Factory.Droid.SessionState
     cancelSubmission,
     cancelSessionSubmissions,
     confirmSubmission,
+    isSubmissionConfirmed,
     observeCreatedMessage,
     mergeLoadedMessages,
     expireSubmissionsAt,
@@ -187,7 +190,7 @@ import Factory.Droid.Schema.Enums (MessageRole (..), MessageVisibility (..))
 import Factory.Droid.Schema.Interaction (AskUserResult, RequestPermissionResult)
 import Factory.Droid.Schema.Messages (FactoryDroidMessage, HookStatus (..), Message (..), PersistedHookCommand (..))
 import Factory.Droid.Schema.Mission (SubagentInvocationSummary (..), SubagentStatus (..))
-import Factory.Droid.Schema.Notifications (AssistantMessageRetracted (..), AssistantTextComplete (..), AssistantTextDelta (..), ChildSessionAvailable (..), CreateMessage (..), DroidWorkingState (..), DroidWorkingStateChanged (..), HookExecutionCompleted (..), HookExecutionStarted (..), LlmRetry, QueuedMessagesDiscarded (..), SessionCompacted (..), SessionWorkingDirectoryChanged (..), ThinkingTextComplete (..), ThinkingTextDelta (..), ToolCallNotification (..), ToolExecutionPhase (..), ToolExecutionPhaseChanged (..), ToolProgressUpdate (..), ToolProgressUpdateNotification (..), ToolResultNotification (..))
+import Factory.Droid.Schema.Notifications (AgentTurnCompletionReason, AssistantMessageRetracted (..), AssistantTextComplete (..), AssistantTextDelta (..), ChildSessionAvailable (..), CreateMessage (..), DroidWorkingState (..), DroidWorkingStateChanged (..), HookExecutionCompleted (..), HookExecutionStarted (..), LlmRetry, QueuedMessagesDiscarded (..), SessionCompacted (..), SessionWorkingDirectoryChanged (..), ThinkingTextComplete (..), ThinkingTextDelta (..), ToolCallNotification (..), ToolExecutionPhase (..), ToolExecutionPhaseChanged (..), ToolProgressUpdate (..), ToolProgressUpdateNotification (..), ToolResultNotification (..))
 import Factory.Droid.Schema.Primitives (Rfc3339Timestamp)
 import Numeric (showEFloat)
 import Numeric.Natural (Natural)
@@ -417,6 +420,7 @@ data SessionState = SessionState
     toolProgressOrder :: !(Seq Text),
     toolProgressDeadlines :: !(Map Text Integer),
     sessionRetry :: !(Maybe LlmRetry),
+    sessionTurnCompletionReason :: !(Maybe AgentTurnCompletionReason),
     hookObservations :: !(Map Text HookObservation),
     hookOrder :: !(Seq Text),
     sessionProgressiveDisplay :: !Bool,
@@ -466,6 +470,7 @@ emptySessionState =
       toolProgressOrder = mempty,
       toolProgressDeadlines = mempty,
       sessionRetry = Nothing,
+      sessionTurnCompletionReason = Nothing,
       hookObservations = mempty,
       hookOrder = mempty,
       sessionProgressiveDisplay = True,
@@ -657,6 +662,11 @@ clearChildLink state = state {sessionCallingSessionId = Nothing, sessionCallingT
 setInvocationSummary :: SubagentInvocationSummary -> SessionState -> SessionState
 setInvocationSummary summary state = state {sessionInvocationSummary = Just summary}
 
+-- | Record or clear the owner's latest observed turn reason. This local
+-- metadata setter neither completes remote work nor changes task status.
+setSessionTurnCompletionReason :: Maybe AgentTurnCompletionReason -> SessionState -> SessionState
+setSessionTurnCompletionReason reason state = state {sessionTurnCompletionReason = reason}
+
 setChildLoadError :: Maybe ChildLoadError -> SessionState -> SessionState
 setChildLoadError failure state = state {sessionChildLoadError = if isJust (sessionCallingSessionId state) then failure else sessionChildLoadError state}
 
@@ -810,6 +820,11 @@ cancelSessionSubmissions state = state {submissions = mempty, submissionOrder = 
 -- Unknown confirmations are remembered so late preparation cannot add a duplicate.
 confirmSubmission :: Text -> SessionState -> SessionState
 confirmSubmission requestId state = (removeQueuedMessage requestId (cancelSubmission requestId state)) {processedRequests = Set.insert requestId (processedRequests state)}
+
+-- | Whether an explicit echo/confirmation already won, including after the
+-- optimistic overlay was removed. It is not inferred from an RPC ACK.
+isSubmissionConfirmed :: Text -> SessionState -> Bool
+isSubmissionConfirmed requestId = Set.member requestId . processedRequests
 
 observeCreatedMessage :: CreateMessage -> SessionState -> SessionState
 observeCreatedMessage event state =

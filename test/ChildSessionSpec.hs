@@ -181,7 +181,7 @@ childSessionTests =
           void (Daemon.getProxyToken connection)
           state <- waitState connection "child" ((== Just (Just 2)) . fmap invocationToolUseCount . State.sessionInvocationSummary)
           fmap invocationDurationMs (State.sessionInvocationSummary state) @?= Just (Just 20)
-          fmap invocationStatus (State.sessionInvocationSummary state) @?= Just SubagentRunning,
+          fmap invocationStatus (State.sessionInvocationSummary state) @?= Just SubagentCompleted,
       testCase "silent explicit child close retires lookup but retains its historical summary" $ bounded $ do
         void $ withChildPeer False [("child", [Loaded (loadValue [] False ["callingSessionId" .= String "parent", "callingToolUseId" .= String "tool"])])] [] $ \connection _ _ -> do
           summary <- decodeValue @SubagentInvocationSummary (summaryValue "child" "completed" 2 0)
@@ -203,7 +203,7 @@ childSessionTests =
           state <- waitState connection "child" (Map.member "barrier" . State.sessionMessagesById)
           State.sessionCallingToolUseId state @?= Just "new"
           State.sessionChildLoadError state @?= Nothing,
-      testCase "terminal statistics are not inferred for an untagged child" $ bounded $ do
+      testCase "an existing managed summary refreshes metrics without a subagent tag" $ bounded $ do
         let child = loadValue [messageValue "assistant" "assistant" 0 10 [toolValue "tool"]] False ["callingSessionId" .= String "parent"]
             barrier = object ["type" .= String "create_message", "message" .= messageValue "barrier" "user" 0 0 []]
         void $ withChildPeer False [("child", [Loaded child])] [[("child", completedTurn), ("child", barrier)]] $ \connection _ _ -> do
@@ -212,7 +212,7 @@ childSessionTests =
           void (Daemon.loadSessionInfo connection "child")
           void (Daemon.getProxyToken connection)
           void (waitState connection "child" (Map.member "barrier" . State.sessionMessagesById))
-          Daemon.getSubagentInvocationSummary connection "child" >>= (@?= Just report),
+          Daemon.getSubagentInvocationSummary connection "child" >>= (@?= Just (report {invocationToolUseCount = Just 1})),
       testCase "invalid availability never loads a child and self-link discovery is a no-op" $ bounded $ do
         (_, trace) <- withChildPeer True [] [[("self", available "self" Nothing True)], [("parent", available "  " Nothing True)]] $ \connection _ _ -> do
           void (Daemon.getProxyToken connection)

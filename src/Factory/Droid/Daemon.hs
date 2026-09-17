@@ -362,13 +362,13 @@ import Factory.Droid.Schema.Enums qualified as Enums
 import Factory.Droid.Schema.Interaction (AskUserResult, RequestPermissionResult, askUserToolCallId, confirmationInfoToolUse, permissionToolUses)
 import Factory.Droid.Schema.MCP (ListMcpRegistryResult, ListMcpServersResult, ListMcpToolsResult, McpServerNameParams (..), RemoveMcpServerParams (..), SubmitMcpAuthCodeParams, SubmitMcpAuthErrorParams, ToggleMcpServerParams (..), ToggleMcpToolParams (..))
 import Factory.Droid.Schema.MCP.Config (AddMcpServerParams, GetMcpConfigResult, McpConfigurationError (..), McpSessionOptions (..), UpdateMcpConfigParams, UpdateMcpConfigResult, defaultMcpSessionOptions, validateMcpConfiguration)
-import Factory.Droid.Schema.Mission (MissionSnapshot, SubagentInvocationSummary (..))
+import Factory.Droid.Schema.Mission (MissionSnapshot, SubagentInvocationSummary (..), SubagentStatus (..))
 import Factory.Droid.Schema.Models (ListModelsOptions, ListModelsResult)
-import Factory.Droid.Schema.Notifications (ChildSessionAvailable (..), CreateMessage (..), DroidWorkingState (..), DroidWorkingStateChanged (..), PermissionResolved (..), SessionTitleUpdated, SessionWorkingDirectoryChanged (..))
+import Factory.Droid.Schema.Notifications (AgentTurnCompleted (..), AgentTurnCompletionReason (..), ChildSessionAvailable (..), CreateMessage (..), DroidWorkingState (..), DroidWorkingStateChanged (..), ErrorNotification (..), NotificationErrorType (..), PermissionResolved (..), SessionTitleUpdated, SessionWorkingDirectoryChanged (..))
 import Factory.Droid.Schema.Primitives (NonEmptyText)
 import Factory.Droid.Schema.RPC
-import Factory.Droid.Schema.Session (SessionIdParams (..), SessionSnapshot (sessionMessages), SessionWorktreeInfo (..), findSubagentSessionTag)
-import Factory.Droid.Schema.Settings (SessionSettings, SettingsUpdated, UpdateSessionSettingsParams, settingsTags)
+import Factory.Droid.Schema.Session (SessionIdParams (..), SessionSnapshot (sessionMessages), SessionWorktreeInfo (..))
+import Factory.Droid.Schema.Settings (SessionSettings, SettingsUpdated, UpdateSessionSettingsParams)
 import Factory.Droid.Schema.Sources (SessionSource (..), SessionSourceDetails (SourceApi))
 import Factory.Droid.Schema.SystemPrompt (SystemPromptConfig)
 import Factory.Droid.SessionState qualified as SessionState
@@ -1205,7 +1205,12 @@ registerChildMetadata state parent available = do
       writeTVar (connectionSessionStates state) (Map.insert identifier (SessionState.inheritWorkingDirectory parentCwd discovered) states)
       when (SessionState.sessionInvocationSummary previous /= SessionState.sessionInvocationSummary discovered) (recordInvocationSummaryRevision (connectionLogicalState state) identifier)
       rememberChildOrder state identifier
-      modifyTVar' (connectionLoads state) $ Map.alter (Just . seed . fromMaybe emptyLoadEntry) identifier
+      loads <- readTVar (connectionLoads state)
+      let before = Map.findWithDefault emptyLoadEntry identifier loads
+          after = seed before
+      writeTVar (connectionLoads state) (Map.insert identifier after loads)
+      when (readinessWorkingState (entryReadiness after) /= readinessWorkingState (entryReadiness before)) $
+        modifySessionState (connectionSessionStates state) identifier (SessionState.setSessionTurnCompletionReason Nothing)
       void (pruneRegisteredSessions state)
       pure True
   where
@@ -1323,14 +1328,44 @@ hydrateInvocationSummaries shared expected summaries = forM_ summaries $ \summar
       modifySessionState (sharedSessionStates shared) identifier (SessionState.setInvocationSummary summary)
       recordInvocationSummaryRevision shared identifier
 
--- A completion refresh is an observation even when it recomputes the same
--- summary. Preserve the existing count/duration policy; status is separate.
-refreshObservedInvocationSummary :: DaemonContext -> Text -> STM ()
-refreshObservedInvocationSummary state identifier = do
+-- A terminal observation updates an existing managed summary, not an inferred
+-- new task. Keep the pure metric refresh independent of this owner policy.
+completeObservedInvocationSummary :: DaemonContext -> Text -> AgentTurnCompletionReason -> STM ()
+completeObservedInvocationSummary state identifier reason = do
   states <- readTVar (connectionSessionStates state)
-  forM_ (Map.lookup identifier states >>= SessionState.sessionInvocationSummary) $ \_ -> do
-    modifySessionState (connectionSessionStates state) identifier SessionState.refreshInvocationSummary
+  forM_ (Map.lookup identifier states >>= SessionState.sessionInvocationSummary) $ \summary -> do
+    modifySessionState (connectionSessionStates state) identifier (SessionState.refreshInvocationSummary . SessionState.setInvocationSummary (summary {invocationStatus = invocationStatusForReason reason}))
     recordInvocationSummaryRevision (connectionLogicalState state) identifier
+
+invocationStatusForReason :: AgentTurnCompletionReason -> SubagentStatus
+invocationStatusForReason = \case
+  TurnCompleted -> SubagentCompleted
+  TurnSpecHandoff -> SubagentCompleted
+  TurnCancelled -> SubagentCancelled
+  TurnProcessExit -> SubagentCancelled
+  _ -> SubagentFailed
+
+observeSessionTurnOutcome :: DaemonContext -> Text -> DroidEvent -> STM ()
+observeSessionTurnOutcome state identifier = \case
+  TurnCompletedEvent completed -> registered (record (turnCompletionReason completed))
+  ErrorEvent failure -> registered $ do
+    states <- readTVar (connectionSessionStates state)
+    let previous = Map.lookup identifier states >>= SessionState.sessionTurnCompletionReason
+        expectedExit = errorNotificationType failure == NotifyProcessExitError && maybe False (/= TurnError) previous
+    unless expectedExit (record TurnError)
+  WorkingStateEvent changed | workingStateNewState changed /= WorkingIdle -> clear
+  PermissionEvent _ -> do
+    entries <- readTVar (connectionLoads state)
+    when (maybe False ((== Right (Just WorkingWaitingForToolConfirmation)) . readinessWorkingState . entryReadiness) (Map.lookup identifier entries)) clear
+  _ -> pure ()
+  where
+    registered action = do
+      cache <- readTVar (connectionSessionCache state)
+      when (identifier `elem` cachedSessionIds cache) action
+    record reason = do
+      modifySessionState (connectionSessionStates state) identifier (SessionState.setSessionTurnCompletionReason (Just reason))
+      completeObservedInvocationSummary state identifier reason
+    clear = modifySessionState (connectionSessionStates state) identifier (SessionState.setSessionTurnCompletionReason Nothing)
 
 -- Seal the owned job map before cancellation. Every worker waits at a local
 -- gate until it has been registered, so closing intake cannot orphan a launch.
@@ -1392,6 +1427,7 @@ mergeLoadPolicy (old, oldDaemon) (new, newDaemon) = (Configuration.mergeSessionL
 data SessionLoadEntry = SessionLoadEntry
   { entryReadiness :: !SessionReadiness,
     entryEpoch :: !Integer,
+    entryWorkingRevision :: !Integer,
     entryFlight :: !(Maybe SessionLoadTicket),
     entryRestoredRequests :: !(Map Text (Text, Object)),
     entryCompletedRequests :: !(Set (Text, Text)),
@@ -1401,7 +1437,7 @@ data SessionLoadEntry = SessionLoadEntry
   }
 
 emptyLoadEntry :: SessionLoadEntry
-emptyLoadEntry = SessionLoadEntry (SessionReadiness SessionNotLoaded False False False False (Right Nothing)) 0 Nothing mempty mempty mempty Nothing Nothing
+emptyLoadEntry = SessionLoadEntry (SessionReadiness SessionNotLoaded False False False False (Right Nothing)) 0 0 Nothing mempty mempty mempty Nothing Nothing
 
 sessionReadinessBusy :: SessionReadiness -> Either Core.DroidError Bool
 sessionReadinessBusy = fmap (maybe False (/= WorkingIdle)) . readinessWorkingState
@@ -1470,10 +1506,10 @@ invalidateStoredSessionLoad stored identifier removeKnown = do
         next = entry {entryEpoch = entryEpoch entry + 1, entryFlight = Nothing, entryRestoredRequests = mempty, entryLoadPolicy = if removeKnown then Nothing else entryLoadPolicy entry, entryReadiness = previous {readinessPhase = SessionNotLoaded, readinessLoading = False, readinessKnown = not removeKnown && readinessKnown previous, readinessPreInit = not removeKnown && readinessPreInit previous, readinessWorkingState = Right Nothing}}
     writeTVar stored (Map.insert identifier next entries)
 
-startSessionLoad :: DaemonContext -> Text -> STM (Integer, SessionLoadTicket, DaemonLoadPolicy, SubagentSummaryRevision)
+startSessionLoad :: DaemonContext -> Text -> STM (Integer, SessionLoadTicket, DaemonLoadPolicy, SubagentSummaryRevision, Integer)
 startSessionLoad state identifier = startSessionLoadForMachine state identifier (connectionDefaultMachineId state)
 
-startSessionLoadForMachine :: DaemonContext -> Text -> Text -> STM (Integer, SessionLoadTicket, DaemonLoadPolicy, SubagentSummaryRevision)
+startSessionLoadForMachine :: DaemonContext -> Text -> Text -> STM (Integer, SessionLoadTicket, DaemonLoadPolicy, SubagentSummaryRevision, Integer)
 startSessionLoadForMachine state identifier machine = do
   entries <- readTVar (connectionLoads state)
   let previous = Map.findWithDefault emptyLoadEntry identifier entries
@@ -1487,7 +1523,7 @@ startSessionLoadForMachine state identifier machine = do
   rememberChildOrderForMachine state identifier machine
   void (pruneRegisteredSessions state)
   revision <- captureSummaryRevision (connectionLogicalState state)
-  pure (epoch, ticket, fromMaybe (connectionLoadDefaults state) (entryLoadPolicy previous), revision)
+  pure (epoch, ticket, fromMaybe (connectionLoadDefaults state) (entryLoadPolicy previous), revision, entryWorkingRevision previous)
 
 -- Explicit reloads supersede previous generations. Readiness checks instead
 -- join an existing flight and never speculate about an unknown session.
@@ -1516,7 +1552,7 @@ ensureSessionLoaded connection@(DaemonConnection _ state) identifier = mask $ \r
         Nothing -> Just . Left <$> startSessionLoad state identifier
   forM_ selected $ \case
     Right ticket -> void (restore (atomically (checkConnection connection >> readTMVar ticket)) >>= either throwIO pure)
-    Left (epoch, ticket, policy, revision) -> void (finishSessionLoad state identifier epoch ticket (restore (performSessionReload connection identifier (sessionLoadGuard state identifier epoch revision policy))))
+    Left (epoch, ticket, policy, revision, workingRevision) -> void (finishSessionLoad state identifier epoch ticket (restore (performSessionReload connection identifier (sessionLoadGuard state identifier epoch revision workingRevision policy))))
 
 trackSessionLoad :: DaemonConnection -> Text -> (SessionLoadGuard -> IO DaemonSessionInfo) -> IO DaemonSessionInfo
 trackSessionLoad = trackSessionLoadWithConfiguration Nothing
@@ -1526,7 +1562,7 @@ trackSessionLoadWithConfiguration = trackSessionLoadWithCreation Nothing
 
 trackSessionLoadWithCreation :: Maybe (Unique, Text) -> Maybe DaemonLoadPolicy -> DaemonConnection -> Text -> (SessionLoadGuard -> IO DaemonSessionInfo) -> IO DaemonSessionInfo
 trackSessionLoadWithCreation creation configured connection@(DaemonConnection _ state) identifier action = mask $ \restore -> do
-  (existed, previousPolicy, epoch, ticket, policy, revision) <- atomically $ do
+  (existed, previousPolicy, epoch, ticket, policy, revision, workingRevision) <- atomically $ do
     checkConnection connection
     existed <- (identifier `elem`) . cachedSessionIds <$> readTVar (connectionSessionCache state)
     previousPolicy <- (Map.lookup identifier >=> entryLoadPolicy) <$> readTVar (connectionLoads state)
@@ -1539,11 +1575,11 @@ trackSessionLoadWithCreation creation configured connection@(DaemonConnection _ 
                in Just (entry {entryLoadPolicy = Just (mergeLoadPolicy old new)})
           )
           identifier
-    (epoch, ticket, policy, revision) <- startSessionLoadForMachine state identifier (maybe (connectionDefaultMachineId state) snd creation)
+    (epoch, ticket, policy, revision, workingRevision) <- startSessionLoadForMachine state identifier (maybe (connectionDefaultMachineId state) snd creation)
     unless existed $ forM_ creation $ \(token, _) ->
       modifyTVar' (connectionLoads state) (Map.adjust (\entry -> entry {entryCreationOwner = Just token}) identifier)
-    pure (existed, previousPolicy, epoch, ticket, policy, revision)
-  finishSessionLoad state identifier epoch ticket (restore (action (sessionLoadGuard state identifier epoch revision policy)))
+    pure (existed, previousPolicy, epoch, ticket, policy, revision, workingRevision)
+  finishSessionLoad state identifier epoch ticket (restore (action (sessionLoadGuard state identifier epoch revision workingRevision policy)))
     `onException` forM_
       creation
       ( \(token, _) -> unless existed $ atomically $ do
@@ -1599,8 +1635,8 @@ data SessionLoadGuard = SessionLoadGuard
     loadPolicySnapshot :: DaemonLoadPolicy
   }
 
-sessionLoadGuard :: DaemonContext -> Text -> Integer -> SubagentSummaryRevision -> DaemonLoadPolicy -> SessionLoadGuard
-sessionLoadGuard state identifier epoch revision = SessionLoadGuard (observeSessionLoad state identifier epoch revision) (current Nothing) (current . Just) ready
+sessionLoadGuard :: DaemonContext -> Text -> Integer -> SubagentSummaryRevision -> Integer -> DaemonLoadPolicy -> SessionLoadGuard
+sessionLoadGuard state identifier epoch revision workingRevision = SessionLoadGuard (observeSessionLoad state identifier epoch revision workingRevision) (current Nothing) (current . Just) ready
   where
     eligible request entry = entryEpoch entry == epoch && maybe True (\key -> case Map.lookup key (entryRestoredRequests entry) of Just (method, _) -> Set.notMember (method, key) (entryCompletedRequests entry); Nothing -> False) request
     current request = maybe False (eligible request) . Map.lookup identifier <$> readTVar (connectionLoads state)
@@ -1615,17 +1651,20 @@ sessionLoadGuard state identifier epoch revision = SessionLoadGuard (observeSess
           pure True
         _ -> pure False
 
-observeSessionLoad :: DaemonContext -> Text -> Integer -> SubagentSummaryRevision -> UTCTime -> Text -> (DaemonSessionInfo, [RestoredSessionRequest]) -> STM Bool
-observeSessionLoad state identifier epoch revision receivedAt _ (info, restored) = do
+observeSessionLoad :: DaemonContext -> Text -> Integer -> SubagentSummaryRevision -> Integer -> UTCTime -> Text -> (DaemonSessionInfo, [RestoredSessionRequest]) -> STM Bool
+observeSessionLoad state identifier epoch revision workingRevision receivedAt _ (info, restored) = do
   entries <- readTVar (connectionLoads state)
   case Map.lookup identifier entries of
     Just entry | entryEpoch entry == epoch -> do
       retiring <- Interaction.inactivePendingRequestIds (connectionInteractions state) identifier
-      let readiness = (entryReadiness entry) {readinessWorkingState = Right (Just (snapshotWorkingState info))}
+      let working = snapshotWorkingState info
+          workingCurrent = entryWorkingRevision entry == workingRevision
+          readiness = if workingCurrent then (entryReadiness entry) {readinessWorkingState = Right (Just working)} else entryReadiness entry
           requests = Map.fromListWith (\_ earlier -> earlier) [(requestId, (method, fields)) | (method, requestId, fields) <- restored]
       writeTVar (connectionLoads state) (Map.insert identifier (entry {entryReadiness = readiness, entryRestoredRequests = requests, entryRetiringRequests = Set.union (Set.fromList retiring) (entryRetiringRequests entry)}) entries)
       Interaction.clearInactivePendingForSession (connectionInteractions state) identifier
       modifySessionState (connectionSessionStates state) identifier (SessionState.observeWorkingDirectory (daemonInitialWorkingDirectory info))
+      when (workingCurrent && working /= WorkingIdle) (modifySessionState (connectionSessionStates state) identifier (SessionState.setSessionTurnCompletionReason Nothing))
       forM_ (daemonLoadedState info) $ \snapshot -> do
         let history = sessionMessages (loadedSessionSnapshot snapshot)
             observedAt = realToFrac (utcTimeToPOSIXSeconds receivedAt) * 1000
@@ -2416,7 +2455,7 @@ withDaemonConnectionStateUsing shared options reject mcpOptions acquire action =
                 )
                 (retireDaemonConnection owned)
         finallyPreserving
-          (Core.withSessionConnectionSetup (sharedCoreState shared) channel (daemonBackend (daemonClientProtocolVersion options) (sharedSessionStates shared) (stateGenerationOpen shared generation)) reject mcpOptions prepare run)
+          (Core.withSessionConnectionSetup (sharedCoreState shared) channel (daemonBackend (daemonClientProtocolVersion options) shared (stateGenerationOpen shared generation)) reject mcpOptions prepare run)
           (stopChildHydrations childHydrations)
 
 retireDaemonConnection :: DaemonConnection -> IO ()
@@ -2913,24 +2952,25 @@ authenticationParams credential = KeyMap.fromList ("caller" .= String "haskell-s
       DaemonApiKey key -> ["apiKey" .= key]
       DaemonToken token grant -> ["token" .= token] <> maybe [] (\value -> ["actAsGrant" .= value]) grant
 
-daemonBackend :: Text -> TVar (Map Text SessionState.SessionState) -> STM Bool -> Core.SessionBackend
-daemonBackend protocolVersion sessionStates currentGeneration =
+daemonBackend :: Text -> DaemonState -> STM Bool -> Core.SessionBackend
+daemonBackend protocolVersion shared currentGeneration =
   Core.SessionBackend
     (WithEnvelope (Just protocolVersion) Nothing mempty)
     decodeDaemonNotification
-    (submitMessage sessionStates currentGeneration)
+    (submitMessage shared currentGeneration)
     ( \channel callOptions identifier -> mask $ \restore -> do
         result <- restore (Client.call (Proxy @(WithEnvelope (MethodRequest "daemon.interrupt_session" Object))) channel callOptions (KeyMap.singleton "sessionId" (String identifier)))
         atomically $ do
           current <- currentGeneration
           unless current (throwSTM RpcChannelClosed)
-          modifySessionState sessionStates identifier (SessionState.pauseDaemonQueue Nothing)
+          modifySessionState (sharedSessionStates shared) identifier (SessionState.pauseDaemonQueue Nothing)
         pure result
     )
     Nothing
 
-submitMessage :: TVar (Map Text SessionState.SessionState) -> STM Bool -> RpcDispatcher -> RpcChannel -> Client.CallOptions -> Text -> AddUserMessageParams -> IO Object
-submitMessage sessionStates currentGeneration dispatcher channel options identifier input = mask $ \restore -> do
+submitMessage :: DaemonState -> STM Bool -> RpcDispatcher -> RpcChannel -> Client.CallOptions -> Text -> AddUserMessageParams -> IO Object
+submitMessage shared currentGeneration dispatcher channel options identifier input = mask $ \restore -> do
+  let sessionStates = sharedSessionStates shared
   wireInput <- case userMessageId input of
     Just _ -> pure input
     Nothing -> do messageId <- UUID.toText <$> nextRandom; pure (input {userMessageId = Just messageId})
@@ -2952,15 +2992,31 @@ submitMessage sessionStates currentGeneration dispatcher channel options identif
   -- Do not publish its late outcome into a successor generation's observations.
   published <- atomically $ do
     allowed <- currentGeneration
-    when allowed $ modifySessionState sessionStates identifier $ case outcome of
-      Right _ -> SessionState.finishSubmission requestId
-      Left cause -> case submissionFailure cause of
-        Just failure -> SessionState.rejectSubmission requestId failure
-        Nothing -> SessionState.finishSubmission requestId . SessionState.cancelSubmission requestId
+    when allowed $ do
+      modifySessionState sessionStates identifier $ case outcome of
+        Right _ -> SessionState.finishSubmission requestId
+        Left cause -> case submissionFailure cause of
+          Just failure -> SessionState.rejectSubmission requestId failure
+          Nothing -> SessionState.finishSubmission requestId . SessionState.cancelSubmission requestId
+      case outcome of
+        Right _ -> observeImmediateSubmission shared identifier requestId wireInput
+        Left _ -> pure ()
     pure allowed
   case outcome of
     Left cause -> throwIO cause
     Right result -> if published then pure result else throwIO RpcChannelClosed
+
+-- Match the acknowledged immediate-turn boundary without clearing a later
+-- completion whose explicit message echo already won while the RPC waited.
+observeImmediateSubmission :: DaemonState -> Text -> Text -> AddUserMessageParams -> STM ()
+observeImmediateSubmission shared identifier requestId input =
+  when (userMessageSkipAgentLoop input /= Just True && userMessageQueuePlacement input /= Just QueueEndOfLoop) $ do
+    cache <- readTVar (sharedCache shared)
+    entries <- readTVar (sharedLoads shared)
+    let idle = maybe True ((`elem` [Right Nothing, Right (Just WorkingIdle)]) . readinessWorkingState . entryReadiness) (Map.lookup identifier entries)
+    when (identifier `elem` cachedSessionIds cache && idle) $
+      modifySessionState (sharedSessionStates shared) identifier $ \state ->
+        if SessionState.isSubmissionConfirmed requestId state then state else SessionState.setSessionTurnCompletionReason Nothing state
 
 -- Caller cancellation can carry any exception, not only SomeAsyncException.
 -- Only known protocol failures retain an error overlay; every cause is rethrown.
@@ -2984,7 +3040,7 @@ submitUserMessage owned@(DaemonConnection connection state) identifier requestId
     states <- readTVar (connectionSessionStates state)
     pure (isJust (Map.lookup identifier states >>= SessionState.lookupSubmission requestId))
   result <- restore $ Core.connectionRequest connection 30000000 $ \channel options ->
-    submitMessage (connectionSessionStates state) (connectionScopeOpen owned) (Core.connectionDispatcher connection) channel (options {Client.callRequestId = requestId}) identifier input
+    submitMessage (connectionLogicalState state) (connectionScopeOpen owned) (Core.connectionDispatcher connection) channel (options {Client.callRequestId = requestId}) identifier input
   observedAt <- (* 1000) . realToFrac <$> getPOSIXTime
   atomically $ do
     checkConnection owned
@@ -3204,7 +3260,7 @@ notificationPayload identifier notification
           params
 
 observeLifecycle :: DaemonConnection -> JsonRpcBaseNotification -> IO ()
-observeLifecycle owned@(DaemonConnection connection state) notification =
+observeLifecycle owned@(DaemonConnection _ state) notification =
   forM_ (baseNotificationParams (envelopeBody notification)) $ \params ->
     forM_ (parseEither (withObject "lifecycle session" (.: "sessionId")) params) $ \identifier ->
       case notificationPayload identifier notification of
@@ -3251,22 +3307,17 @@ observeLifecycle owned@(DaemonConnection connection state) notification =
               atomically $ case decodeDaemonNotification identifier Nothing notification of
                 Right events -> do
                   modifySessionState (connectionSessionStates state) identifier (\previous -> foldl' (flip (SessionState.applySessionEventAt wall monotonic)) previous events)
-                  updateWorking (\readiness -> foldl' applyWorkingEvent readiness events)
-                  forM_ events $ \case
-                    PermissionEvent resolved -> do
-                      retireRestoredPermission state identifier (resolvedRequestId resolved)
-                      resolvedPending <- Interaction.recordPermissionResolved (connectionInteractions state) identifier (resolvedRequestId resolved)
-                      completeInteractionRequest state identifier "daemon.request_permission" (resolvedRequestId resolved)
-                      forM_ resolvedPending (\pending -> completeInteractionRequest state (Interaction.pendingSessionId pending) "daemon.request_permission" (resolvedRequestId resolved))
-                      modifyTVar' (connectionSessionStates state) (Map.map (SessionState.retireDeferredPermissions identifier (resolvedRequestId resolved) (resolvedToolUseIds resolved)))
-                    _ -> pure ()
-                  when (any isTurnCompletion events) $ do
-                    (_, settings) <- readTVar (Core.connectionSettings connection)
-                    case Map.lookup identifier settings of
-                      Just (Right current)
-                        | isJust (settingsTags current >>= findSubagentSessionTag) ->
-                            refreshObservedInvocationSummary state identifier
+                  forM_ events $ \event -> do
+                    observeSessionTurnOutcome state identifier event
+                    case event of
+                      PermissionEvent resolved -> do
+                        retireRestoredPermission state identifier (resolvedRequestId resolved)
+                        resolvedPending <- Interaction.recordPermissionResolved (connectionInteractions state) identifier (resolvedRequestId resolved)
+                        completeInteractionRequest state identifier "daemon.request_permission" (resolvedRequestId resolved)
+                        forM_ resolvedPending (\pending -> completeInteractionRequest state (Interaction.pendingSessionId pending) "daemon.request_permission" (resolvedRequestId resolved))
+                        modifyTVar' (connectionSessionStates state) (Map.map (SessionState.retireDeferredPermissions identifier (resolvedRequestId resolved) (resolvedToolUseIds resolved)))
                       _ -> pure ()
+                  observeWorkingEvents state identifier events
                 Left _ -> do
                   modifySessionState (connectionSessionStates state) identifier (SessionState.invalidateMessageState SessionState.MalformedMessageEvent)
                   when (value == "droid_working_state_changed") (updateWorking (\readiness -> readiness {readinessWorkingState = Left Core.DroidInvalidEvent}))
@@ -3276,14 +3327,21 @@ observeLifecycle owned@(DaemonConnection connection state) notification =
             _ -> pure ()
         _ -> pure ()
 
-isTurnCompletion :: DroidEvent -> Bool
-isTurnCompletion (TurnCompletedEvent _) = True
-isTurnCompletion _ = False
-
 retireChildState :: DaemonContext -> Text -> STM ()
 retireChildState state identifier = do
   modifySessionState (connectionSessionStates state) identifier SessionState.clearChildLink
   modifyTVar' (connectionChildOrder state) (filter (/= identifier))
+
+-- Live working-state notifications, including equal-valued observations,
+-- invalidate an older load's working-state projection without rejecting the
+-- rest of that receipt. Local inferred transitions are not server revisions.
+observeWorkingEvents :: DaemonContext -> Text -> [DroidEvent] -> STM ()
+observeWorkingEvents state identifier events = modifyTVar' (connectionLoads state) $ Map.adjust update identifier
+  where
+    updates = fromIntegral (length [() | WorkingStateEvent _ <- events])
+    update entry
+      | readinessKnown (entryReadiness entry) = entry {entryReadiness = foldl' applyWorkingEvent (entryReadiness entry) events, entryWorkingRevision = entryWorkingRevision entry + updates}
+      | otherwise = entry
 
 applyWorkingEvent :: SessionReadiness -> DroidEvent -> SessionReadiness
 applyWorkingEvent readiness event = readiness {readinessWorkingState = observed}

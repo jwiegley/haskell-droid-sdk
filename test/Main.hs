@@ -105,6 +105,7 @@ import SourcesSpec (sourceTests)
 import StreamSpec (legacyStreamTests, streamTests)
 import SubmissionSpec (submissionTests)
 import SummaryFreshnessSpec (summaryFreshnessTests)
+import SummaryTerminalSpec (summaryTerminalTests)
 import System.Environment (getArgs)
 import SystemPromptSpec (systemPromptTests)
 import TerminalRuntimeSpec (terminalRuntimeTests)
@@ -224,6 +225,7 @@ suiteMain = do
         droidTests,
         streamTests,
         summaryFreshnessTests,
+        summaryTerminalTests,
         legacyStreamTests,
         webSocketTests,
         daemonTests,

@@ -673,6 +673,8 @@ Final verification on macOS ARM64/GHC 9.10.3: **3,455 tests passed in 9.82s** (1
 
 ### Child-session hydration delivery
 
+**Historical boundary.** The records below describe their original delivery and receipts. The current-target summary freshness, terminal-status/eligibility and working-state hydration rules were subsequently revised; see [CC-15](evidence/2026-09-17/cc15/README.md) and [terminal-summary policy](evidence/2026-09-17/summary-terminal/README.md). The earlier evidence and frozen-target behavior are not retroactively changed.
+
 `hsdk-daemon-resources-observability-mxt.4.6` supplies parent/tool linkage, child discovery, optional automatic hydration, invocation summaries and failure observations through the existing daemon connection and immutable `SessionState`. `LoadedSessionState` adds declared optional `callingToolUseId` and `subagentInvocations` fields; omission remains distinct from invalid explicit null. Existing summary codecs retain exact numbers, empty text and extension precedence.
 
 Discovery is published before typed `ChildSessionAvailableEvent` callbacks. Manual registration and summary hydration perform no load; automatic discovery hydration defaults on but is configurable. `ensureChildSessionAttached` joins the established load coordinator, returns false for unknown children and does not grant handlers or execute a child. Accepted loads use the existing epoch and ordered receipt boundary for linkage, messages, summaries, settings and mission state. The existing sixty-second load budget is reused, not restarted by a follower.

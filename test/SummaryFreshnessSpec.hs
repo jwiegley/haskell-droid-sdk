@@ -120,13 +120,13 @@ summaryFreshnessTests =
           void (wait pending)
         Daemon.getSubagentInvocationSummary connection "child" >>= (@?= Just (prior {invocationStatus = SubagentRunning})),
       testCase "tagged completion refreshes advance freshness even when recomputed values are equal" $ bounded $ do
-        forM_ [1, 9] $ \count -> withOwner $ \connection peer -> do
+        forM_ [(SubagentRunning, 1), (SubagentCompleted, 9)] $ \(status, count) -> withOwner $ \connection peer -> do
           withAsync (Daemon.loadSessionInfo connection "child") $ \child -> do
             frame <- nextLoad peer
             respond peer frame childLoadValue
             void (wait child)
-          let prior = summary "child" SubagentRunning count
-              refreshed = prior {invocationToolUseCount = Just 9}
+          let prior = summary "child" status count
+              refreshed = prior {invocationStatus = SubagentCompleted, invocationToolUseCount = Just 9}
           Daemon.setSubagentInvocationSummary connection prior
           withAsync (Daemon.loadSessionInfo connection "parent") $ \parent -> do
             frame <- nextLoad peer
