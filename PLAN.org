@@ -82,6 +82,22 @@ Fess self-audit completed before closure: no production stubs, suppressed warnin
 ]
 #+end_src
 
+* DOING [#C] Deliver the ten pinned current daemon operations
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-116c
+:LABELS:   []
+:ISSUE_TYPE: feature
+:CREATED:  [2026-09-16 Wed 21:43]
+:MODIFIED: [2026-09-16 Wed 21:44]
+:CREATED_BY: johnw
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Address CC-01 from the pinned TypeScript 0.9.1 comparison, not a frozen-target defect: daemon.list_models; list/save/delete_worktree_setup_profile(s); list_managed_worktrees, cleanup_worktree, inspect_worktree_deletion; sf.publish_workstream_content, sf.hydrate_workstream_content; write_workspace_file_content. Reuse existing Client/Daemon typed operation and owner boundaries. Preserve current options/defaults, omission/null/extensions, exact values, results and errors; callable native APIs, not DTO-only/raw literals. Validate with controlled non-destructive peers and pinned source/component checks; no live mutation, dependency upgrades or push. Run fess and source-bound macOS/Linux verification.
+
 * DONE [#C] Implement scoped plain WebSocket object transport
 :PROPERTIES:
 :OBR_SCHEMA_VERSION: 17
