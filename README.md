@@ -177,7 +177,37 @@ withDroidSession (defaultDroidOptions ".") $ \session -> do
   pure result
 ```
 
-`DroidOptions` controls the executable, working directory, optional model, optional turn timeout in microseconds and positive `droidFrameLimitBytes`. The frame limit defaults to 10 MiB, applies to complete encoded JSON in both directions and excludes the newline. RPC envelopes, request identifiers and transport threads are managed internally. Prompts within a session are serialized; do not start a second prompt from that session's text or event callback.
+`DroidOptions` controls the executable, working directory, optional model, optional turn timeout in microseconds and positive `droidFrameLimitBytes`. The frame limit defaults to 10 MiB, applies to complete encoded JSON in both directions and excludes the newline. RPC envelopes, request identifiers and transport threads are managed internally. A second prompt on a busy session now fails with `DroidSessionBusy` before another submission, rather than waiting in an implicit SDK queue. This also applies to nested prompt attempts from a callback; a caught admission error does not invalidate the incumbent turn. Read-only callback queries retain their existing contract.
+
+### Scope and turn ownership
+
+An SDK consumer waiting for the next turn event observes both handle and connection lifetime. Normal scope closure wakes that wait with `DroidSessionUnusable`; it does not fabricate a completed result. Already-running caller callback IO is not forcibly supervised by scope closure. Bracket your workers with `withAsync` and finish/cancel caller work within the appropriate resource scope. Existing pending-interrupt acknowledgements still fence a later turn; that admission fence is outside the per-turn exchange/callback timeout.
+
+Borrowed high-level scopes retire their local admission/subscriptions but do **not** send an implicit remote close RPC. Owned-process scopes still own and reap their process; daemon attachments can explicitly use `closeAttachedSession` for remote close plus detach. For a borrowed local engine, the existing typed close command can be composed after the high-level scope has ended, with no simultaneous reader:
+
+```haskell
+module LifetimeExample (closeRemoteAfterScope, serializedPrompt) where
+
+import Control.Concurrent.MVar (MVar, withMVar)
+import Control.Monad (void)
+import Data.Text (Text)
+import Factory.Droid qualified as Droid
+import Factory.Droid.Client qualified as Client
+import Factory.Droid.Protocol (withRpcChannel)
+import Factory.Droid.Schema.Control (CloseSessionParams (..), CloseSessionReason (CloseOther))
+import Factory.Droid.Transport (ObjectTransport, transportReceiveObject, transportSendObject)
+
+closeRemoteAfterScope :: ObjectTransport -> Client.CallOptions -> IO ()
+closeRemoteAfterScope transport options =
+  withRpcChannel (transportSendObject transport) (transportReceiveObject transport) $ \channel ->
+    void (Client.closeSession channel options (CloseSessionParams (Just CloseOther) mempty))
+
+serializedPrompt :: MVar () -> Droid.DroidSession -> Text -> IO Droid.DroidResult
+serializedPrompt gate session prompt =
+  withMVar gate (const (Droid.sendDroidTurn session prompt (const (pure ()))))
+```
+
+This example is compiled only. `closeRemoteAfterScope` requires the still-open caller-owned transport after its former SDK reader has stopped; supply fresh request identity, protocol context and a chosen deadline in `CallOptions`. Close errors remain explicit and the caller chooses how they relate to an earlier action error. This is an intentional ownership/default difference from reference helpers that couple close to their session scope. The serialization wrapper shows how to request the old queued behavior explicitly; its queue wait belongs to the caller, and its lock must not be reacquired recursively from a callback. See [lifecycle and turn-admission verification](docs/evidence/2026-09-17/lifecycle-turns/README.md).
 
 To load a saved session, use its earlier `droidSessionId` or `resultSessionId`:
 
@@ -2462,7 +2492,7 @@ Migrate the operation and its ownership contract, rather than reproducing an SDK
 | Existing pattern | Native Haskell counterpart |
 | --- | --- |
 | One prompt or a retained client/session | `runDroid` for one prompt; `withDroidSession`, `withResumedDroidSession` or daemon `with*` scopes for retained state and cleanup. |
-| Async iterator or event subscription | `sendDroidEvents` for turn events, or `withDroidStream` for an explicit feed. Callbacks run within the documented scope; prompts on one local session remain serialized. |
+| Async iterator or event subscription | `sendDroidEvents` for turn events, or `withDroidStream` for an explicit feed. Callbacks run within the documented scope; overlapping prompts on one session fail fast, with optional caller-owned serialization. |
 | Dynamic option/result objects | Typed records plus retained extension objects. Preserve each field's omission/null distinction; `Nothing` is not a universal JSON-null operation. |
 | Hosted tool functions | Native handlers through `MCP.Tool` / `MCP.Server`, with the separate native validator executable installed. Owned child IPC additionally requires the C-only launcher. |
 | Promise/task cancellation | `IO` exceptions and scoped asynchronous cancellation. Cleanup releases owned resources; stopping a wait does not undo effects already accepted by a peer. |

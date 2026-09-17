@@ -285,6 +285,7 @@ test-suite droid-sdk-test
     ToolNotificationsSpec
     ToolsSpec
     TunnelSpec
+    TurnLifetimeSpec
     UsageSpec
     UtilitySpec
     ValidatorSpec

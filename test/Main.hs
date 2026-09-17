@@ -122,6 +122,7 @@ import TimestampSpec (timestampTests)
 import ToolNotificationsSpec (toolNotificationTests)
 import ToolsSpec (toolTests)
 import TunnelSpec (tunnelTests)
+import TurnLifetimeSpec (turnLifetimeTests)
 import UsageSpec (usageTests)
 import UtilitySpec (utilityTests)
 import ValidatorSpec (validatorTests)
@@ -215,6 +216,7 @@ suiteMain = do
         ipcTests,
         relayTests,
         tunnelTests,
+        turnLifetimeTests,
         retryTests,
         retainedLoadOptionsTests,
         connectionReadinessTests,

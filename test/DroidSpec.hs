@@ -461,7 +461,7 @@ droidTests =
           pure (droidSessionId session)
         readIORef called >>= (@?= True)
         assertReaped identifier,
-      testCase "replacement drains requests and rejects queued work on the retired handle" $ bounded $ withGate $ \gate -> do
+      testCase "replacement drains requests and rejects prompts before and after retirement" $ bounded $ withGate $ \gate -> do
         options <- fixtureOptions
         peer <- withDroidSession options $ \session -> do
           peer <- peerIdentifier session
@@ -474,11 +474,12 @@ droidTests =
               timeout 20000 (wait replacementWorker) >>= \case
                 Nothing -> pure ()
                 Just _ -> assertFailure "Replacement completed before the held query"
-              withAsync (sendPrompt session "turn" (\_ -> pure ())) $ \queuedPrompt -> do
+              withAsync (sendPrompt session "turn" (\_ -> pure ())) $ \competingPrompt -> do
+                expectDroidError DroidSessionBusy (wait competingPrompt)
                 releaseGate gate
                 _ <- wait queryWorker
                 successor <- wait replacementWorker
-                expectDroidError (DroidSessionReplaced (droidSessionId successor)) (wait queuedPrompt)
+                expectDroidError (DroidSessionReplaced (droidSessionId successor)) (sendPrompt session "retired" (\_ -> pure ()))
                 peerIdentifier successor >>= (@?= peer)
           pure peer
         assertReaped peer,

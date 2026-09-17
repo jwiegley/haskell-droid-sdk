@@ -209,6 +209,24 @@ First remaining owner-continuity requirement within complete-reconnect-observabi
 ]
 #+end_src
 
+* DONE [#C] Calibrate scope close and turn admission contracts
+:PROPERTIES:
+:OBR_SCHEMA_VERSION: 17
+:ID:       hsdk-2nha
+:LABELS:   []
+:ISSUE_TYPE: task
+:CREATED:  [2026-09-17 Thu 09:30]
+:MODIFIED: [2026-09-17 Thu 10:49]
+:CREATED_BY: johnw
+:FINISHED: [2026-09-17 Thu 10:49]
+:CLOSE_REASON: FC01explicit borrowed remote-close policy substantiated by fresh named typed sequential-close normal/error/cancel/rejection controls; no automatic cleanup/error-parity claim. FC02existing stream admission now observes connectionOpen so SDK waiters wake, caller callback IO stays caller-owned. FC03existing MVar gate now fail-fast Busy before RPC, caller serialization verified.5/10newtestsfailedbefore;final4368Mac70.10s/LinuxARM6492.09s,20x10parallel2-21pass,probes/exampleboth. Old replacement expectation and atomic peer-publication fixture race corrected with failures preserved. Evidence/fess docs/evidence/2026-09-17/lifecycle-turns. No live/push.
+:SOURCE_REPO: droid-sdk-haskell
+:SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
+:ORIGINAL_SIZE: 0
+:END:
+
+Finish resolve-native-contracts FC-01/02/03. Freshly verify borrowed/native scope protocol-close defaults, caller-owned pending turn lifetime, and serialized overlaps versus reference fail-fast behavior. Trace actual existing resource/lease/event/turn-gate owners before deciding repair versus justified native policy. Retain credit for named typed close and caller-bracketed async composition; generic raw RPC or documentation alone is not enough. Check normal/error/cancellation cleanup, repeated/escaped handles, queued deadlines and callback reentrancy consequences with controlled peers/actual reference helpers where available. Avoid a second supervisor/router/queue or arbitrary new API knobs. Implement required owner fixes, document calibrated consequences, run fess and supported-platform checks. No live service/auth/model calls, push or unapproved SDK impersonation.
+
 * DONE [#C] Expose validated loaded snapshots and queued-message access
 :PROPERTIES:
 :OBR_SCHEMA_VERSION: 17

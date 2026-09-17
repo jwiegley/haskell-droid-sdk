@@ -121,7 +121,7 @@ where
 
 import Control.Applicative ((<|>))
 import Control.Concurrent.Async (race)
-import Control.Concurrent.MVar (MVar, newMVar, putMVar, tryTakeMVar, withMVar)
+import Control.Concurrent.MVar (MVar, newMVar, putMVar, tryTakeMVar)
 import Control.Concurrent.STM (STM, TVar, atomically, check, modifyTVar', newTVarIO, readTVar, throwSTM, writeTVar)
 import Control.Exception (Exception, Handler (..), SomeException, bracket, bracket_, catches, evaluate, finally, fromException, mask, mask_, onException, throwIO, toException, try)
 import Control.Monad (forM_, unless, void, when)
@@ -842,7 +842,8 @@ runEventTurn session input callback = withPrompt session $ do
       options = (defaultDroidStreamOptions identifier turnIdentifier) {streamMode = AllEvents}
       admission = do
         closed <- readTVar (sessionClosed session)
-        when closed (throwSTM DroidSessionUnusable)
+        open <- readTVar (connectionOpen connection)
+        when (closed || not open) (throwSTM DroidSessionUnusable)
       exchange = withDroidStreamChecked admission options $ \stream -> do
         let publish notification = void $ feedDroidDecoded stream $ do
               open <- readTVar (connectionOpen connection)
@@ -953,24 +954,33 @@ beginUse session = do
 endUse :: DroidSession -> STM ()
 endUse session = modifyTVar' (sessionLifecycle session) (\(status, active) -> (status, active - 1))
 
+-- Prompt admission uses the same nonblocking gate rule as replacement.
+-- Rejected overlap never enters the turn action or invalidates its incumbent.
 withPrompt :: DroidSession -> IO a -> IO a
-withPrompt session action = withMVar (sessionTurnLock session) $ \() ->
+withPrompt session action =
   bracket_
-    ( atomically $ do
-        beginUse session
-        pending <- readTVar (sessionInterrupts session)
-        check (pending == 0)
-        writeTVar (sessionSubmitted session) False
-        setStatus session SessionRunning
+    ( do
+        atomically (ensureSession session)
+        acquired <- tryTakeMVar (sessionTurnLock session)
+        when (isNothing acquired) (throwIO DroidSessionBusy)
     )
-    ( atomically $ do
-        endUse session
-        (status, _) <- readTVar (sessionLifecycle session)
-        case status of
-          SessionRunning -> setStatus session SessionReady
-          _ -> pure ()
-    )
-    action
+    (putMVar (sessionTurnLock session) ())
+    $ bracket_
+      ( atomically $ do
+          beginUse session
+          pending <- readTVar (sessionInterrupts session)
+          check (pending == 0)
+          writeTVar (sessionSubmitted session) False
+          setStatus session SessionRunning
+      )
+      ( atomically $ do
+          endUse session
+          (status, _) <- readTVar (sessionLifecycle session)
+          case status of
+            SessionRunning -> setStatus session SessionReady
+            _ -> pure ()
+      )
+      action
 
 invalidateSession :: DroidSession -> IO ()
 invalidateSession session = do
