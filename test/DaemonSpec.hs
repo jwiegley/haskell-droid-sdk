@@ -729,7 +729,7 @@ runDaemonPeer mode reject version trace trusted receive write close = serve
       case KeyMap.lookup "method" request of
         Just (String "daemon.add_user_message") -> do
           KeyMap.lookup "sessionId" params @?= Just (String identifier)
-          KeyMap.lookup "userMessageSource" params @?= Just (String "api")
+          KeyMap.lookup "userMessageSource" params @?= Just (String "sdk")
           turn <- textField "messageId" params
           prompt <- textField "text" params
           unless (KeyMap.lookup "id" request /= Just (String turn)) (assertFailure "RPC ID reused as turn ID")

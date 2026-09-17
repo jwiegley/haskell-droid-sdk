@@ -41,6 +41,7 @@ import Data.Scientific (Scientific)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
+import Factory.Droid.Internal.Attribution (sdkIdentity)
 import Factory.Droid.Schema.REST
 import Network.HTTP.Client qualified as HTTP
 import Network.HTTP.Client.TLS (tlsManagerSettings)
@@ -109,7 +110,7 @@ newRestClient options = do
   parsed <- try @HTTP.HttpException (HTTP.parseRequest (Text.unpack (restBaseUrl options)))
   base <- either (const invalid) pure parsed
   manager <- HTTP.newManager (HTTP.managerSetProxy HTTP.noProxy (tlsManagerSettings {HTTP.managerRetryableException = const False}))
-  let configured = base {HTTP.requestHeaders = [(hAuthorization, "Bearer " <> Text.encodeUtf8 (restApiKey options)), (hAccept, "application/json")], HTTP.redirectCount = 0, HTTP.checkResponse = \_ _ -> pure (), HTTP.responseTimeout = HTTP.responseTimeoutNone, HTTP.cookieJar = Nothing}
+  let configured = base {HTTP.requestHeaders = [(hAuthorization, "Bearer " <> Text.encodeUtf8 (restApiKey options)), (hAccept, "application/json"), ("X-Factory-Client", "sdk"), ("X-Factory-Sdk", Text.encodeUtf8 sdkIdentity)], HTTP.redirectCount = 0, HTTP.checkResponse = \_ _ -> pure (), HTTP.responseTimeout = HTTP.responseTimeoutNone, HTTP.cookieJar = Nothing}
   pure (RestClient manager configured (Text.encodeUtf8 (Text.pack (uriPath uri))) (restTimeoutMicros options) (restResponseLimitBytes options))
 
 data PageOptions = PageOptions

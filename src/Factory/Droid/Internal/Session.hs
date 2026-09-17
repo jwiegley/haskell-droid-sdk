@@ -142,6 +142,7 @@ import Data.Unique (Unique, newUnique)
 import Factory.Droid.Client qualified as Client
 import Factory.Droid.Input (DroidInput (..), droidDocumentSource, droidImageSource, droidInput)
 import Factory.Droid.Interaction
+import Factory.Droid.Internal.Attribution qualified as Attribution
 import Factory.Droid.Internal.Output
 import Factory.Droid.Internal.Stream
 import Factory.Droid.MCP.Server qualified as Hosted
@@ -153,6 +154,7 @@ import Factory.Droid.Schema.Configuration qualified as Configuration
 import Factory.Droid.Schema.Context (ContextStats, GetContextBreakdownResult)
 import Factory.Droid.Schema.Control (AddUserMessageParams (..), ChangeWorkingDirectoryParams (..), ChangeWorkingDirectoryResult (..), CompactSessionParams, CompactSessionResult (..), ExecuteRewindParams (..), ExecuteRewindResult (..), ForkSessionParams, ForkSessionResult (..), GetRewindInfoParams (..), GetRewindInfoResult, OutputFormat, RenameSessionParams (..), RewindFileCreation, RewindFileSnapshot)
 import Factory.Droid.Schema.Discovery (ListCommandsResult, ListSkillsResult, ListToolsResult, SetSkillDisabledParams)
+import Factory.Droid.Schema.Enums (SessionOrigin (OriginSDK))
 import Factory.Droid.Schema.MCP (ListMcpRegistryResult, ListMcpServersResult, ListMcpToolsResult, McpServerNameParams (..), RemoveMcpServerParams (..), SubmitMcpAuthCodeParams, SubmitMcpAuthErrorParams, ToggleMcpServerParams (..), ToggleMcpToolParams (..))
 import Factory.Droid.Schema.MCP.Config (AddMcpServerParams, McpConfigurationError (..), McpSessionOptions (..), defaultMcpSessionOptions, validateMcpConfiguration)
 import Factory.Droid.Schema.Mission (MissionSnapshot (..))
@@ -525,12 +527,18 @@ withLocalSession observability options handlers saved locality acquire action = 
 
 localInitializationParams :: DroidSessionOptions -> DroidHandlers -> Text -> McpSessionOptions -> Configuration.InitializeSessionParams
 localInitializationParams options handlers directory mcp =
-  (Configuration.defaultInitializeSessionParams (fromMaybe "default" (droidSessionMachineId options)) directory)
-    { Configuration.initializeModel = droidSessionModel options,
-      Configuration.initializeSystemPrompt = droidSessionSystemPrompt options,
-      Configuration.initializeMcpOptions = mcp,
-      Configuration.initializeConfiguration = (droidSessionConfiguration options) {Configuration.configurationAutoRejectPermissions = Just (localAutoReject options handlers)}
-    }
+  let config = droidSessionConfiguration options
+   in (Configuration.defaultInitializeSessionParams (fromMaybe "default" (droidSessionMachineId options)) directory)
+        { Configuration.initializeModel = droidSessionModel options,
+          Configuration.initializeSystemPrompt = droidSessionSystemPrompt options,
+          Configuration.initializeMcpOptions = mcp,
+          Configuration.initializeConfiguration =
+            config
+              { Configuration.configurationAutoRejectPermissions = Just (localAutoReject options handlers),
+                Configuration.configurationOrigin = Just (fromMaybe OriginSDK (Configuration.configurationOrigin config)),
+                Configuration.configurationTags = Just (Attribution.withSdkTag (fromMaybe [] (Configuration.configurationTags config)))
+              }
+        }
 
 localAutoReject :: DroidSessionOptions -> DroidHandlers -> Bool
 localAutoReject options handlers = fromMaybe (isNothing (onDroidPermission handlers)) (Configuration.configurationAutoRejectPermissions (droidSessionConfiguration options))
@@ -816,7 +824,7 @@ promptInput input output =
       userMessageQueuePlacement = Nothing,
       userMessageRole = Nothing,
       userMessageVisibility = Nothing,
-      userMessageSource = Nothing,
+      userMessageSource = Just OriginSDK,
       userMessageAdditionalFields = mempty
     }
   where
@@ -988,7 +996,8 @@ loadSession connection identifier = sessionBoundary connection $ do
 localRetainedLoadConfiguration :: DroidSessionOptions -> Maybe Text -> Configuration.SessionLoadConfiguration
 localRetainedLoadConfiguration options saved =
   let inherited = if isNothing saved then Configuration.loadConfigurationFromInitialization (droidSessionConfiguration options) else Configuration.defaultSessionLoadConfiguration
-   in Configuration.mergeSessionLoadConfiguration inherited (droidSessionLoadConfiguration options)
+      retained = Configuration.mergeSessionLoadConfiguration inherited (droidSessionLoadConfiguration options)
+   in retained {Configuration.loadOrigin = Just (fromMaybe OriginSDK (Configuration.loadOrigin retained))}
 
 requireLocalState :: SessionConnection -> STM LocalSessionState
 requireLocalState connection = maybe (throwSTM DroidSessionUnusable) pure (backendLocalState (connectionBackend connection))

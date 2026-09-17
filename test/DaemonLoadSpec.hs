@@ -157,7 +157,7 @@ withLoadPeer report trace ready release stopped = withPeer (\_ connection -> (se
       reply connection auth (object ["userId" .= String "user", "orgId" .= String "org"])
       request <- readFrame connection
       field "method" request @?= String "daemon.load_session"
-      field "params" request @?= object ["sessionId" .= String "saved", "token" .= String "OFFLINE_ONLY", "loadAllMessages" .= True, "autoRejectPermissionRequests" .= True]
+      field "params" request @?= object ["sessionId" .= String "saved", "token" .= String "OFFLINE_ONLY", "loadAllMessages" .= True, "autoRejectPermissionRequests" .= True, "sessionOriginHint" .= String "sdk", "sessionSource" .= object ["platform" .= String "api", "delegationSessionId" .= String "saved"]]
       putMVar ready ()
       takeMVar release
       case report of

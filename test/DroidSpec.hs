@@ -17,6 +17,7 @@ import Data.Maybe (fromMaybe, isNothing, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text
+import Data.Version (showVersion)
 import Factory.Droid
 import Factory.Droid.Input
 import Factory.Droid.Interaction
@@ -39,6 +40,7 @@ import Factory.Droid.Transport.Process (DroidLaunchOptions (..), JsonLinesError 
 import McpConfigSpec (fixtureMcpOptions, fixtureMcpWire)
 import McpPeer (earlyMcpEvents, handleMcpRequest, invokeHosted)
 import MissionEventSpec (missionEventPayload, missionWireEvents)
+import Paths_droid_sdk (version)
 import ProcessSpec (bounded)
 import System.Directory (doesFileExist, removePathForcibly)
 import System.Environment (getExecutablePath, lookupEnv)
@@ -2278,10 +2280,12 @@ runDroidPeerWithState state = do
       expect "autoRejectPermissionRequests" (Bool (not customPermissions)) params
       modifyIORef' state (\current -> current {peerRejectPermissions = not customPermissions})
       recordMcpPolicy params
-      when (KeyMap.member "_meta" startup || KeyMap.member "tags" params) (throwIO CallbackAbort)
+      when (KeyMap.member "_meta" startup) (throwIO CallbackAbort)
       case KeyMap.lookup "method" startup of
         Just (String "droid.initialize_session") -> do
           expect "machineId" (String "default") params
+          expect "sessionOriginHint" (String "sdk") params
+          expect "tags" (toJSON [object ["name" .= String "sdk", "metadata" .= object ["language" .= String "haskell", "version" .= showVersion version]]]) params
           when (KeyMap.member "systemPromptOverride" params) (throwIO CallbackAbort)
           forM_ (KeyMap.lookup "systemPrompt" params) $ \value -> do
             prompt <- either (const (throwIO CallbackAbort)) pure (parseEither parseJSON value :: Either String SystemPromptConfig)
@@ -2722,7 +2726,9 @@ runDroidPeerWithState state = do
       let source = case KeyMap.lookup "sessionId" params of Just (String value) -> Just value; _ -> Nothing
       forM_ (earlyMcpEvents params) (emitRawFor source)
       invokeHosted params
-    expectMcpLoadKeys params = expectKeys (["autoRejectPermissionRequests", "sessionId"] <> filter (`KeyMap.member` params) ["mcpServers", "mcpOAuthCallbackUri"]) params
+    expectMcpLoadKeys params = do
+      expect "sessionOriginHint" (String "sdk") params
+      expectKeys (["autoRejectPermissionRequests", "sessionId", "sessionOriginHint"] <> filter (`KeyMap.member` params) ["mcpServers", "mcpOAuthCallbackUri"]) params
     respondMcp original fields = do
       history <- peerMcpHistory <$> readIORef state
       let decorate (key, Object value) | key == "result", KeyMap.lookup "method" original == Just (String "droid.list_mcp_registry") = (key, Object (KeyMap.insert "mcpHistory" (toJSON history) value))

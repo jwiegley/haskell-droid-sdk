@@ -18,6 +18,7 @@ import Data.IORef (atomicModifyIORef', newIORef, readIORef)
 import Data.List (isInfixOf)
 import Data.Proxy (Proxy (..))
 import Data.Text qualified as Text
+import Data.Version (showVersion)
 import Factory.Droid.REST
 import Factory.Droid.Schema.REST
 import Factory.Droid.Transport.WebSocket (WebSocketTarget (..))
@@ -26,6 +27,7 @@ import Network.Socket qualified as Socket
 import Network.Socket.ByteString qualified as Socket
 import Network.Wai qualified as Wai
 import Network.Wai.Handler.Warp qualified as Warp
+import Paths_droid_sdk (version)
 import ProcessSpec (bounded)
 import System.IO.Error (isResourceVanishedError)
 import Test.Tasty (TestTree, testGroup)
@@ -100,6 +102,8 @@ wireTests = testCase "all thirteen helpers issue native method/path/query/body r
   forM_ (zip [0 :: Int ..] observed) $ \(index, Observed _ _ query headers body) -> do
     lookup hAuthorization headers @?= Just "Bearer OFFLINE_API_KEY"
     lookup hAccept headers @?= Just "application/json"
+    lookup "X-Factory-Client" headers @?= Just "sdk"
+    lookup "X-Factory-Sdk" headers @?= Just (BS8.pack ("haskell/" <> showVersion version))
     if index `elem` [5, 6]
       then lookup hContentType headers @?= Just "application/json"
       else lookup hContentType headers @?= Nothing

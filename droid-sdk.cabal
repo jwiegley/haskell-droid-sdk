@@ -127,6 +127,7 @@ library
     Factory.Droid.Transport.Relay
     Factory.Droid.Transport.WebSocket
   other-modules:
+    Factory.Droid.Internal.Attribution
     Factory.Droid.Internal.Exception
     Factory.Droid.Internal.FileTime
     Factory.Droid.Internal.JSON
@@ -136,6 +137,8 @@ library
     Factory.Droid.Internal.Session
     Factory.Droid.Internal.Stream
     Factory.Droid.Internal.Wait
+    Paths_droid_sdk
+  autogen-modules: Paths_droid_sdk
   build-depends:
     base >=4.21 && <4.22,
     aeson >=2.2.4 && <2.4,
@@ -184,6 +187,7 @@ test-suite droid-sdk-test
     droid-sdk:droid-ipc-test-peer
   other-modules:
     AncestrySpec
+    AttributionSpec
     AutomationSpec
     ChildSessionSpec
     ClientSpec

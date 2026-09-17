@@ -3,6 +3,7 @@
 module Main (main) where
 
 import AncestrySpec (ancestryTests)
+import AttributionSpec (attributionTests)
 import AutomationSpec (automationTests)
 import ChildSessionSpec (childSessionTests)
 import ClientSpec (clientTests)
@@ -222,6 +223,7 @@ suiteMain = do
         protocolTests,
         connectionHookTests,
         initializationTests,
+        attributionTests,
         loadPolicyTests,
         dispatchTests,
         clientTests schema droidSchema,

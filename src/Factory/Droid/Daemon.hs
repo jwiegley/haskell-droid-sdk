@@ -334,6 +334,7 @@ import Factory.Droid.Client qualified as Client
 import Factory.Droid.Input (DroidInput)
 import Factory.Droid.Interaction (DroidHandlers (..), defaultDroidHandlers, permissionRpcHandler, questionRpcHandler)
 import Factory.Droid.Interaction qualified as Interaction
+import Factory.Droid.Internal.Attribution qualified as Attribution
 import Factory.Droid.Internal.Exception (finallyPreserving)
 import Factory.Droid.Internal.JSON (isEcmaWhitespace)
 import Factory.Droid.Internal.Output (DroidOutput, DroidOutputResult)
@@ -1571,10 +1572,22 @@ loadSessionInfo connection identifier = trackSessionLoad connection identifier (
 -- | Explicit fields replace retained intent; omissions preserve it. Admission
 -- and policy selection share the existing load generation transaction.
 loadSessionInfoWithConfiguration :: DaemonConnection -> Text -> Configuration.SessionLoadConfiguration -> Configuration.DaemonLoadConfiguration -> IO DaemonSessionInfo
-loadSessionInfoWithConfiguration connection@(DaemonConnection core _) identifier config spawn = do
-  let (params, _) = daemonLoadParameters identifier "" (Core.connectionMcpOptions core) True (config, spawn)
+loadSessionInfoWithConfiguration = loadSessionInfoPrepared id
+
+-- An explicit attachment claims an SDK surface; inferred attribution is not
+-- stored as caller intent for later automatic reloads by the shared owner.
+loadAttachedSessionInfo :: DaemonConnection -> Text -> Configuration.SessionLoadConfiguration -> Configuration.DaemonLoadConfiguration -> IO DaemonSessionInfo
+loadAttachedSessionInfo connection identifier = loadSessionInfoPrepared attribute connection identifier
+  where
+    attribute config = config {Configuration.loadOrigin = Just (fromMaybe Enums.OriginSDK (Configuration.loadOrigin config)), Configuration.loadSource = Just (fromMaybe (SessionSource (SourceApi identifier) mempty) (Configuration.loadSource config))}
+
+loadSessionInfoPrepared :: (Configuration.SessionLoadConfiguration -> Configuration.SessionLoadConfiguration) -> DaemonConnection -> Text -> Configuration.SessionLoadConfiguration -> Configuration.DaemonLoadConfiguration -> IO DaemonSessionInfo
+loadSessionInfoPrepared prepare connection@(DaemonConnection core _) identifier config spawn = do
+  let (params, _) = daemonLoadParameters identifier "" (Core.connectionMcpOptions core) True (prepare config, spawn)
   either throwIO pure (Configuration.validateDaemonLoadSessionParams params)
-  trackSessionLoadWithConfiguration (Just (config, spawn)) connection identifier (performSessionReload connection identifier)
+  trackSessionLoadWithConfiguration (Just (config, spawn)) connection identifier $ \guard ->
+    let (retained, retainedSpawn) = loadPolicySnapshot guard
+     in performSessionReload connection identifier (guard {loadPolicySnapshot = (prepare retained, retainedSpawn)})
 
 ensureSessionLoaded :: DaemonConnection -> Text -> IO ()
 ensureSessionLoaded connection@(DaemonConnection _ state) identifier = mask $ \restore -> do
@@ -2764,7 +2777,8 @@ daemonInitializationParams options handlers identifier token =
               config
                 { Configuration.configurationSessionId = Just identifier,
                   Configuration.configurationSource = Just (fromMaybe (SessionSource (SourceApi identifier) mempty) (Configuration.configurationSource config)),
-                  Configuration.configurationOrigin = Just (fromMaybe Enums.OriginAPI (Configuration.configurationOrigin config)),
+                  Configuration.configurationOrigin = Just (fromMaybe Enums.OriginSDK (Configuration.configurationOrigin config)),
+                  Configuration.configurationTags = Just (Attribution.withSdkTag (fromMaybe [] (Configuration.configurationTags config))),
                   Configuration.configurationAutoRejectPermissions = Just (daemonAutoReject config handlers)
                 }
           }
@@ -2790,7 +2804,7 @@ openDaemonSession options handlers saved mcpOptions acquire action =
     case saved of
       Nothing -> withCreatedSessionOn owned handlers (sessionCreationOptions options mcpOptions) action
       Just identifier -> withDaemonBinding owned handlers identifier (daemonClientTurnTimeoutMicros options) $ \binding -> do
-        info <- Core.withSessionUse (bindingSession binding) (loadSessionInfoWithConfiguration owned identifier (daemonClientLoadConfiguration options) (daemonClientLoadSpawnConfiguration options))
+        info <- Core.withSessionUse (bindingSession binding) (loadAttachedSessionInfo owned identifier (daemonClientLoadConfiguration options) (daemonClientLoadSpawnConfiguration options))
         action (DaemonSession binding info owned)
 
 -- | Create a new scoped session through an already owned connection. No new
@@ -2816,8 +2830,7 @@ withCreatedSessionOn owned@(DaemonConnection connection state) handlers options 
   identifier <- maybe (UUID.toText <$> nextRandom) pure (Configuration.configurationSessionId config)
   withDaemonBinding owned handlers identifier (daemonSessionTurnTimeoutMicros options) $ \binding -> do
     info <- Core.withSessionUse (bindingSession binding) $ do
-      let initial = Configuration.initializeConfiguration (Configuration.daemonInitializeSession (daemonInitializationParams options handlers identifier ""))
-          inherited = (Configuration.loadConfigurationFromInitialization initial) {Configuration.loadAutoRejectPermissions = Configuration.configurationAutoRejectPermissions config}
+      let inherited = Configuration.loadConfigurationFromInitialization config
           spawn = Configuration.daemonLoadConfigurationFromSpawn (daemonSessionSpawnOptions options)
           policy = mergeLoadPolicy (inherited, spawn) (daemonSessionLoadConfiguration options, daemonSessionLoadSpawnConfiguration options)
       trackSessionLoadWithCreation (Just (bindingToken binding, Configuration.initializeMachineId base)) (Just policy) owned identifier $ \guard -> Core.connectionBoundary connection (2 * initializationTimeout options) $ do
@@ -2848,7 +2861,7 @@ withResumedSessionOnHandlers owned handlers identifier = withResumedSessionOnCon
 withResumedSessionOnConfigured :: DaemonConnection -> DroidHandlers -> Text -> Configuration.SessionLoadConfiguration -> Configuration.DaemonLoadConfiguration -> (DaemonSession -> IO a) -> IO a
 withResumedSessionOnConfigured owned handlers identifier config spawn action =
   withDaemonBinding owned handlers identifier Nothing $ \binding -> do
-    info <- Core.withSessionUse (bindingSession binding) (loadSessionInfoWithConfiguration owned identifier config spawn)
+    info <- Core.withSessionUse (bindingSession binding) (loadAttachedSessionInfo owned identifier config spawn)
     action (DaemonSession binding info owned)
 
 withDaemonBinding :: DaemonConnection -> DroidHandlers -> Text -> Maybe Int -> (DaemonBinding -> IO a) -> IO a
@@ -3026,7 +3039,7 @@ submitMessage shared currentGeneration dispatcher channel options identifier inp
         bubble = maybe placeholder SessionState.submissionPlaceholderId (SessionState.lookupSubmission requestId current)
     next <- either throwSTM pure (SessionState.beginSubmissionAt now (Just 20000000) requestId bubble wireInput current)
     writeTVar sessionStates (Map.insert identifier next states)
-  let params = KeyMap.insert "sessionId" (String identifier) (KeyMap.union fields (KeyMap.singleton "userMessageSource" (String "api")))
+  let params = KeyMap.insert "sessionId" (String identifier) (KeyMap.union fields (KeyMap.singleton "userMessageSource" (String "sdk")))
   outcome <- try @SomeException $ restore (awaitDaemonCommand (Proxy @CreateMessage) "create_message" dispatcher options identifier (Client.call (Proxy @(WithEnvelope (MethodRequest "daemon.add_user_message" Object))) channel options params))
   -- A caller can remain in its own callback after the physical scope retires.
   -- Do not publish its late outcome into a successor generation's observations.

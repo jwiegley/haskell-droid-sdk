@@ -548,15 +548,17 @@ Fess self-audit completed before closure: Summary: pure output-field composition
 ]
 #+end_src
 
-* TODO [#C] Resolve truthful session and REST SDK attribution defaults
+* DONE [#C] Resolve truthful session and REST SDK attribution defaults
 :PROPERTIES:
 :OBR_SCHEMA_VERSION: 17
 :ID:       hsdk-8b6
 :LABELS:   []
 :ISSUE_TYPE: task
 :CREATED:  [2026-09-16 Wed 14:35]
-:MODIFIED: [2026-09-16 Wed 14:35]
+:MODIFIED: [2026-09-17 Thu 08:29]
 :CREATED_BY: johnw
+:FINISHED: [2026-09-17 Thu 08:29]
+:CLOSE_REASON: Truthful Haskell/Cabal-version tags and REST headers, SDK origin/message defaults, explicit native overrides and distinct local/daemon reload attribution delivered. Closed Python/TS structured metadata/environment omission preserved; no impersonation or backend-header acceptance claim.21newcases/all13RESThelpers/final4346Mac70.53s/LinuxARM6488.57s pass. ActualTSlocal/resume/tag/RESTcapture andPythoncanonicalization/schema evidence; daemon highfacade source-backed. Broad fixture failures and exact migrations retained; parentfess docs/evidence/2026-09-17/attribution. No push/livecalls.
 :SOURCE_REPO: droid-sdk-haskell
 :SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
 :ORIGINAL_SIZE: 0

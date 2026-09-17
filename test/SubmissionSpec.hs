@@ -230,7 +230,7 @@ submissionTests =
           field "id" request @?= String "request"
           field "method" request @?= String "daemon.add_user_message"
           field "factoryProtocolVersion" request @?= String "1.201.1"
-          field "params" request @?= object ["sessionId" .= String "one", "text" .= String "", "messageId" .= String "chosen", "skipAgentLoop" .= False, "images" .= ([] :: [Value]), "files" .= ([] :: [Value]), "future" .= Number 100000000000000001, "userMessageSource" .= String "api"],
+          field "params" request @?= object ["sessionId" .= String "one", "text" .= String "", "messageId" .= String "chosen", "skipAgentLoop" .= False, "images" .= ([] :: [Value]), "files" .= ([] :: [Value]), "future" .= Number 100000000000000001, "userMessageSource" .= String "sdk"],
       testCase "the ordinary daemon turn path uses the same optimistic state and request-ID confirmation" $ bounded $ do
         void $ withSubmissionPeer AfterAck $ \connection fixture ->
           Daemon.withResumedSessionOn connection "one" $ \session ->

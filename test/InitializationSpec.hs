@@ -17,6 +17,7 @@ import Data.Proxy (Proxy (..))
 import Data.Scientific (scientific)
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Version (showVersion)
 import DroidSpec (assertReaped)
 import Factory.Droid qualified as Droid
 import Factory.Droid.Client qualified as Client
@@ -29,6 +30,7 @@ import Factory.Droid.Schema.RPC
 import Factory.Droid.Schema.Settings (ToolPolicy (..), emptyToolPolicy)
 import Factory.Droid.Transport
 import Factory.Droid.Transport.Process qualified as Process
+import Paths_droid_sdk (version)
 import ProcessSpec (bounded)
 import ProtocolSpec (reply, withMemory)
 import SchemaTest (rejects)
@@ -109,7 +111,7 @@ initializationTests =
           Droid.droidSessionId session @?= "requested"
           frame <- atomically (readTQueue sent)
           field "machineId" (paramsOf frame) @?= String ""
-          assertFields configurationWire (paramsOf frame)
+          assertFields (withFixtureAttribution configurationWire) (paramsOf frame)
           field "systemPrompt" (paramsOf frame) @?= String "required prompt"
           settings <- Droid.getDroidSettings session
           field "initializationParams" (asObject (toJSON settings)) @?= Object (paramsOf frame),
@@ -120,7 +122,7 @@ initializationTests =
         pid <- Droid.withDroidSession options $ \session -> do
           settings <- asObject . toJSON <$> Droid.getDroidSettings session
           let actual = asObject (field "initializationParams" settings)
-          assertFields configurationWire actual
+          assertFields (withFixtureAttribution configurationWire) actual
           field "machineId" actual @?= String "owned-machine"
           pure (textField "fixturePid" settings)
         assertReaped pid,
@@ -130,7 +132,7 @@ initializationTests =
         Daemon.withSessionUsing options transport $ \session -> do
           Daemon.sessionId session @?= "requested"
           frame <- atomically (readTQueue sent)
-          assertFields configurationWire (paramsOf frame)
+          assertFields (withFixtureAttribution configurationWire) (paramsOf frame)
           field "systemPrompt" (paramsOf frame) @?= String "required prompt"
           field "worktree" (paramsOf frame) @?= Bool False
           field "worktreeDir" (paramsOf frame) @?= String ""
@@ -261,7 +263,7 @@ borrowedCreationTests =
         Daemon.withSessionOn connection options $ \session -> do
           Daemon.sessionId session @?= "requested"
           frame <- atomically (readTQueue sent)
-          assertFields (initializationFields params) (paramsOf frame)
+          assertFields (withFixtureAttribution (initializationFields params)) (paramsOf frame)
           field "token" (paramsOf frame) @?= String "fresh"
           field "factoryProtocolVersion" frame @?= String "1.205.0"
           field "runtimeSettingsPath" (paramsOf frame) @?= String ""
@@ -435,6 +437,11 @@ decode value = case fromJSON value of Error message -> assertFailure message; Su
 
 roundTrip :: forall a. (FromJSON a, ToJSON a) => Proxy a -> Value -> IO ()
 roundTrip _ value = decode @a value >>= (@?= value) . toJSON
+
+-- High-level creation preserves this fixture's custom tag and appends the
+-- producer tag; the raw codec/exact Client tests above remain unchanged.
+withFixtureAttribution :: Object -> Object
+withFixtureAttribution = KeyMap.insert "tags" (toJSON [object ["name" .= String "custom", "metadata" .= object ["label" .= String ""]], object ["name" .= String "sdk", "metadata" .= object ["language" .= String "haskell", "version" .= showVersion version]]])
 
 assertFields :: Object -> Object -> IO ()
 assertFields expected actual = forM_ (KeyMap.toList expected) $ \(key, value) -> KeyMap.lookup key actual @?= Just value
