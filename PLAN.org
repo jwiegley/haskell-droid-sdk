@@ -157,15 +157,17 @@ Write a Markdown handoff for optional later exhaustive protocol-1.205.0 codec wo
 ]
 #+end_src
 
-* TODO [#C] Preserve logical daemon state across connection generations
+* DONE [#C] Preserve logical daemon state across connection generations
 :PROPERTIES:
 :OBR_SCHEMA_VERSION: 17
 :ID:       hsdk-25l6
 :LABELS:   []
 :ISSUE_TYPE: feature
 :CREATED:  [2026-09-16 Wed 16:56]
-:MODIFIED: [2026-09-16 Wed 16:56]
+:MODIFIED: [2026-09-16 Wed 21:36]
 :CREATED_BY: johnw
+:FINISHED: [2026-09-16 Wed 21:36]
+:CLOSE_REASON: Implemented explicit logical DaemonState using existing cells, principal-checked prepared intake, sequential generation handoff, persistent pending/STM observation and generation-fenced late queue/submission publication. Reproduced stale deletion/append and fixed them; 17 state +3 dispatcher +1 retirement cases, 4110 strict tests on macOS/Linux ARM64, 20x46 focused parallel checks, controlled two-generation probes and actual pinned memory-only reference manager checks. Evidence/fess: docs/evidence/2026-09-17/continuity/README.md. No live calls or push.
 :SOURCE_REPO: droid-sdk-haskell
 :SOURCE_REPO_PATH: /Users/johnw/work/positron/droid-sdk-haskell
 :ORIGINAL_SIZE: 0

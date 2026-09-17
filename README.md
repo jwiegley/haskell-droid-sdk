@@ -966,11 +966,46 @@ The ensure-running action runs before each new physical connection attempt, not 
 
 `getConnectionStatus` returns atomic remembered health, failure, polling/recovery state, progress and observer failure. `waitConnectionStatusChange` uses STM state changes rather than another callback registry. `connectionReady` requires both an open SDK exchange and authentication; neither this nor `connectionRetryAllowed` is a heartbeat or proof about a half-open socket. Progress callbacks run serially before attempts and must be cooperative; do not wait for that same poll from its progress callback. Ordinary progress-callback failures are retained in `connectionStatusObserverFailure` and do not terminate polling.
 
-`Daemon.getConnectionHealth` and the STM `readConnectionHealth` distinguish transport lifetime from authentication. Accepted logout leaves an open transport unauthenticated. Explicit `ensureConnectionAuthenticated connection authentication` repairs that state without reconnecting; concurrent callers share the authentication lock. A validated receipt must match the connection's original user/org and current authentication epoch. Identity mismatch, failed or cancelled authentication retires the logical connection; a late receipt cannot undo a later logout. Success updates the current session-token provider but does not rewrite immutable `connectionUser`. Inherited authentication is a renewed explicit host attestation, never inferred from availability.
+`Daemon.getConnectionHealth` and the STM `readConnectionHealth` distinguish transport lifetime from authentication. Accepted logout leaves an open transport unauthenticated. Explicit `ensureConnectionAuthenticated connection authentication` repairs that state without reconnecting; concurrent callers share the authentication lock. A validated receipt must match the connection's original user/org and current authentication epoch. Identity mismatch, failed or cancelled authentication retires that physical generation; a late receipt cannot undo a later logout. Success updates the current session-token provider but does not rewrite immutable `connectionUser`. Inherited authentication is a renewed explicit host attestation, never inferred from availability.
 
 The original transport failure is available explicitly through `rpcChannelFailureCause` and `Daemon.readConnectionFailureCause`; first-failure recording is atomic with channel retirement, and normal scope cleanup does not overwrite it. Default RPC error displays remain payload-free. The explicit cause and callback exceptions can contain sensitive information and are not sanitized by status displays.
 
 Session readiness remains in the existing `Daemon.getSessionReadiness`/`ensureSessionLoaded` coordinator and raw init/load readiness gates. Connection polling does not invent another session store, replay an uncertain load or automatically approve pending requests. See [readiness delivery and full fess](docs/development.md#connection-readiness-delivery).
+
+### Logical state across physical generations
+
+`Daemon.withDaemonState` owns a logical client's retained observations without creating a transport or polling loop. `withConnectionState`, `withConnectionStateObserved` and `withConnectionStateOn` use that state for a fresh endpoint or borrowed-I/O generation. `Connection.daemonConnectionPlanWithState` and `relayConnectionPlanWithState` compose it with the existing controller. Legacy constructors still use fresh, connection-scoped state unless retention is explicitly selected.
+
+```haskell
+module RetainedStateExample (withRetained, awaitGeneration) where
+
+import Control.Concurrent.STM (atomically, check)
+import Factory.Droid.Connection qualified as Connection
+import Factory.Droid.Daemon qualified as Daemon
+
+withRetained :: Daemon.DaemonOptions -> (Daemon.DaemonState -> Connection.ConnectionController -> IO a) -> IO a
+withRetained options action =
+  Daemon.withDaemonState $ \shared ->
+    Connection.withConnectionController
+      (Connection.daemonConnectionPlanWithState shared options)
+      (action shared)
+
+awaitGeneration :: Daemon.DaemonState -> Integer -> IO Daemon.DaemonStateSnapshot
+awaitGeneration shared previous = atomically $ do
+  snapshot <- Daemon.readDaemonStateSnapshot shared
+  check (Daemon.daemonStateGeneration snapshot > previous)
+  pure snapshot
+```
+
+This example is compiled, not executed. The callback explicitly chooses when to poll and attach/resume sessions; no forever-reconnect loop or session mutation is inferred. The state owner accepts one physical generation at a time, including retirement, and rejects overlapping use with `DaemonStateInUse`. Use separate logical states for independent concurrent clients. A state binds to its first authenticated user/org; a different principal is rejected before queued peer traffic can reach retained data. Use a new state owner for an account change.
+
+`getDaemonStateSnapshot` / `readDaemonStateSnapshot` expose cached directory, readiness, messages, settings, mission and pending observations, cache policy and successful publication generation. They remain readable while no physical connection is active, until the logical owner's scope closes. These are last observations, not remote truth, a disk-persistence format or a timer-driven event journal; intermediate snapshots can coalesce. Existing scoped connections and session handles remain closed after their generation ends. `connectionState` borrows the logical owner, whose lifetime is longer only when an explicit outer state scope provides it.
+
+Generation loss invalidates loaded/loading readiness and old receipt epochs while retaining observations, association and explicit load intent. Fresh unpublished creation is retired under its own binding token; previously registered or superseding state is not erased. In-flight submission bookkeeping is revoked: pending sends retain connection-failure overlays, earlier failures remain, and unsent prepared overlays are unchanged. Authentication, request counters, handlers, hydration jobs and unscoped routing remain physical-generation resources. Handler setup precedes dispatcher intake, while the existing response reader can complete authentication; failed setup never exposes retained data to queued peer messages.
+
+`daemonStatePendingInteractions` is the logical pending controller. Its subscriptions and inactive unanswered metadata survive physical loss. Old reply tokens are inactive or absent, not grants on the replacement transport. Fresh requests/restored receipts revalidate their authority and use new tokens; no uncertain old response is automatically replayed. Long-lived observers should use the logical snapshot/pending controller rather than capture a retired physical connection. Plain pending configuration and reported-default records may remain in caller-owned `TVar`s outside the physical scope, as before; this does not create a second authoritative session directory.
+
+Closing the logical state revokes admission and joins its active generation before closing pending subscriptions. Retirement waits for dispatcher-owned callbacks and attached-session leases before another generation can attach. Arbitrary connection-level caller tasks remain caller-owned, including their inline telemetry callbacks. Their late queue/submission outcomes cannot mutate a successor's state; a retired successful receipt can instead report `RpcChannelClosed`, while an original failure or cancellation keeps its cause. Callback and resource cleanup must be cooperative: no hard shutdown, memory or spending bound is promised, and remote work is not rolled back by local retirement.
 
 ## Connection and request hooks
 

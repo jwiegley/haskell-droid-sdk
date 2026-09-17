@@ -12,6 +12,7 @@ module Factory.Droid.Protocol.Dispatch
     RpcRequestOrigin (..),
     rpcRequestActive,
     withRpcDispatcher,
+    withRpcDispatcherSetup,
     onRpcEvent,
     onRpcNotification,
     onRpcError,
@@ -26,7 +27,7 @@ where
 
 import Control.Concurrent.Async (Async, asyncWithUnmask, cancel, link, mapConcurrently_, uninterruptibleCancel, withAsync)
 import Control.Concurrent.STM (STM, TVar, atomically, modifyTVar', newTVarIO, readTVar, retry, throwSTM, writeTVar)
-import Control.Exception (Exception, catch, finally, mask, mask_, onException, uninterruptibleMask_)
+import Control.Exception (Exception, SomeException, catch, finally, mask, mask_, onException, throwIO, try, uninterruptibleMask_)
 import Control.Monad (forM_, unless, void, when)
 import Data.Aeson (Value)
 import Data.Either (fromRight)
@@ -95,15 +96,27 @@ data RpcDispatcher = RpcDispatcher !RpcChannel !JsonRpcEnvelope !(TVar Dispatche
 -- Cancelling a response write can poison the borrowed channel. Callbacks must
 -- support asynchronous cancellation; no absolute shutdown deadline is promised.
 withRpcDispatcher :: RpcChannel -> JsonRpcEnvelope -> (RpcDispatcher -> IO a) -> IO a
-withRpcDispatcher channel context action = do
+withRpcDispatcher channel context = withRpcDispatcherSetup channel context pure
+
+-- | Register observers and handlers before this owner starts consuming events.
+-- RPC response correlation remains available during setup, but setup must not
+-- wait for notifications or server-request handlers that have not started yet.
+-- Failed setup releases any dispatcher-owned workers and subscriptions.
+withRpcDispatcherSetup :: RpcChannel -> JsonRpcEnvelope -> (RpcDispatcher -> IO b) -> (b -> IO a) -> IO a
+withRpcDispatcherSetup channel context setup action = mask $ \restore -> do
   state <- newTVarIO (DispatcherState Nothing 0 Map.empty Map.empty Map.empty Map.empty Map.empty)
   let dispatcher = RpcDispatcher channel context state
-  withAsync (runDispatcher dispatcher) $ \loop -> do
+      cleanup loops = do
+        (owned, callbacks) <- atomically (seal state ScopeClosed)
+        uninterruptibleMask_ (mapConcurrently_ cancel (loops <> owned))
+        mapM_ trySync callbacks
+  initialized <- try @SomeException (restore (setup dispatcher))
+  prepared <- case initialized of
+    Left cause -> finallyPreserving (throwIO cause) (cleanup [])
+    Right value -> pure value
+  withAsync (restore (runDispatcher dispatcher)) $ \loop -> do
     link loop
-    finallyPreserving (action dispatcher) $ do
-      (owned, callbacks) <- atomically (seal state ScopeClosed)
-      uninterruptibleMask_ (mapConcurrently_ cancel (loop : owned))
-      mapM_ trySync callbacks
+    finallyPreserving (restore (action prepared)) (cleanup [loop])
 
 -- | Subscribe to notifications, server requests and null-ID responses. Delivery
 -- uses a registration-order snapshot per message. Callbacks run serially on the

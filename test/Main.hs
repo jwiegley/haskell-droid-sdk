@@ -33,6 +33,7 @@ import DaemonQueueSpec (queueTests)
 import DaemonSettingsClientSpec (settingsClientTests)
 import DaemonSoftwareFactorySpec (softwareFactoryTests)
 import DaemonSpec (daemonTests)
+import DaemonStateSpec (daemonStateTests)
 import DaemonTerminalClientSpec (terminalClientTests)
 import DaemonWorkspaceClientSpec (workspaceClientTests)
 import DaemonWorkspaceSpec (workspaceTests)
@@ -209,6 +210,7 @@ suiteMain = do
         tunnelTests,
         retryTests,
         connectionReadinessTests,
+        daemonStateTests,
         processTests,
         protocolTests,
         connectionHookTests,

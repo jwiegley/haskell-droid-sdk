@@ -13,7 +13,9 @@ module Factory.Droid.Connection
     ConnectionError (..),
     defaultConnectionPollOptions,
     daemonConnectionPlan,
+    daemonConnectionPlanWithState,
     relayConnectionPlan,
+    relayConnectionPlanWithState,
     classifyConnectionFailure,
     ComputerConnectSliOptions (..),
     defaultComputerConnectSliOptions,
@@ -218,12 +220,25 @@ data ConnectionController = ConnectionController !ConnectionPlan !(TVar Controll
 daemonConnectionPlan :: Daemon.DaemonOptions -> ConnectionPlan
 daemonConnectionPlan options = ConnectionPlan (Daemon.withConnectionObserved options) (\connection -> Daemon.ensureConnectionAuthenticated connection (Daemon.DaemonAuthenticate (Daemon.daemonCredential options))) Nothing classifyConnectionFailure
 
+-- | The existing controller loop with a caller-scoped logical state owner.
+-- Every successful acquisition still publishes a new physical connection.
+daemonConnectionPlanWithState :: Daemon.DaemonState -> Daemon.DaemonOptions -> ConnectionPlan
+daemonConnectionPlanWithState shared options = (daemonConnectionPlan options) {withPlannedConnection = Daemon.withConnectionStateObserved shared options}
+
 relayConnectionPlan :: WebSocket.WebSocketOptions -> WebSocket.WebSocketTarget -> Relay.RelayOptions -> Relay.RelayCredential -> (Daemon.DaemonAuthentication -> Daemon.DaemonClientOptions) -> ConnectionPlan
-relayConnectionPlan socketOptions target relayOptions credential configure = ConnectionPlan acquire repair Nothing classifyConnectionFailure
+relayConnectionPlan = relayConnectionPlanUsing Nothing
+
+relayConnectionPlanWithState :: Daemon.DaemonState -> WebSocket.WebSocketOptions -> WebSocket.WebSocketTarget -> Relay.RelayOptions -> Relay.RelayCredential -> (Daemon.DaemonAuthentication -> Daemon.DaemonClientOptions) -> ConnectionPlan
+relayConnectionPlanWithState shared = relayConnectionPlanUsing (Just shared)
+
+relayConnectionPlanUsing :: Maybe Daemon.DaemonState -> WebSocket.WebSocketOptions -> WebSocket.WebSocketTarget -> Relay.RelayOptions -> Relay.RelayCredential -> (Daemon.DaemonAuthentication -> Daemon.DaemonClientOptions) -> ConnectionPlan
+relayConnectionPlanUsing shared socketOptions target relayOptions credential configure = ConnectionPlan acquire repair Nothing classifyConnectionFailure
   where
     acquire :: forall a. IO () -> (Daemon.DaemonConnection -> IO a) -> IO a
     acquire opened action = Relay.withRelayConnectionObserved socketOptions target relayOptions credential opened $ \relay ->
-      Daemon.withConnectionOn (configure (Relay.relayDaemonAuthentication relay)) (Relay.relayTransport relay) action
+      case shared of
+        Nothing -> Daemon.withConnectionOn (configure (Relay.relayDaemonAuthentication relay)) (Relay.relayTransport relay) action
+        Just retained -> Daemon.withConnectionStateOn retained (configure (Relay.relayDaemonAuthentication relay)) (Relay.relayTransport relay) action
     authentication = case credential of
       Relay.RelayApiKey key -> Daemon.DaemonAuthenticate (Daemon.DaemonApiKey key)
       Relay.RelayTokenProvider provider _ grant -> Daemon.DaemonTokenProvider provider grant
@@ -234,6 +249,8 @@ classifyConnectionFailure cause
   | Just failure <- fromException cause = failure
   | Just Daemon.DaemonIdentityMismatch <- fromException cause = failed "identity_mismatch" False
   | Just Daemon.DaemonAuthenticationSuperseded <- fromException cause = failed "auth_superseded" False
+  | Just Daemon.DaemonStateClosed <- fromException cause = failed "state_closed" False
+  | Just Daemon.DaemonStateInUse <- fromException cause = failed "state_in_use" False
   | Just Daemon.DaemonCredentialUnavailable <- fromException cause = failed "no_token" False
   | Just Daemon.InvalidDaemonCredential <- fromException cause = failed "no_token" False
   | Just (RpcRemoteFailure errorValue) <- fromException cause, rpcErrorCode errorValue == RpcAuthenticationError = failed "auth_rejected" False

@@ -144,6 +144,7 @@ module Factory.Droid.SessionState
     registerSubmissionAt,
     beginSubmissionAt,
     finishSubmission,
+    retireSessionSubmissions,
     failSubmission,
     rejectSubmission,
     cancelSubmission,
@@ -775,6 +776,21 @@ beginSubmissionAt now timeout requestId placeholder input state
 
 finishSubmission :: Text -> SessionState -> SessionState
 finishSubmission requestId state = state {submissions = Map.adjust (\entry -> entry {submissionInFlight = False}) requestId (submissions state), inFlightRequests = Set.delete requestId (inFlightRequests state)}
+
+-- | Revoke a retired physical generation's in-flight bookkeeping. Keep its
+-- overlays as observations, fail pending sends and preserve earlier failures.
+-- Prepared but unsent overlays are unchanged. This does not cancel caller IO.
+retireSessionSubmissions :: SessionState -> SessionState
+retireSessionSubmissions state = state {submissions = Map.map retire (submissions state), inFlightRequests = mempty}
+  where
+    retire entry
+      | submissionInFlight entry =
+          entry
+            { submissionInFlight = False,
+              submissionStatus = case submissionStatus entry of SubmissionPending -> SubmissionFailed SubmissionConnectionFailed; status -> status,
+              submissionDeadline = Nothing
+            }
+      | otherwise = entry
 
 -- | Mark an overlay failed without ending an RPC that is still on the wire.
 failSubmission :: Text -> SubmissionFailure -> SessionState -> SessionState

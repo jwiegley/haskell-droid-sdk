@@ -212,6 +212,7 @@ test-suite droid-sdk-test
     DaemonSettingsClientSpec
     DaemonSoftwareFactorySpec
     DaemonSpec
+    DaemonStateSpec
     DaemonTerminalClientSpec
     DaemonWorkspaceClientSpec
     DaemonWorkspaceSpec

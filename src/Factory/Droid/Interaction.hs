@@ -31,9 +31,11 @@ module Factory.Droid.Interaction
     clearInactivePendingForSession,
     inactivePendingRequestIds,
     markPendingInactive,
+    markAllPendingInactive,
     hasActivePendingForSession,
     deferPendingPermission,
     deferPendingQuestion,
+    readPendingSnapshot,
     getPendingSnapshot,
     waitPendingSnapshotChange,
     getPendingPermissions,
@@ -370,17 +372,25 @@ choosePending controller entries valid surface identifier response = do
 
 markPendingInactive :: PendingInteractions -> Text -> STM ()
 markPendingInactive controller execution = do
-  markEntriesInactive execution (permissionEntries controller)
-  markEntriesInactive execution (questionEntries controller)
+  markEntriesInactive ((== execution) . pendingSessionId) (permissionEntries controller)
+  markEntriesInactive ((== execution) . pendingSessionId) (questionEntries controller)
 
-markEntriesInactive :: Text -> TVar (Map PendingInteractionId (PendingEntry request response)) -> STM ()
-markEntriesInactive execution entries = do
+-- | Deactivate unanswered requests while preserving inactive metadata and
+-- subscriptions for a later connection generation. This does not reopen a
+-- closed controller or replay a response through another request owner.
+markAllPendingInactive :: PendingInteractions -> STM ()
+markAllPendingInactive controller = do
+  markEntriesInactive (const True) (permissionEntries controller)
+  markEntriesInactive (const True) (questionEntries controller)
+
+markEntriesInactive :: (PendingRequest request -> Bool) -> TVar (Map PendingInteractionId (PendingEntry request response)) -> STM ()
+markEntriesInactive matches entries = do
   current <- readTVar entries
   updated <- traverse mark current
   writeTVar entries updated
   where
     mark entry@(PendingEntry pending reply scope)
-      | pendingSessionId pending /= execution = pure entry
+      | not (matches pending) = pure entry
       | otherwise = do
           selected <- tryReadTMVar reply
           case selected of

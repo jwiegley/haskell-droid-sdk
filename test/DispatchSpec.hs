@@ -26,7 +26,65 @@ dispatchTests :: TestTree
 dispatchTests =
   testGroup
     "RPC dispatcher callbacks"
-    [ testCase "native server handler and notification subscription coexist with correlated calls" $
+    [ testCase "setup correlates replies while queued notifications and requests await installed handlers" $ bounded $ withMemory $ \channel incoming sent -> do
+        observed <- newTQueueIO
+        withAsync (do frame <- atomically (readTQueue sent); frame @?= toRpcObject (request "setup-call"); feed incoming (reply "setup-call" (String "ready"))) $ \peer ->
+          withRpcDispatcherSetup
+            channel
+            context
+            ( \dispatcher -> do
+                void (onRpcNotification dispatcher (atomically . writeTQueue observed . baseNotificationMethod . envelopeBody))
+                void (registerRpcHandler dispatcher "configured" (\_ -> pure (Right (String "installed"))))
+                feed incoming (toRpcObject notice)
+                feed incoming (toRpcObject (call "early-request" "configured"))
+                (requestResult channel (Just 1000000) (request "setup-call") :: IO Text) >>= (@?= "ready")
+                timeout 20000 (atomically (readTQueue observed)) >>= (@?= Nothing)
+            )
+            ( \() -> do
+                atomically (readTQueue observed) >>= (@?= "notice")
+                readResult sent >>= (@?= String "installed")
+                wait peer
+            ),
+      testCase "failed setup retires owned workers and preserves its error over a close callback failure" $ bounded $ withMemory $ \channel _ _ -> do
+        escaped <- newEmptyMVar
+        started <- newEmptyMVar
+        held <- newEmptyMVar
+        closed <- newEmptyMVar
+        cleaned <- newIORef (0 :: Int)
+        result <-
+          try @PeerFailure $
+            withRpcDispatcherSetup
+              channel
+              context
+              ( \dispatcher -> do
+                  putMVar escaped dispatcher
+                  void (onRpcClose dispatcher (\reason -> putMVar closed reason >> throwIO AsyncCancelled))
+                  void (registerPreparedRpcHandler dispatcher "held" (\_ _ -> pure (RpcPreparedRequest (putMVar started () >> takeMVar held >> pure Nothing) (atomicModifyIORef' cleaned (\n -> (n + 1, ()))))))
+                  dispatchRpcRequest dispatcher (call "owned" "held")
+                  takeMVar started
+                  throwIO CallbackFailed :: IO ()
+              )
+              (const (assertFailure "Failed setup published" :: IO ()))
+        result @?= Left CallbackFailed
+        readIORef cleaned >>= (@?= 1)
+        takeMVar closed >>= (@?= Nothing)
+        dispatcher <- takeMVar escaped
+        expectStopped RpcDispatcherClosed (onRpcEvent dispatcher (const (pure ()))),
+      testCase "cancelling setup closes its subscriptions but leaves the borrowed channel usable" $ bounded $ withMemory $ \channel incoming _ -> do
+        entered <- newEmptyMVar
+        held <- newEmptyMVar
+        closed <- newEmptyMVar
+        withAsync (withRpcDispatcherSetup channel context (\dispatcher -> void (onRpcClose dispatcher (putMVar closed)) >> putMVar entered () >> takeMVar held) (const (assertFailure "Cancelled setup published"))) $ \worker -> do
+          takeMVar entered
+          cancel worker
+          waitCatch worker >>= \case Left cause -> fromException cause @?= Just AsyncCancelled; Right _ -> assertFailure "Setup cancellation lost"
+        takeMVar closed >>= (@?= Nothing)
+        withRpcDispatcher channel context $ \dispatcher -> do
+          observed <- newEmptyMVar
+          void (onRpcNotification dispatcher (const (putMVar observed ())))
+          feed incoming (toRpcObject notice)
+          takeMVar observed,
+      testCase "native server handler and notification subscription coexist with correlated calls" $
         bounded $
           withPeer "rpc" 4096 $ \process ->
             withRpcChannel (sendObject process) (receiveObject process) $ \channel ->

@@ -22,6 +22,16 @@ module Factory.Droid.Daemon
     withResumedSessionUsingHandlers,
     DaemonError (..),
     DaemonConnection,
+    DaemonState,
+    DaemonStateSnapshot (..),
+    withDaemonState,
+    connectionState,
+    readDaemonStateSnapshot,
+    getDaemonStateSnapshot,
+    daemonStatePendingInteractions,
+    withConnectionState,
+    withConnectionStateObserved,
+    withConnectionStateOn,
     withConnection,
     withConnectionObserved,
     connectionUser,
@@ -280,7 +290,7 @@ where
 
 import Control.Applicative ((<|>))
 import Control.Concurrent (MVar, modifyMVar, newEmptyMVar, newMVar, putMVar, takeMVar, withMVar)
-import Control.Concurrent.Async (Async, asyncWithUnmask, cancel, mapConcurrently_)
+import Control.Concurrent.Async (Async, asyncWithUnmask, cancel, mapConcurrently_, race)
 import Control.Concurrent.STM (STM, TMVar, TVar, atomically, check, modifyTVar', newEmptyTMVar, newEmptyTMVarIO, newTVarIO, orElse, putTMVar, readTMVar, readTVar, readTVarIO, throwSTM, tryPutTMVar, writeTVar)
 import Control.DeepSeq (force)
 import Control.Exception (Exception, SomeAsyncException, SomeException, bracket, catch, evaluate, finally, fromException, mask, mask_, onException, throwIO, toException, try, uninterruptibleMask_)
@@ -305,11 +315,13 @@ import Factory.Droid.Client qualified as Client
 import Factory.Droid.Input (DroidInput)
 import Factory.Droid.Interaction (DroidHandlers (..), defaultDroidHandlers, permissionRpcHandler, questionRpcHandler)
 import Factory.Droid.Interaction qualified as Interaction
+import Factory.Droid.Internal.Exception (finallyPreserving)
 import Factory.Droid.Internal.JSON (isEcmaWhitespace)
 import Factory.Droid.Internal.Output (DroidOutput, DroidOutputResult)
 import Factory.Droid.Internal.Session qualified as Core
 import Factory.Droid.Internal.Stream (DroidEvent (..), DroidResult, DroidStreamMode, decodeDaemonNotification)
 import Factory.Droid.MCP.Server qualified as Hosted
+import Factory.Droid.Mission qualified as Mission
 import Factory.Droid.Observability qualified as Obs
 import Factory.Droid.Protocol
 import Factory.Droid.Protocol.Dispatch
@@ -475,7 +487,7 @@ sessionCreationOptions options mcp =
 daemonClientOptions :: DaemonOptions -> DaemonClientOptions
 daemonClientOptions options = DaemonClientOptions (DaemonAuthenticate (daemonCredential options)) (daemonWorkingDirectory options) (daemonWorktree options) (daemonWorktreeDirectory options) (daemonMachineId options) (daemonModel options) (daemonTurnTimeoutMicros options) (daemonProtocolVersion options) (daemonMcpOptions options) (daemonHostedMcpServers options) (daemonHydrateChildSessions options) (daemonRestoreTerminalsOnLoad options) (daemonConfiguration options) (daemonSystemPrompt options) (daemonSpawnOptions options) (daemonInitializationTimeoutMicros options) (daemonLoadConfiguration options) (daemonLoadSpawnConfiguration options) (daemonObservability options)
 
-data DaemonError = InvalidDaemonCredential | DaemonCredentialUnavailable | DaemonUnauthenticated | DaemonIdentityMismatch | DaemonAuthenticationSuperseded | DaemonModelRequiresNewSession | DaemonWorktreeRequiresNewSession | DaemonSessionAlreadyAttached | DaemonSessionNotRegistered | DaemonLoadSuperseded | DaemonLoadInterrupted | InvalidChildSessionIdentity | InvalidSessionCacheIdentity
+data DaemonError = InvalidDaemonCredential | DaemonCredentialUnavailable | DaemonUnauthenticated | DaemonIdentityMismatch | DaemonAuthenticationSuperseded | DaemonModelRequiresNewSession | DaemonWorktreeRequiresNewSession | DaemonSessionAlreadyAttached | DaemonSessionNotRegistered | DaemonStateClosed | DaemonStateInUse | DaemonLoadSuperseded | DaemonLoadInterrupted | InvalidChildSessionIdentity | InvalidSessionCacheIdentity
   deriving stock (Eq, Show)
 
 instance Exception DaemonError
@@ -483,9 +495,178 @@ instance Exception DaemonError
 -- | An authenticated connection that can own multiple independent attachments.
 data DaemonConnection = DaemonConnection !Core.SessionConnection !DaemonContext
 
+-- | One logical client's observations and pending controller. Physical
+-- generations are exclusive within this scope; no reader or reconnect loop
+-- is created by the state owner itself.
+data DaemonState = DaemonState
+  { sharedOpen :: !(TVar Bool),
+    sharedLease :: !(TVar (Maybe DaemonStateLease)),
+    sharedPrincipal :: !(TVar (Maybe (Text, Text))),
+    sharedGeneration :: !(TVar Integer),
+    sharedCoreState :: !Core.SessionStore,
+    sharedLoads :: !(TVar (Map Text SessionLoadEntry)),
+    sharedSessionStates :: !(TVar (Map Text SessionState.SessionState)),
+    sharedCache :: !(TVar DaemonSessionCache),
+    sharedChildOrder :: !(TVar [Text]),
+    sharedInteractions :: !Interaction.PendingInteractions
+  }
+
+instance Show DaemonState where show _ = "DaemonState <redacted>"
+
+data DaemonStateLease = PreparingState !Unique | ActiveState !Unique !(TVar Bool) !(TVar Bool) | RetiringState !Unique ![Text]
+
+-- | Cached observations, not remote truth or a persistence format. Intermediate
+-- snapshots can coalesce. Settings, missions and other retained metadata are
+-- independent of the registered-view cache limit.
+data DaemonStateSnapshot = DaemonStateSnapshot
+  { daemonStateGeneration :: !Integer,
+    daemonStateHealth :: !(Maybe ConnectionHealth),
+    daemonStateDirectory :: ![SessionDirectoryEntry],
+    daemonStateSessions :: !(Map Text SessionState.SessionState),
+    daemonStateSettings :: !(Map Text (Either Core.DroidError SessionSettings)),
+    daemonStateMissions :: !Mission.MissionRegistry,
+    daemonStatePending :: !Interaction.PendingSnapshot,
+    daemonStateCacheCapacity :: !(Maybe Natural),
+    daemonStateActiveSession :: !(Maybe Text)
+  }
+  deriving stock (Eq)
+
+instance Show DaemonStateSnapshot where show _ = "DaemonStateSnapshot <redacted>"
+
+-- | Retain one logical client's state across sequential physical generations.
+-- Exit revokes authority and joins an admitted generation before closing the
+-- pending controller. Callbacks and acquired resources must be cooperative.
+withDaemonState :: (DaemonState -> IO a) -> IO a
+withDaemonState action = mask $ \restore -> do
+  open <- newTVarIO True
+  lease <- newTVarIO Nothing
+  principal <- newTVarIO Nothing
+  generation <- newTVarIO 0
+  core <- Core.newSessionStore
+  loads <- newTVarIO mempty
+  sessions <- newTVarIO mempty
+  cache <- newTVarIO (DaemonSessionCache (Just 20) Nothing [] [] mempty)
+  order <- newTVarIO []
+  pending <- Interaction.newPendingInteractions
+  let shared = DaemonState open lease principal generation core loads sessions cache order pending
+  finallyPreserving (restore (action shared)) (closeDaemonState shared)
+
+closeDaemonState :: DaemonState -> IO ()
+closeDaemonState shared = mask_ $ do
+  atomically $ do
+    writeTVar (sharedOpen shared) False
+    lease <- readTVar (sharedLease shared)
+    forM_ lease (suspendDaemonState shared . stateLeaseToken)
+    Interaction.markAllPendingInactive (sharedInteractions shared)
+  uninterruptibleMask_ (atomically (readTVar (sharedLease shared) >>= check . isNothing))
+  atomically (Interaction.closePendingInteractions (sharedInteractions shared))
+
+stateLeaseToken :: DaemonStateLease -> Unique
+stateLeaseToken = \case PreparingState token -> token; ActiveState token _ _ -> token; RetiringState token _ -> token
+
+stateLeaseUsable :: Unique -> Maybe DaemonStateLease -> Bool
+stateLeaseUsable token = \case Just (PreparingState current) -> current == token; Just (ActiveState current _ _) -> current == token; _ -> False
+
+stateGenerationOpen :: DaemonState -> Unique -> STM Bool
+stateGenerationOpen shared token = (&&) <$> readTVar (sharedOpen shared) <*> (stateLeaseUsable token <$> readTVar (sharedLease shared))
+
+checkDaemonState :: DaemonState -> STM ()
+checkDaemonState shared = readTVar (sharedOpen shared) >>= \open -> unless open (throwSTM DaemonStateClosed)
+
+withDaemonStateLease :: DaemonState -> (Unique -> IO a) -> IO a
+withDaemonStateLease shared action = mask $ \restore -> do
+  token <- newUnique
+  atomically $ do
+    checkDaemonState shared
+    current <- readTVar (sharedLease shared)
+    when (isJust current) (throwSTM DaemonStateInUse)
+    writeTVar (sharedLease shared) (Just (PreparingState token))
+  finallyPreserving
+    ( restore $ do
+        outcome <- race (atomically (readTVar (sharedOpen shared) >>= check . not)) (action token)
+        either (const (throwIO DaemonStateClosed)) pure outcome
+    )
+    ( atomically $ do
+        suspendDaemonState shared token
+        current <- readTVar (sharedLease shared)
+        case current of
+          Just (RetiringState owner identifiers) | owner == token -> do
+            forM_ identifiers (\identifier -> invalidateStoredSessionLoad (sharedLoads shared) identifier False)
+            clearGenerationRequests shared
+            Interaction.markAllPendingInactive (sharedInteractions shared)
+            writeTVar (sharedLease shared) Nothing
+          _ -> pure ()
+    )
+
+bindDaemonStatePrincipal :: DaemonState -> Unique -> GetUserInfoResult -> STM ()
+bindDaemonStatePrincipal shared token identity = do
+  checkDaemonState shared
+  lease <- readTVar (sharedLease shared)
+  unless (stateLeaseUsable token lease) (throwSTM DaemonStateClosed)
+  previous <- readTVar (sharedPrincipal shared)
+  let principal = (reportedUserId identity, reportedOrgId identity)
+  when (maybe False (/= principal) previous) (throwSTM DaemonIdentityMismatch)
+  writeTVar (sharedPrincipal shared) (Just principal)
+
+activateDaemonState :: DaemonConnection -> STM ()
+activateDaemonState owned@(DaemonConnection core state) = do
+  checkConnection owned
+  let shared = connectionLogicalState state
+  modifyTVar' (sharedGeneration shared) (+ 1)
+  writeTVar (sharedLease shared) (Just (ActiveState (connectionGenerationToken state) (Core.connectionOpen core) (connectionAuthenticated state)))
+
+suspendDaemonState :: DaemonState -> Unique -> STM ()
+suspendDaemonState shared token = do
+  current <- readTVar (sharedLease shared)
+  when (stateLeaseUsable token current) $ do
+    case current of
+      Just (ActiveState _ open authenticated) -> writeTVar open False >> writeTVar authenticated False
+      _ -> pure ()
+    entries <- readTVar (sharedLoads shared)
+    let identifiers = [identifier | (identifier, entry) <- Map.toList entries, let readiness = entryReadiness entry, readinessPhase readiness /= SessionNotLoaded || readinessLoading readiness || isJust (entryFlight entry)]
+    forM_ identifiers (\identifier -> invalidateStoredSessionLoad (sharedLoads shared) identifier False)
+    clearGenerationRequests shared
+    modifyTVar' (sharedSessionStates shared) (Map.map SessionState.retireSessionSubmissions)
+    Interaction.markAllPendingInactive (sharedInteractions shared)
+    writeTVar (sharedLease shared) (Just (RetiringState token identifiers))
+
+-- Old local completion/retirement markers do not authorize a new peer's
+-- restored requests. Explicit deferred decisions are revalidated separately.
+clearGenerationRequests :: DaemonState -> STM ()
+clearGenerationRequests shared = modifyTVar' (sharedLoads shared) (Map.map (\entry -> entry {entryRestoredRequests = mempty, entryCompletedRequests = mempty, entryRetiringRequests = mempty}))
+
+connectionState :: DaemonConnection -> DaemonState
+connectionState (DaemonConnection _ state) = connectionLogicalState state
+
+daemonStatePendingInteractions :: DaemonState -> Interaction.PendingInteractions
+daemonStatePendingInteractions = sharedInteractions
+
+getDaemonStateSnapshot :: DaemonState -> IO DaemonStateSnapshot
+getDaemonStateSnapshot = atomically . readDaemonStateSnapshot
+
+readDaemonStateSnapshot :: DaemonState -> STM DaemonStateSnapshot
+readDaemonStateSnapshot shared = do
+  checkDaemonState shared
+  generation <- readTVar (sharedGeneration shared)
+  lease <- readTVar (sharedLease shared)
+  health <- case lease of
+    Just (ActiveState _ open authenticated) -> do
+      connected <- readTVar open
+      accepted <- readTVar authenticated
+      pure (Just (ConnectionHealth connected (connected && accepted)))
+    _ -> pure Nothing
+  directory <- readSharedDirectory shared
+  sessions <- readTVar (sharedSessionStates shared)
+  (settings, missions) <- Core.readSessionStore (sharedCoreState shared)
+  pending <- Interaction.readPendingSnapshot (sharedInteractions shared)
+  cache <- readTVar (sharedCache shared)
+  pure (DaemonStateSnapshot generation health directory sessions settings missions pending (cacheMaximum cache) (cacheActiveSession cache))
+
 data DaemonContext = DaemonContext
   { connectionIdentity :: !GetUserInfoResult,
     connectionDefaultMachineId :: !Text,
+    connectionLogicalState :: !DaemonState,
+    connectionGenerationToken :: !Unique,
     connectionCredential :: !(TVar (IO Text)),
     connectionAuthenticated :: !(TVar Bool),
     connectionAuthLock :: !(MVar (Maybe SomeException)),
@@ -560,9 +741,13 @@ getSessionDirectory connection@(DaemonConnection _ state) = atomically (void (pr
 readSessionDirectory :: DaemonConnection -> STM [SessionDirectoryEntry]
 readSessionDirectory connection@(DaemonConnection _ state) = do
   checkConnection connection
-  cache <- readTVar (connectionSessionCache state)
-  loads <- readTVar (connectionLoads state)
-  states <- readTVar (connectionSessionStates state)
+  readSharedDirectory (connectionLogicalState state)
+
+readSharedDirectory :: DaemonState -> STM [SessionDirectoryEntry]
+readSharedDirectory shared = do
+  cache <- readTVar (sharedCache shared)
+  loads <- readTVar (sharedLoads shared)
+  states <- readTVar (sharedSessionStates shared)
   pure [SessionDirectoryEntry identifier machine (entryReadiness (Map.findWithDefault emptyLoadEntry identifier loads)) (maybe SessionState.WorkingDirectoryUnknown SessionState.sessionWorkingDirectory (Map.lookup identifier states)) | (identifier, machine) <- cacheSessions cache]
 
 getSessionMachineId :: DaemonConnection -> Text -> IO (Maybe Text)
@@ -735,7 +920,7 @@ forgetCachedEntry :: DaemonContext -> Text -> STM ()
 forgetCachedEntry state identifier = do
   -- Keep the generation tombstone and independently retained load policy.
   invalidateSessionLoad state identifier False
-  modifyTVar' (connectionLoads state) (Map.adjust (\entry -> entry {entryReadiness = (entryReadiness entry) {readinessKnown = False, readinessPreInit = False}}) identifier)
+  modifyTVar' (connectionLoads state) (Map.adjust (\entry -> entry {entryCreationOwner = Nothing, entryReadiness = (entryReadiness entry) {readinessKnown = False, readinessPreInit = False}}) identifier)
   modifyTVar' (connectionSessionStates state) (Map.update retain identifier)
   modifyTVar' (connectionChildOrder state) (filter (/= identifier))
   modifyTVar' (connectionSessionCache state) (\cache -> cache {cacheSessions = filter ((/= identifier) . fst) (cacheSessions cache), cacheAccessOrder = filter (/= identifier) (cacheAccessOrder cache)})
@@ -754,13 +939,23 @@ withConnectionObserved options opened =
   withDaemonConnectionUsing (daemonClientOptions options) True defaultMcpSessionOptions $ \action ->
     withDaemonTransport options $ \transport -> opened >> action transport
 
+-- | Use retained logical state with a fresh physical endpoint scope. A state
+-- owner accepts one generation at a time and binds to its first user/org.
+withConnectionState :: DaemonState -> DaemonOptions -> (DaemonConnection -> IO a) -> IO a
+withConnectionState shared options = withConnectionStateObserved shared options (pure ())
+
+withConnectionStateObserved :: DaemonState -> DaemonOptions -> IO () -> (DaemonConnection -> IO a) -> IO a
+withConnectionStateObserved shared options opened =
+  withDaemonConnectionStateUsing shared (daemonClientOptions options) True defaultMcpSessionOptions $ \action ->
+    withDaemonTransport options $ \transport -> opened >> action transport
+
 connectionUser :: DaemonConnection -> GetUserInfoResult
 connectionUser (DaemonConnection _ state) = connectionIdentity state
 
 -- | Remembered authentication plus transport lifetime, not a heartbeat or a
 -- replacement for the immutable 'connectionUser' authentication receipt.
 isAuthenticated :: DaemonConnection -> IO Bool
-isAuthenticated (DaemonConnection core state) = atomically ((&&) <$> readTVar (Core.connectionOpen core) <*> readTVar (connectionAuthenticated state))
+isAuthenticated connection = healthAuthenticated <$> getConnectionHealth connection
 
 data ConnectionHealth = ConnectionHealth
   { healthTransportConnected :: !Bool,
@@ -774,8 +969,8 @@ getConnectionHealth :: DaemonConnection -> IO ConnectionHealth
 getConnectionHealth = atomically . readConnectionHealth
 
 readConnectionHealth :: DaemonConnection -> STM ConnectionHealth
-readConnectionHealth (DaemonConnection core state) = do
-  connected <- readTVar (Core.connectionOpen core)
+readConnectionHealth owned@(DaemonConnection _ state) = do
+  connected <- connectionScopeOpen owned
   authenticated <- readTVar (connectionAuthenticated state)
   pure (ConnectionHealth connected (connected && authenticated))
 
@@ -785,8 +980,8 @@ readConnectionFailureCause (DaemonConnection core _) = rpcChannelFailureCause (C
 
 -- | SDK logical generation, not a peer identity, credential or physical handle.
 getConnectionId :: DaemonConnection -> IO (Maybe Text)
-getConnectionId (DaemonConnection core _) = atomically $ do
-  open <- readTVar (Core.connectionOpen core)
+getConnectionId owned@(DaemonConnection core _) = atomically $ do
+  open <- connectionScopeOpen owned
   pure (if open then Just (Core.connectionRequestNamespace core) else Nothing)
 
 getTransportKind :: DaemonConnection -> Transport.TransportKind
@@ -1117,11 +1312,12 @@ data SessionLoadEntry = SessionLoadEntry
     entryRestoredRequests :: !(Map Text (Text, Object)),
     entryCompletedRequests :: !(Set (Text, Text)),
     entryRetiringRequests :: !(Set Text),
-    entryLoadPolicy :: !(Maybe DaemonLoadPolicy)
+    entryLoadPolicy :: !(Maybe DaemonLoadPolicy),
+    entryCreationOwner :: !(Maybe Unique)
   }
 
 emptyLoadEntry :: SessionLoadEntry
-emptyLoadEntry = SessionLoadEntry (SessionReadiness SessionNotLoaded False False False False (Right Nothing)) 0 Nothing mempty mempty mempty Nothing
+emptyLoadEntry = SessionLoadEntry (SessionReadiness SessionNotLoaded False False False False (Right Nothing)) 0 Nothing mempty mempty mempty Nothing Nothing
 
 sessionReadinessBusy :: SessionReadiness -> Either Core.DroidError Bool
 sessionReadinessBusy = fmap (maybe False (/= WorkingIdle)) . readinessWorkingState
@@ -1138,9 +1334,16 @@ waitSessionReadinessChange connection identifier previous = atomically $ do
   pure current
 
 checkConnection :: DaemonConnection -> STM ()
-checkConnection (DaemonConnection connection _) = do
-  open <- readTVar (Core.connectionOpen connection)
-  unless open (throwSTM RpcChannelClosed)
+checkConnection connection = connectionScopeOpen connection >>= \open -> unless open (throwSTM RpcChannelClosed)
+
+connectionScopeOpen :: DaemonConnection -> STM Bool
+connectionScopeOpen (DaemonConnection core state) = do
+  physical <- readTVar (Core.connectionOpen core)
+  logical <- stateGenerationOpen (connectionLogicalState state) (connectionGenerationToken state)
+  pure (physical && logical)
+
+connectionAuthorityOpen :: DaemonConnection -> STM Bool
+connectionAuthorityOpen connection@(DaemonConnection _ state) = (&&) <$> connectionScopeOpen connection <*> readTVar (connectionAuthenticated state)
 
 readSessionReadiness :: DaemonConnection -> Text -> STM SessionReadiness
 readSessionReadiness connection@(DaemonConnection _ state) identifier = do
@@ -1172,13 +1375,16 @@ markSessionNotLoaded connection@(DaemonConnection _ state) identifier = atomical
   invalidateSessionLoad state identifier False
 
 invalidateSessionLoad :: DaemonContext -> Text -> Bool -> STM ()
-invalidateSessionLoad state identifier removeKnown = do
-  entries <- readTVar (connectionLoads state)
+invalidateSessionLoad state = invalidateStoredSessionLoad (connectionLoads state)
+
+invalidateStoredSessionLoad :: TVar (Map Text SessionLoadEntry) -> Text -> Bool -> STM ()
+invalidateStoredSessionLoad stored identifier removeKnown = do
+  entries <- readTVar stored
   forM_ (Map.lookup identifier entries) $ \entry -> do
     forM_ (entryFlight entry) (\ticket -> void (tryPutTMVar ticket (Left (toException DaemonLoadSuperseded))))
     let previous = entryReadiness entry
         next = entry {entryEpoch = entryEpoch entry + 1, entryFlight = Nothing, entryRestoredRequests = mempty, entryLoadPolicy = if removeKnown then Nothing else entryLoadPolicy entry, entryReadiness = previous {readinessPhase = SessionNotLoaded, readinessLoading = False, readinessKnown = not removeKnown && readinessKnown previous, readinessPreInit = not removeKnown && readinessPreInit previous, readinessWorkingState = Right Nothing}}
-    writeTVar (connectionLoads state) (Map.insert identifier next entries)
+    writeTVar stored (Map.insert identifier next entries)
 
 startSessionLoad :: DaemonContext -> Text -> STM (Integer, SessionLoadTicket, DaemonLoadPolicy)
 startSessionLoad state identifier = startSessionLoadForMachine state identifier (connectionDefaultMachineId state)
@@ -1191,7 +1397,7 @@ startSessionLoadForMachine state identifier machine = do
       readiness = entryReadiness previous
   forM_ (entryFlight previous) (\ticket -> void (tryPutTMVar ticket (Left (toException DaemonLoadSuperseded))))
   ticket <- newEmptyTMVar
-  let next = previous {entryEpoch = epoch, entryFlight = Just ticket, entryRestoredRequests = mempty, entryReadiness = readiness {readinessPhase = if readinessPhase readiness == SessionLoaded then SessionLoaded else SessionLoading, readinessKnown = True, readinessLoading = True, readinessNotFound = False}}
+  let next = previous {entryEpoch = epoch, entryFlight = Just ticket, entryCreationOwner = Nothing, entryRestoredRequests = mempty, entryReadiness = readiness {readinessPhase = if readinessPhase readiness == SessionLoaded then SessionLoaded else SessionLoading, readinessKnown = True, readinessLoading = True, readinessNotFound = False}}
   writeTVar (connectionLoads state) (Map.insert identifier next entries)
   modifySessionState (connectionSessionStates state) identifier (SessionState.setChildLoadError Nothing)
   rememberChildOrderForMachine state identifier machine
@@ -1249,14 +1455,15 @@ trackSessionLoadWithCreation creation configured connection@(DaemonConnection _ 
           )
           identifier
     (epoch, ticket, policy) <- startSessionLoadForMachine state identifier (maybe (connectionDefaultMachineId state) snd creation)
+    unless existed $ forM_ creation $ \(token, _) ->
+      modifyTVar' (connectionLoads state) (Map.adjust (\entry -> entry {entryCreationOwner = Just token}) identifier)
     pure (existed, previousPolicy, epoch, ticket, policy)
   finishSessionLoad state identifier epoch ticket (restore (action (sessionLoadGuard state identifier epoch policy)))
     `onException` forM_
       creation
       ( \(token, _) -> unless existed $ atomically $ do
           entries <- readTVar (connectionLoads state)
-          bindings <- readTVar (connectionBindings state)
-          let current = maybe False ((== epoch) . entryEpoch) (Map.lookup identifier entries) && maybe False ((== token) . bindingToken) (Map.lookup identifier bindings)
+          let current = maybe False ((== Just token) . entryCreationOwner) (Map.lookup identifier entries)
           when current $ do
             forgetCachedEntry state identifier
             modifyTVar' (connectionLoads state) (Map.adjust (\entry -> entry {entryLoadPolicy = previousPolicy}) identifier)
@@ -1277,7 +1484,8 @@ finishSessionLoad state identifier epoch ticket action = do
             shared = case outcome of
               Left cause | Just (_ :: SomeAsyncException) <- fromException cause -> Left (toException DaemonLoadInterrupted)
               _ -> outcome
-        writeTVar (connectionLoads state) (Map.insert identifier (entry {entryFlight = Nothing, entryReadiness = nextReadiness}) entries)
+        let creationOwner = case outcome of Right _ -> Nothing; Left _ -> entryCreationOwner entry
+        writeTVar (connectionLoads state) (Map.insert identifier (entry {entryFlight = Nothing, entryReadiness = nextReadiness, entryCreationOwner = creationOwner}) entries)
         let failure = case outcome of
               Right _ -> Nothing
               Left cause
@@ -1650,13 +1858,14 @@ onRelayStatusChanged :: DaemonConnection -> (Either DaemonEventError RelayStatus
 onRelayStatusChanged = connectionNotification "daemon.relay.status_changed"
 
 -- | Resolve a daemon queue entry through the existing ACK-aware command path.
--- A successful reply updates local state; failures do not undo remote effects.
+-- Publish into the current physical generation only. A retired receipt fails
+-- closed; neither that failure nor another error undoes remote effects.
 resolveQueuedUserMessage :: DaemonConnection -> Text -> ResolveQueuedMessageParams -> IO Object
-resolveQueuedUserMessage owned@(DaemonConnection connection state) identifier params = mask $ \restore -> do
+resolveQueuedUserMessage owned@(DaemonConnection connection _) identifier params = mask $ \restore -> do
   atomically (checkConnection owned)
   result <- restore $ Core.connectionRequest connection 30000000 $ \channel options ->
     awaitDaemonCommand (Proxy @CreateMessage) "create_message" (Core.connectionDispatcher connection) options identifier (Client.resolveDaemonQueuedUserMessageRaw channel options identifier params)
-  atomically (modifySessionState (connectionSessionStates state) identifier (SessionState.applyQueueResolution params))
+  modifyConnectionState owned identifier (SessionState.applyQueueResolution params)
   pure (if KeyMap.lookup "accepted" result == Just (Bool True) then mempty else result)
 
 -- | Local queue metadata; enqueueing does not submit a remote message.
@@ -1702,8 +1911,8 @@ transitionQueue connection@(DaemonConnection _ state) identifier transition = at
   pure result
 
 -- | Explicitly send one locally deferred/paused entry through normal submission.
--- A failure restores a paused entry unless confirmation or a newer queue
--- observation already won.
+-- While its generation remains current, failure restores a paused entry unless
+-- confirmation or a newer queue observation already won.
 -- Daemon-backed entries must use resolveQueuedUserMessage, never resubmission.
 sendQueuedUserMessage :: DaemonConnection -> Text -> Text -> IO Object
 sendQueuedUserMessage owned@(DaemonConnection _ state) identifier requestId = mask $ \restore -> do
@@ -1723,10 +1932,12 @@ sendQueuedUserMessage owned@(DaemonConnection _ state) identifier requestId = ma
   case outcome of
     Right result -> pure result
     Left cause -> do
-      atomically $ modifySessionState (connectionSessionStates state) identifier $ \current ->
-        if isJust (SessionState.lookupQueuedMessage requestId current)
-          then current
-          else SessionState.restoreQueueFront [entry {SessionState.queueEntryKind = SessionState.QueuePaused}] current
+      atomically $ do
+        currentGeneration <- connectionScopeOpen owned
+        when currentGeneration $ modifySessionState (connectionSessionStates state) identifier $ \current ->
+          if isJust (SessionState.lookupQueuedMessage requestId current)
+            then current
+            else SessionState.restoreQueueFront [entry {SessionState.queueEntryKind = SessionState.QueuePaused}] current
       throwIO cause
 
 connectionOperation :: DaemonConnection -> (RpcChannel -> Client.CallOptions -> params -> IO a) -> params -> IO a
@@ -1986,6 +2197,11 @@ withDaemonConnection options reject mcpOptions = withDaemonConnectionUsing (daem
 withConnectionOn :: DaemonClientOptions -> ObjectTransport -> (DaemonConnection -> IO a) -> IO a
 withConnectionOn options transport = withDaemonConnectionUsing options True defaultMcpSessionOptions ($ transport)
 
+-- | Retained logical observations over borrowed I/O. The caller still owns the
+-- transport; each generation has its own channel, dispatcher and handle leases.
+withConnectionStateOn :: DaemonState -> DaemonClientOptions -> ObjectTransport -> (DaemonConnection -> IO a) -> IO a
+withConnectionStateOn shared options transport = withDaemonConnectionStateUsing shared options True defaultMcpSessionOptions ($ transport)
+
 withDaemonTransport :: DaemonOptions -> (ObjectTransport -> IO a) -> IO a
 withDaemonTransport options action =
   WebSocket.withWebSocket (daemonTransport options) (daemonTarget options) $ \transport ->
@@ -2012,64 +2228,81 @@ fetchSessionToken :: IO (Maybe Text) -> IO Text
 fetchSessionToken provider = provider >>= maybe (throwIO DaemonCredentialUnavailable) pure
 
 withDaemonConnectionUsing :: DaemonClientOptions -> Bool -> McpSessionOptions -> ((ObjectTransport -> IO a) -> IO a) -> (DaemonConnection -> IO a) -> IO a
-withDaemonConnectionUsing options reject mcpOptions acquire action = do
+withDaemonConnectionUsing options reject mcpOptions acquire action =
+  withDaemonState $ \shared -> withDaemonConnectionStateUsing shared options reject mcpOptions acquire action
+
+withDaemonConnectionStateUsing :: DaemonState -> DaemonClientOptions -> Bool -> McpSessionOptions -> ((ObjectTransport -> IO a) -> IO a) -> (DaemonConnection -> IO a) -> IO a
+withDaemonConnectionStateUsing shared options reject mcpOptions acquire action = do
   validateDaemonAuthentication (daemonClientAuthentication options)
   let defaults = (daemonClientLoadConfiguration options, daemonClientLoadSpawnConfiguration options)
       (loadParams, _) = daemonLoadParameters "" "" mcpOptions reject defaults
   either throwIO pure (Configuration.validateDaemonLoadSessionParams loadParams)
-  let observability = daemonClientObservability options
-  Obs.observeDroidOperation observability "droid.daemon.connection" Nothing $ acquire $ \rawTransport -> do
-    let transport = if Obs.observabilityLogTransport observability then Transport.loggedObjectTransport (Obs.observabilityLogger observability) Transport.defaultTransportLogOptions rawTransport else rawTransport
-    withObservedRpcChannel observability (transportSendObject transport) (transportReceiveObject transport) $ \channel -> do
-      sessionStates <- newTVarIO mempty
-      childOrder <- newTVarIO []
-      childHydrations <- newTVarIO (Just mempty)
-      flip finally (stopChildHydrations childHydrations) $
-        Core.withSessionConnection channel (daemonBackend (daemonClientProtocolVersion options) sessionStates) reject mcpOptions $ \connection -> do
-          let authenticate credential = do
-                validateDaemonAuthentication (DaemonAuthenticate credential)
-                Core.connectionRequest connection 30000000 $ \rpc callOptions ->
-                  Client.call (Proxy @(WithEnvelope (MethodRequest "daemon.authenticate" Object))) rpc callOptions (authenticationParams credential)
-          identity <- case daemonClientAuthentication options of
-            DaemonAuthenticate credential -> authenticate credential
-            DaemonTokenProvider provider grant -> fetchSessionToken provider >>= \token -> authenticate (DaemonToken token grant)
-            DaemonInheritAuthentication inherited _ -> pure inherited
-            DaemonInheritAuthenticationProvider inherited _ -> pure inherited
-          bindings <- newTVarIO mempty
-          loads <- newTVarIO mempty
-          cache <- newTVarIO (DaemonSessionCache (Just 20) Nothing [] [] mempty)
-          authenticated <- newTVarIO True
-          authLock <- newMVar Nothing
-          authEpoch <- newTVarIO 0
-          credential <- newTVarIO (authenticationToken (daemonClientAuthentication options))
-          interactions <- Interaction.newPendingInteractions
-          let state = DaemonContext identity (daemonClientMachineId options) credential authenticated authLock authEpoch interactions bindings loads sessionStates cache childOrder childHydrations (daemonClientHydrateChildSessions options) (daemonClientRestoreTerminalsOnLoad options) (transportPendingSessionReady transport) (transportKind transport) defaults
-              owned = DaemonConnection connection state
-              dispatcher = Core.connectionDispatcher connection
-          void (setBeforeRequest owned (Just (\identifier method -> unless (Set.member method skipEnsureLoaded) (ensureSessionLoaded owned identifier))))
-          void $ registerRpcRequestBarrier channel $ \request -> do
-            let method = baseRequestMethod (envelopeBody request)
-            -- Explicit revocation must not queue behind the grant it supersedes.
-            unless (method == "daemon.authenticate" || method == "daemon.logout") $ do
-              ready <- readTVarIO authenticated
-              if ready
-                then atomically (checkConnection owned)
-                else withMVar authLock (\failure -> mapM_ throwIO failure >> atomically (checkConnection owned))
-          void (registerPreparedRpcHandler dispatcher "daemon.request_permission" (sessionReply owned True permissionRpcHandler Interaction.preparePermissionRpcHandler))
-          void (registerPreparedRpcHandler dispatcher "daemon.ask_user" (sessionReply owned False questionRpcHandler Interaction.prepareQuestionRpcHandler))
-          void (onRpcNotification dispatcher (\notification -> observeLifecycle owned notification `finally` atomically (void (pruneRegisteredSessions state))))
-          void (onRpcEvent dispatcher (observePermissionReplay owned))
-          action owned `finally` do
-            active <- atomically $ do
-              writeTVar authenticated False
-              modifyTVar' authEpoch (+ 1)
-              Interaction.closePendingInteractions interactions
-              registered <- readTVar bindings
-              writeTVar bindings mempty
-              pure (Map.elems registered)
-            forM_ active (Core.closeDroidSession . bindingSession)
-            stopChildHydrations childHydrations
-            forM_ active (Core.waitDroidSessionIdle . bindingSession)
+  withDaemonStateLease shared $ \generation -> do
+    let observability = daemonClientObservability options
+    Obs.observeDroidOperation observability "droid.daemon.connection" Nothing $ acquire $ \rawTransport -> do
+      let transport = if Obs.observabilityLogTransport observability then Transport.loggedObjectTransport (Obs.observabilityLogger observability) Transport.defaultTransportLogOptions rawTransport else rawTransport
+      withObservedRpcChannel observability (transportSendObject transport) (transportReceiveObject transport) $ \channel -> do
+        childHydrations <- newTVarIO (Just mempty)
+        let prepare connection = do
+              let authenticate credential = do
+                    validateDaemonAuthentication (DaemonAuthenticate credential)
+                    Core.connectionRequest connection 30000000 $ \rpc callOptions ->
+                      Client.call (Proxy @(WithEnvelope (MethodRequest "daemon.authenticate" Object))) rpc callOptions (authenticationParams credential)
+              identity <- case daemonClientAuthentication options of
+                DaemonAuthenticate credential -> authenticate credential
+                DaemonTokenProvider provider grant -> fetchSessionToken provider >>= \token -> authenticate (DaemonToken token grant)
+                DaemonInheritAuthentication inherited _ -> pure inherited
+                DaemonInheritAuthenticationProvider inherited _ -> pure inherited
+              atomically (bindDaemonStatePrincipal shared generation identity)
+              bindings <- newTVarIO mempty
+              authenticated <- newTVarIO True
+              authLock <- newMVar Nothing
+              authEpoch <- newTVarIO 0
+              credential <- newTVarIO (authenticationToken (daemonClientAuthentication options))
+              let state = DaemonContext identity (daemonClientMachineId options) shared generation credential authenticated authLock authEpoch (sharedInteractions shared) bindings (sharedLoads shared) (sharedSessionStates shared) (sharedCache shared) (sharedChildOrder shared) childHydrations (daemonClientHydrateChildSessions options) (daemonClientRestoreTerminalsOnLoad options) (transportPendingSessionReady transport) (transportKind transport) defaults
+                  owned = DaemonConnection connection state
+                  dispatcher = Core.connectionDispatcher connection
+              void (setBeforeRequest owned (Just (\identifier method -> unless (Set.member method skipEnsureLoaded) (ensureSessionLoaded owned identifier))))
+              void $ registerRpcRequestBarrier channel $ \request -> do
+                let method = baseRequestMethod (envelopeBody request)
+                -- Explicit revocation must not queue behind the grant it supersedes.
+                unless (method == "daemon.authenticate" || method == "daemon.logout") $ do
+                  ready <- readTVarIO authenticated
+                  if ready
+                    then atomically (checkConnection owned)
+                    else withMVar authLock (\failure -> mapM_ throwIO failure >> atomically (checkConnection owned))
+              void (registerPreparedRpcHandler dispatcher "daemon.request_permission" (sessionReply owned True permissionRpcHandler Interaction.preparePermissionRpcHandler))
+              void (registerPreparedRpcHandler dispatcher "daemon.ask_user" (sessionReply owned False questionRpcHandler Interaction.prepareQuestionRpcHandler))
+              void (onRpcNotification dispatcher (\notification -> observeLifecycle owned notification `finally` atomically (void (pruneRegisteredSessions state))))
+              void (onRpcEvent dispatcher (observePermissionReplay owned))
+              void (onRpcClose dispatcher (const (atomically (suspendDaemonState shared generation))))
+              pure owned
+            run owned =
+              finallyPreserving
+                ( do
+                    synchronizeRpcEvents channel
+                    atomically (activateDaemonState owned)
+                    action owned
+                )
+                (retireDaemonConnection owned)
+        finallyPreserving
+          (Core.withSessionConnectionSetup (sharedCoreState shared) channel (daemonBackend (daemonClientProtocolVersion options) (sharedSessionStates shared) (stateGenerationOpen shared generation)) reject mcpOptions prepare run)
+          (stopChildHydrations childHydrations)
+
+retireDaemonConnection :: DaemonConnection -> IO ()
+retireDaemonConnection (DaemonConnection _ state) = mask_ $ do
+  active <- atomically $ do
+    writeTVar (connectionAuthenticated state) False
+    modifyTVar' (connectionAuthEpoch state) (+ 1)
+    suspendDaemonState (connectionLogicalState state) (connectionGenerationToken state)
+    registered <- readTVar (connectionBindings state)
+    writeTVar (connectionBindings state) mempty
+    cache <- readTVar (connectionSessionCache state)
+    pure (map bindingSession (Map.elems registered) <> Map.elems (cacheRetiringBindings cache))
+  forM_ active Core.closeDroidSession
+  stopChildHydrations (connectionChildHydrations state)
+  forM_ active Core.waitDroidSessionIdle
+  atomically (void (pruneRegisteredSessions state))
 
 skipEnsureLoaded :: Set Text
 skipEnsureLoaded =
@@ -2549,21 +2782,24 @@ authenticationParams credential = KeyMap.fromList ("caller" .= String "haskell-s
       DaemonApiKey key -> ["apiKey" .= key]
       DaemonToken token grant -> ["token" .= token] <> maybe [] (\value -> ["actAsGrant" .= value]) grant
 
-daemonBackend :: Text -> TVar (Map Text SessionState.SessionState) -> Core.SessionBackend
-daemonBackend protocolVersion sessionStates =
+daemonBackend :: Text -> TVar (Map Text SessionState.SessionState) -> STM Bool -> Core.SessionBackend
+daemonBackend protocolVersion sessionStates currentGeneration =
   Core.SessionBackend
     (WithEnvelope (Just protocolVersion) Nothing mempty)
     decodeDaemonNotification
-    (submitMessage sessionStates)
+    (submitMessage sessionStates currentGeneration)
     ( \channel callOptions identifier -> mask $ \restore -> do
         result <- restore (Client.call (Proxy @(WithEnvelope (MethodRequest "daemon.interrupt_session" Object))) channel callOptions (KeyMap.singleton "sessionId" (String identifier)))
-        atomically (modifySessionState sessionStates identifier (SessionState.pauseDaemonQueue Nothing))
+        atomically $ do
+          current <- currentGeneration
+          unless current (throwSTM RpcChannelClosed)
+          modifySessionState sessionStates identifier (SessionState.pauseDaemonQueue Nothing)
         pure result
     )
     Nothing
 
-submitMessage :: TVar (Map Text SessionState.SessionState) -> RpcDispatcher -> RpcChannel -> Client.CallOptions -> Text -> AddUserMessageParams -> IO Object
-submitMessage sessionStates dispatcher channel options identifier input = mask $ \restore -> do
+submitMessage :: TVar (Map Text SessionState.SessionState) -> STM Bool -> RpcDispatcher -> RpcChannel -> Client.CallOptions -> Text -> AddUserMessageParams -> IO Object
+submitMessage sessionStates currentGeneration dispatcher channel options identifier input = mask $ \restore -> do
   wireInput <- case userMessageId input of
     Just _ -> pure input
     Nothing -> do messageId <- UUID.toText <$> nextRandom; pure (input {userMessageId = Just messageId})
@@ -2572,6 +2808,8 @@ submitMessage sessionStates dispatcher channel options identifier input = mask $
   placeholder <- UUID.toText <$> nextRandom
   let requestId = Client.callRequestId options
   atomically $ do
+    allowed <- currentGeneration
+    unless allowed (throwSTM RpcChannelClosed)
     states <- readTVar sessionStates
     let current = Map.findWithDefault SessionState.emptySessionState identifier states
         bubble = maybe placeholder SessionState.submissionPlaceholderId (SessionState.lookupSubmission requestId current)
@@ -2579,12 +2817,19 @@ submitMessage sessionStates dispatcher channel options identifier input = mask $
     writeTVar sessionStates (Map.insert identifier next states)
   let params = KeyMap.insert "sessionId" (String identifier) (KeyMap.union fields (KeyMap.singleton "userMessageSource" (String "api")))
   outcome <- try @SomeException $ restore (awaitDaemonCommand (Proxy @CreateMessage) "create_message" dispatcher options identifier (Client.call (Proxy @(WithEnvelope (MethodRequest "daemon.add_user_message" Object))) channel options params))
-  atomically $ modifySessionState sessionStates identifier $ case outcome of
-    Right _ -> SessionState.finishSubmission requestId
-    Left cause -> case submissionFailure cause of
-      Just failure -> SessionState.rejectSubmission requestId failure
-      Nothing -> SessionState.finishSubmission requestId . SessionState.cancelSubmission requestId
-  either throwIO pure outcome
+  -- A caller can remain in its own callback after the physical scope retires.
+  -- Do not publish its late outcome into a successor generation's observations.
+  published <- atomically $ do
+    allowed <- currentGeneration
+    when allowed $ modifySessionState sessionStates identifier $ case outcome of
+      Right _ -> SessionState.finishSubmission requestId
+      Left cause -> case submissionFailure cause of
+        Just failure -> SessionState.rejectSubmission requestId failure
+        Nothing -> SessionState.finishSubmission requestId . SessionState.cancelSubmission requestId
+    pure allowed
+  case outcome of
+    Left cause -> throwIO cause
+    Right result -> if published then pure result else throwIO RpcChannelClosed
 
 -- Caller cancellation can carry any exception, not only SomeAsyncException.
 -- Only known protocol failures retain an error overlay; every cause is rethrown.
@@ -2599,7 +2844,8 @@ submissionFailure cause
 
 -- | A connection-level command with explicit, connection-unique request ID.
 -- An ACK waits for its matching create-message notification; legacy results
--- return unchanged. Neither is completion of the agent turn.
+-- return unchanged. Neither is completion of the agent turn. Cache publication
+-- after physical retirement fails closed without undoing remote effects.
 submitUserMessage :: DaemonConnection -> Text -> Text -> AddUserMessageParams -> IO Object
 submitUserMessage owned@(DaemonConnection connection state) identifier requestId input = mask $ \restore -> do
   prepared <- atomically $ do
@@ -2607,9 +2853,10 @@ submitUserMessage owned@(DaemonConnection connection state) identifier requestId
     states <- readTVar (connectionSessionStates state)
     pure (isJust (Map.lookup identifier states >>= SessionState.lookupSubmission requestId))
   result <- restore $ Core.connectionRequest connection 30000000 $ \channel options ->
-    submitMessage (connectionSessionStates state) (Core.connectionDispatcher connection) channel (options {Client.callRequestId = requestId}) identifier input
+    submitMessage (connectionSessionStates state) (connectionScopeOpen owned) (Core.connectionDispatcher connection) channel (options {Client.callRequestId = requestId}) identifier input
   observedAt <- (* 1000) . realToFrac <$> getPOSIXTime
   atomically $ do
+    checkConnection owned
     states <- readTVar (connectionSessionStates state)
     loads <- readTVar (connectionLoads state)
     let busy = case Map.lookup identifier loads of
@@ -2752,14 +2999,16 @@ awaitDaemonCommand _ kind dispatcher options identifier request = do
 -- Prefer the execution session, then permission associations in reported order.
 -- Questions never use association routing; replies retain the execution ID.
 sessionReply :: DaemonConnection -> Bool -> (DroidHandlers -> RpcRequestHandler) -> (Interaction.PendingInteractions -> STM Bool -> Text -> DroidHandlers -> JsonRpcBaseRequest -> IO Interaction.PreparedInteraction) -> RpcRequestPreparer
-sessionReply (DaemonConnection core state) allowAssociated render managed origin request = case baseRequestParams (envelopeBody request) of
+sessionReply owned@(DaemonConnection _ state) allowAssociated render managed origin request = case baseRequestParams (envelopeBody request) of
   Just params -> case parseEither (withObject "daemon interaction" (.: "sessionId")) params of
     Right (identifier :: Text) -> do
-      when (origin == RpcLiveRequest) $ atomically $ modifyTVar' (connectionLoads state) (Map.adjust (\entry -> entry {entryCompletedRequests = Set.delete (baseRequestMethod (envelopeBody request), baseRequestId (envelopeBody request)) (entryCompletedRequests entry), entryRetiringRequests = Set.delete (baseRequestId (envelopeBody request)) (entryRetiringRequests entry)}) identifier)
+      when (origin == RpcLiveRequest) $ atomically $ do
+        open <- connectionAuthorityOpen owned
+        when open $ modifyTVar' (connectionLoads state) (Map.adjust (\entry -> entry {entryCompletedRequests = Set.delete (baseRequestMethod (envelopeBody request), baseRequestId (envelopeBody request)) (entryCompletedRequests entry), entryRetiringRequests = Set.delete (baseRequestId (envelopeBody request)) (entryRetiringRequests entry)}) identifier)
       let associated = case parseEither (withObject "permission associations" (.:! "associatedSessionIds")) params of
             Right (Just identifiers) | allowAssociated -> identifiers
             _ -> []
-          allowed = (&&) <$> readTVar (Core.connectionOpen core) <*> readTVar (connectionAuthenticated state)
+          allowed = connectionAuthorityOpen owned
           fallback = Just <$> render defaultDroidHandlers request
       (selected, handlers, authenticated) <- atomically $ do
         bindings <- readTVar (connectionBindings state)
@@ -2796,12 +3045,12 @@ sessionReply (DaemonConnection core state) allowAssociated render managed origin
 -- Association-only duplicates refresh the pending view without rerunning an
 -- admitted callback. Metadata watchers observe this update through the snapshot.
 observePermissionReplay :: DaemonConnection -> JsonRpcMessage -> IO ()
-observePermissionReplay (DaemonConnection core state) message = case envelopeBody message of
+observePermissionReplay owned@(DaemonConnection _ state) message = case envelopeBody message of
   RequestBody request
     | baseRequestMethod request == "daemon.request_permission",
       Just (Object params) <- baseRequestParams request,
       Just (String execution) <- KeyMap.lookup "sessionId" params -> atomically $ do
-        allowed <- (&&) <$> readTVar (Core.connectionOpen core) <*> readTVar (connectionAuthenticated state)
+        allowed <- connectionAuthorityOpen owned
         when allowed (refreshPermissionRequest state execution (baseRequestId request) params)
   _ -> pure ()
 

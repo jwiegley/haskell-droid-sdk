@@ -95,7 +95,11 @@ module Factory.Droid.Internal.Session
     SessionConnection (..),
     SessionBackend (..),
     LocalSessionState,
+    SessionStore,
+    newSessionStore,
+    readSessionStore,
     withSessionConnection,
+    withSessionConnectionSetup,
     installMcpObserver,
     newSessionHandle,
     withSessionUse,
@@ -326,21 +330,48 @@ localBackend state =
     (\channel options _ -> Client.interruptSession channel options mempty)
     (Just state)
 
+-- Durable observations are independent of one channel's request counter,
+-- dispatcher, lifetime and unscoped mission routing.
+data SessionStore = SessionStore
+  { storeSettings :: !(TVar (Maybe Text, Map Text (Either DroidError SessionSettings))),
+    storeMissions :: !(TVar Mission.MissionRegistry)
+  }
+
+newSessionStore :: IO SessionStore
+newSessionStore = SessionStore <$> newTVarIO (Nothing, mempty) <*> newTVarIO Mission.emptyMissionRegistry
+
+readSessionStore :: SessionStore -> STM (Map Text (Either DroidError SessionSettings), Mission.MissionRegistry)
+readSessionStore store = (,) . snd <$> readTVar (storeSettings store) <*> readTVar (storeMissions store)
+
 withSessionConnection :: RpcChannel -> SessionBackend -> Bool -> McpSessionOptions -> (SessionConnection -> IO a) -> IO a
-withSessionConnection channel backend rejectPermissions mcpOptions action =
-  withRpcDispatcher channel (backendContext backend) $ \dispatcher -> do
-    counter <- newIORef 0
-    namespace <- UUID.toText <$> nextRandom
-    open <- newTVarIO True
-    settings <- newTVarIO (Nothing, mempty)
-    mission <- newTVarIO Mission.emptyMissionRegistry
-    missionTarget <- newTVarIO Nothing
-    unscopedMission <- newTVarIO mempty
-    let connection = SessionConnection channel dispatcher counter namespace open rejectPermissions settings mission missionTarget unscopedMission backend mcpOptions
-    void (onRpcNotification dispatcher (atomically . observeSettingsNotification connection))
-    void (onRpcNotification dispatcher (observeMissionNotification connection))
-    void (onRpcError dispatcher (\_ -> atomically (writeTVar open False)))
-    action connection `finally` atomically (writeTVar open False)
+withSessionConnection channel backend rejectPermissions mcpOptions action = do
+  store <- newSessionStore
+  withSessionConnectionSetup store channel backend rejectPermissions mcpOptions pure action
+
+-- Setup may authenticate and install the rest of the owner's handlers before
+-- queued events reach retained state. A reused store has no live predecessor.
+withSessionConnectionSetup :: SessionStore -> RpcChannel -> SessionBackend -> Bool -> McpSessionOptions -> (SessionConnection -> IO b) -> (b -> IO a) -> IO a
+withSessionConnectionSetup store channel backend rejectPermissions mcpOptions setup action =
+  withRpcDispatcherSetup channel (backendContext backend) prepare $ \(connection, prepared) ->
+    action prepared `finally` atomically (writeTVar (connectionOpen connection) False)
+  where
+    prepare dispatcher = do
+      counter <- newIORef 0
+      namespace <- UUID.toText <$> nextRandom
+      open <- newTVarIO True
+      missionTarget <- newTVarIO Nothing
+      unscopedMission <- newTVarIO mempty
+      let connection = SessionConnection channel dispatcher counter namespace open rejectPermissions (storeSettings store) (storeMissions store) missionTarget unscopedMission backend mcpOptions
+      prepared <-
+        ( do
+            void (onRpcNotification dispatcher (atomically . observeSettingsNotification connection))
+            void (onRpcNotification dispatcher (observeMissionNotification connection))
+            void (onRpcError dispatcher (\_ -> atomically (writeTVar open False)))
+            setup connection
+        )
+          `onException` atomically (writeTVar open False)
+      atomically (modifyTVar' (storeSettings store) (\(_, settings) -> (Nothing, settings)))
+      pure (connection, prepared)
 
 -- Local replacement keeps its connection-wide observer; daemon attachments
 -- register an owned observer and retain the returned cleanup.

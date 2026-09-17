@@ -57,6 +57,26 @@ submissionTests =
         State.beginSubmissionAt 0 (Just 20) "request" "other" (input "text" Nothing) removed @?= Left State.SubmissionAlreadyInFlight
         released <- either (assertFailure . show) pure (State.beginSubmissionAt 21 (Just 20) "request" "other" (input "retry" Nothing) (State.finishSubmission "request" removed))
         length (State.optimisticSubmissions released) @?= 1,
+      testCase "generation retirement revokes visible and cancelled in-flight ownership without losing observations" $ do
+        prepared <- registered 0 (Just 20) "prepared" "prepared-placeholder" (input "unsent" Nothing) State.emptySessionState
+        active <- either (assertFailure . show) pure (State.beginSubmissionAt 1 (Just 20) "active" "active-placeholder" (input "sent" Nothing) prepared)
+        earlierFailure <- either (assertFailure . show) pure (State.beginSubmissionAt 2 (Just 20) "failed" "failed-placeholder" (input "failed" Nothing) active)
+        cancelled <- either (assertFailure . show) pure (State.beginSubmissionAt 3 (Just 20) "cancelled" "cancelled-placeholder" (input "cancelled" Nothing) earlierFailure)
+        let before = State.cancelSubmission "cancelled" (State.failSubmission "failed" State.SubmissionTimedOut cancelled)
+            retired = State.retireSessionSubmissions before
+        requiredSubmission "prepared" retired >>= (@?= State.lookupSubmission "prepared" before) . Just
+        entry <- requiredSubmission "active" retired
+        userMessageText (State.submissionInput entry) @?= "sent"
+        State.submissionStatus entry @?= State.SubmissionFailed State.SubmissionConnectionFailed
+        State.submissionInFlight entry @?= False
+        State.submissionDeadline entry @?= Nothing
+        failed <- requiredSubmission "failed" retired
+        State.submissionStatus failed @?= State.SubmissionFailed State.SubmissionTimedOut
+        State.submissionInFlight failed @?= False
+        State.lookupSubmission "cancelled" retired @?= Nothing
+        State.retireSessionSubmissions retired @?= retired
+        renewed <- either (assertFailure . show) pure (State.beginSubmissionAt 30 Nothing "cancelled" "new-placeholder" (input "new" Nothing) retired)
+        requiredSubmission "cancelled" renewed >>= (@?= True) . State.submissionInFlight,
       testCase "timeout retains an error overlay, confirmation replaces it, and late rejection cannot resurrect it" $ do
         prepared <- registered 0 (Just 20) "request" "placeholder" (input "text" (Just "message")) State.emptySessionState
         let expired = State.expireSubmissionsAt 20 prepared
